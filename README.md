@@ -50,7 +50,25 @@ Note 中，便于团队查看和处理。
 
 ## 部署
 
-### 方案一：Docker 部署
+### 方案一：Docker 部署（推荐）
+
+#### 🚀 自动构建镜像
+
+本项目已配置GitHub Actions自动构建，每次代码提交会自动构建并发布Docker镜像到GitHub Container Registry。
+
+**镜像地址:**
+- 应用镜像: `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest`
+- 工作进程镜像: `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker`
+
+**拉取最新镜像:**
+```bash
+docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
+docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker
+```
+
+**查看构建状态:** [GitHub Actions](https://github.com/zhaozhenggang/ai-codereview-gitlab/actions)
+
+#### 部署步骤
 
 **1. 准备环境文件**
 
@@ -336,3 +354,59 @@ python -m biz.cmd.review
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=sunmh207/AI-Codereview-Gitlab&type=Timeline)](https://www.star-history.com/#sunmh207/AI-Codereview-Gitlab&Timeline)
+
+## 🚀 自动化构建和发布
+
+### GitHub Actions CI/CD
+
+本项目已配置完整的CI/CD流水线，支持自动构建、测试和发布Docker镜像。
+
+#### 自动触发构建
+
+- **代码推送**: 推送到`main`、`master`、`develop`分支时自动构建
+- **标签发布**: 创建`v*.*.*`格式标签时自动构建并发布版本镜像
+- **Pull Request**: 创建PR时自动运行测试
+
+#### 发布的镜像
+
+| 镜像类型 | 镜像地址 | 说明 |
+|----------|----------|------|
+| 应用镜像 | `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest` | Web UI + API服务 |
+| 工作镜像 | `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker` | 后台处理服务 |
+| 版本镜像 | `ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3` | 特定版本 |
+
+#### 管理脚本
+
+```bash
+# 本地测试Docker构建
+python scripts/test_docker_local.py
+
+# 版本发布管理
+python scripts/release.py --increment patch
+
+# 检查CI状态和镜像
+python scripts/check_ci_status.py
+
+# 验证构建配置
+python scripts/verify_build_config_simple.py
+```
+
+#### 相关文档
+
+- [📖 自动构建详细指南](docs/auto-build-guide.md)
+- [📦 Docker自动构建说明](DOCKER_AUTO_BUILD.md)
+- [🔧 GitHub Actions配置说明](docs/github-actions-guide.md)
+
+**构建状态监控:** [GitHub Actions](https://github.com/zhaozhenggang/ai-codereview-gitlab/actions)
+
+---
+
+## 📞 技术支持
+
+如果在使用过程中遇到问题，欢迎：
+
+1. 提交 [GitHub Issues](https://github.com/zhaozhenggang/ai-codereview-gitlab/issues)
+2. 查看 [FAQ文档](doc/faq.md)
+3. 查看 [部署指南](doc/deployment_guide.md)
+
+欢迎Star⭐支持本项目！
