@@ -2,13 +2,38 @@
 venv/
 test/
 .idea/
+.vscode/
 
+# 日志文件
 log/*
 !log/.gitkeep
+
+# 数据文件
 data/*
 !data/.gitkeep
 
+# 环境配置
 conf/.env
-.pyc
+
+# Python缓存
+*.pyc
 __pycache__/
+*.pyo
+*.pyd
+
+# 编辑器
 .cursorignore
+*.swp
+*.swo
+*~
+
+# 临时文件
+*.tmp
+*.temp
+*_temp.*
+*_backup.*
+
+# 系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini

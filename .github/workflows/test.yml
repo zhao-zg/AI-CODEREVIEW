@@ -44,17 +44,15 @@ jobs:
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
         # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
-
-    - name: Test with pytest
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics    - name: Test with pytest
       run: |
         pip install pytest pytest-cov
-        # Run tests if they exist
-        if [ -f "test_svn_final.py" ]; then
-          python -m pytest test_svn_final.py -v
+        # Run tests if they exist in tests directory
+        if [ -f "tests/test_svn_final.py" ]; then
+          python -m pytest tests/test_svn_final.py -v
         fi
-        if [ -f "test_detail_view.py" ]; then
-          python -m pytest test_detail_view.py -v
+        if [ -f "tests/test_detail_view.py" ]; then
+          python -m pytest tests/test_detail_view.py -v
         fi
 
     - name: Check Docker build
