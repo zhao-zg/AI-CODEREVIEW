@@ -4,9 +4,12 @@
 """
 
 import datetime
+import json
 import math
 import os
 import sys
+import tempfile
+import hashlib
 
 import pandas as pd
 import streamlit as st
@@ -780,6 +783,14 @@ def login_page():
             if authenticate(username, password):
                 st.session_state["authenticated"] = True
                 st.session_state["username"] = username
+                
+                # 保存登录状态
+                save_login_state(username)
+                
+                # 设置URL参数以支持session持久化
+                st.query_params["auto_login"] = "true"
+                st.query_params["user"] = username
+                
                 st.success("✅ 登录成功！")
                 st.rerun()
             else:
@@ -802,8 +813,7 @@ def main_dashboard():
                     <small>👤 {st.session_state['username']}</small>
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # 操作按钮
+                  # 操作按钮
                 col_refresh, col_logout = st.columns([1, 1])
                 with col_refresh:
                     if st.button("🔄", help="刷新数据", key="refresh_top"):
@@ -814,6 +824,16 @@ def main_dashboard():
                     if st.button("🚪", help="注销登录", key="logout_top"):
                         st.session_state["authenticated"] = False
                         st.session_state.pop("username", None)
+                        
+                        # 清理URL参数
+                        if "auto_login" in st.query_params:
+                            del st.query_params["auto_login"]
+                        if "user" in st.query_params:
+                            del st.query_params["user"]
+                        
+                        # 清除登录状态
+                        clear_login_state()
+                        
                         st.rerun()
     
     # 页面标题 - 使用更现代的设计
@@ -1239,13 +1259,12 @@ def env_management_page():
                                                     min_value=1, max_value=1000, 
                                                     value=int(env_config.get("SVN_CHECK_LIMIT", "100") or "100"))
                     svn_review_enabled = st.checkbox("启用SVN AI审查", value=env_config.get("SVN_REVIEW_ENABLED", "1") == "1")
-                
-                # SVN仓库配置
+                  # SVN仓库配置
                 st.markdown("**SVN仓库配置**")
                 svn_repositories = st.text_area("SVN仓库配置(JSON格式)", 
                                                value=env_config.get("SVN_REPOSITORIES", '[{"name":"example_project","remote_url":"https://example.com/svn/repo/trunk","local_path":"data/svn/project","username":"","password":"","check_hours":1}]'),
-                                               height=100,
-                                               help="JSON数组格式，包含name、remote_url、local_path、username、password、check_hours字段")
+                                               height=120,
+                                               help="支持多行输入，保存时会自动清理格式。JSON数组格式，包含name、remote_url、local_path、username、password、check_hours字段")
             
             # 第八部分：消息推送配置（多配置项，折叠显示）
             with st.expander("🔔 消息推送配置", expanded=False):
@@ -1274,10 +1293,41 @@ def env_management_page():
                     extra_webhook_enabled = st.checkbox("启用额外Webhook", value=env_config.get("EXTRA_WEBHOOK_ENABLED", "0") == "1")
                 
                 with col_webhook2:
-                    extra_webhook_url = st.text_input("额外Webhook URL", value=env_config.get("EXTRA_WEBHOOK_URL", ""), type="password")
-            
-            # 保存按钮
+                    extra_webhook_url = st.text_input("额外Webhook URL", value=env_config.get("EXTRA_WEBHOOK_URL", ""), type="password")            # 保存按钮
             if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
+                # 处理SVN仓库配置JSON格式 - 智能清理和验证
+                try:
+                    # 第一步：基础清理 - 移除首尾空白
+                    svn_repositories_cleaned = svn_repositories.strip()
+                    
+                    # 第二步：智能处理换行和空格
+                    if svn_repositories_cleaned:
+                        # 保留JSON结构的换行，但清理多余的空白
+                        import re
+                        # 移除行首行尾空白，但保留结构化的空格
+                        lines = [line.strip() for line in svn_repositories_cleaned.split('\n') if line.strip()]
+                        svn_repositories_cleaned = ''.join(lines)
+                        
+                        # 进一步清理：移除不必要的空格（但保留字符串内的空格）
+                        # 这个正则表达式会移除JSON结构符号周围的多余空格
+                        svn_repositories_cleaned = re.sub(r'\s*([{}[\]:,])\s*', r'\1', svn_repositories_cleaned)
+                        
+                    # 第三步：验证JSON格式
+                    if svn_repositories_cleaned:
+                        parsed_json = json.loads(svn_repositories_cleaned)
+                        # 重新格式化为紧凑的JSON（可选，确保一致性）
+                        svn_repositories_final = json.dumps(parsed_json, separators=(',', ':'), ensure_ascii=False)
+                    else:
+                        svn_repositories_final = ""
+                        
+                except json.JSONDecodeError as e:
+                    st.error(f"❌ SVN仓库配置JSON格式错误: {e}")
+                    st.error("💡 提示：请检查JSON格式，确保括号、引号、逗号等符号正确匹配")
+                    st.stop()
+                except Exception as e:
+                    st.error(f"❌ SVN仓库配置处理失败: {e}")
+                    st.stop()
+                
                 new_config = {
                     # AI模型配置
                     "LLM_PROVIDER": llm_provider,
@@ -1321,7 +1371,7 @@ def env_management_page():
                     "SVN_CHECK_CRONTAB": svn_check_cron,
                     "SVN_CHECK_LIMIT": str(svn_check_limit),
                     "SVN_REVIEW_ENABLED": "1" if svn_review_enabled else "0",
-                    "SVN_REPOSITORIES": svn_repositories,
+                    "SVN_REPOSITORIES": svn_repositories_final,
                     
                     # 消息推送配置
                     "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
@@ -1373,8 +1423,7 @@ def env_management_page():
                     
                     # Ollama配置
                     "OLLAMA_API_BASE_URL": ollama_base,
-                    "OLLAMA_API_MODEL": ollama_model
-                })
+                    "OLLAMA_API_MODEL": ollama_model                })
                 
                 try:
                     if config_manager.save_env_config(new_config):
@@ -1382,6 +1431,12 @@ def env_management_page():
                         st.info("💡 配置更改需要重启应用程序才能生效。")
                         # 建议重新加载环境变量
                         load_dotenv("conf/.env", override=True)
+                        
+                        # 保存成功后自动刷新页面
+                        st.info("🔄 页面即将自动刷新...")
+                        import time
+                        time.sleep(1)  # 让用户看到成功消息
+                        st.rerun()
                     else:
                         st.error("❌ 保存配置失败，请检查文件权限。")
                 except Exception as e:
@@ -1554,6 +1609,7 @@ def env_management_page():
                         export_content = "# AI代码审查系统配置文件\n"
                         export_content += f"# 导出时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                         
+
                         for key, value in current_config.items():
                             export_content += f"{key}={value}\n"
                         
@@ -1568,9 +1624,108 @@ def env_management_page():
                 except Exception as e:
                     st.error(f"❌ 导出配置失败: {e}")
 
-# 初始化session state
+# 持久化登录状态管理
+def get_session_file_path():
+    """获取session文件路径"""
+    # 使用简单的固定文件名
+    return os.path.join(tempfile.gettempdir(), "streamlit_ai_codereview_session.json")
+
+def save_login_state(username):
+    """保存登录状态到文件"""
+    try:
+        session_data = {
+            "username": username,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "authenticated": True
+        }
+        with open(get_session_file_path(), 'w', encoding='utf-8') as f:
+            json.dump(session_data, f)
+        return True
+    except Exception as e:
+        st.error(f"保存登录状态失败: {e}")
+        return False
+
+def load_login_state():
+    """从文件加载登录状态"""
+    try:
+        session_file = get_session_file_path()
+        if os.path.exists(session_file):
+            with open(session_file, 'r', encoding='utf-8') as f:
+                session_data = json.load(f)
+            
+            # 检查session是否过期（24小时）
+            timestamp = datetime.datetime.fromisoformat(session_data['timestamp'])
+            if datetime.datetime.now() - timestamp < datetime.timedelta(hours=24):
+                return session_data
+        return None
+    except Exception as e:
+        # 如果读取失败，删除无效文件
+        try:
+            if os.path.exists(get_session_file_path()):
+                os.remove(get_session_file_path())
+        except:
+            pass
+        return None
+
+def clear_login_state():
+    """清除登录状态文件"""
+    try:
+        session_file = get_session_file_path()
+        if os.path.exists(session_file):
+            os.remove(session_file)
+        return True
+    except Exception as e:
+        st.error(f"清除登录状态失败: {e}")
+        return False
+
+# 初始化session state - 增强持久化处理
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
+
+# 增强session持久化，防止页面刷新后丢失登录状态
+if "username" not in st.session_state:
+    st.session_state["username"] = None
+
+# 添加一个session计数器来追踪session状态
+if "session_counter" not in st.session_state:
+    st.session_state["session_counter"] = 0
+st.session_state["session_counter"] += 1
+
+# 尝试从持久化文件恢复登录状态（页面刷新后保持登录）
+if not st.session_state["authenticated"]:
+    # 先尝试从URL参数恢复
+    query_params = st.query_params
+      # 调试信息（可以注释掉）
+    # st.write(f"Debug: Query params: {dict(query_params)}")
+    # st.write(f"Debug: Session counter: {st.session_state['session_counter']}")
+    # st.write(f"Debug: Authenticated: {st.session_state['authenticated']}")
+    # st.write(f"Debug: Username: {st.session_state.get('username', 'None')}")
+    
+    restored = False
+    
+    # 方法1：从URL参数恢复
+    if "auto_login" in query_params and query_params["auto_login"] == "true" and "user" in query_params:
+        username = query_params["user"]
+        if username:
+            st.session_state["authenticated"] = True
+            st.session_state["username"] = username
+            # st.write(f"Debug: Restored login from URL for user: {username}")
+            restored = True
+    
+    # 方法2：从持久化文件恢复
+    if not restored:
+        saved_state = load_login_state()
+        if saved_state and saved_state.get('authenticated'):
+            username = saved_state.get('username')
+            if username:
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = username
+                # st.write(f"Debug: Restored login from file for user: {username}")
+                restored = True
+    
+    # 如果成功恢复，刷新页面以更新UI
+    if restored:
+        st.rerun()
 
 # 主程序逻辑
 if not st.session_state["authenticated"]:
