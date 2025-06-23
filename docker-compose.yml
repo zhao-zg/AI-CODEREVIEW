@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+    image: ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
+    ports:
+      - "5001:5001"
+      - "5002:5002"
+    volumes:
+      - ./data:/app/data
+      - ./log:/app/log
+      - ./data/svn:/app/data/svn
+    env_file:
+      - ./conf/.env
+    restart: unless-stopped

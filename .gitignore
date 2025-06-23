@@ -1,0 +1,14 @@
+.DS_Store
+venv/
+test/
+.idea/
+
+log/*
+!log/.gitkeep
+data/*
+!data/.gitkeep
+
+conf/.env
+.pyc
+__pycache__/
+.cursorignore
