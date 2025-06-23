@@ -74,6 +74,16 @@ def home():
               """
 
 
+@api_app.route('/health')
+def health_check():
+    """健康检查端点"""
+    return jsonify({
+        "status": "healthy",
+        "message": "AI Code Review service is running",
+        "timestamp": datetime.now().isoformat()
+    })
+
+
 @api_app.route('/review/daily_report', methods=['GET'])
 def daily_report():
     # 获取当前日期0点和23点59分59秒的时间戳
