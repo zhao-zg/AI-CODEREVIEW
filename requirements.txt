@@ -1,10 +1,10 @@
 Flask==3.0.3
 APScheduler==3.10.4
-python-dotenv==0.21.1
+python-dotenv==1.0.0
 httpx[socks]
 Jinja2==3.1.4
 lizard==1.17.20
-matplotlib==3.10.1
+matplotlib==3.9.2
 ollama==0.4.7
 openai==1.59.3
 pandas==2.2.3
@@ -13,10 +13,8 @@ PyMySQL==1.1.1
 python-gitlab==5.6.0
 requests==2.32.3
 schedule==1.2.0
-spark-ai-python==0.4.5
 streamlit==1.42.2
 tabulate==0.9.0
 tiktoken==0.9.0
 zhipuai==2.1.5.20230904
 rq==2.1.0
-svn==1.0.1

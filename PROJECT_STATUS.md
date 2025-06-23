@@ -64,7 +64,14 @@ python quick_start.py
 
 ## 📊 最近更新
 
-### 2025-06-23 重要修复
+### 2025-06-23 重要更新
+- ✅ **Python版本升级** - 从3.9/3.10升级到3.12
+- ✅ **依赖兼容性修复** - 解决matplotlib等包的版本冲突
+- ✅ **GitHub Actions优化** - 修复CI/CD构建失败问题
+- ✅ **Docker镜像更新** - 使用Python 3.12基础镜像
+- ✅ **性能提升** - 利用Python 3.12的性能改进
+
+### 2025-06-23 早期修复
 - ✅ 修复GitHub测试失败问题
 - ✅ 统一仓库地址为 zhao-zg/ai-codereview-gitlab
 - ✅ 添加health检查端点
@@ -84,7 +91,7 @@ python quick_start.py
 - **Issues反馈:** https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/issues
 
 ## 📈 项目统计
-- **主要编程语言:** Python
+- **主要编程语言:** Python 3.12
 - **支持平台:** Docker (amd64 + arm64)
 - **依赖管理:** requirements.txt
 - **文档完整性:** ✅ 完整
