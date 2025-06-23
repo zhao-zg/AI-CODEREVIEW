@@ -4,7 +4,7 @@
 
 set -e
 
-echo "🚀 AI代码审查系统 - Docker部署脚本"
+echo "🚀 AI-CodeReview 代码审查系统 - Docker部署脚本"
 echo "=================================="
 
 # 检查Docker是否安装
@@ -60,6 +60,53 @@ if [ -f "conf/.env" ]; then
             exit 0
         fi
     fi
+fi
+
+# 检查docker-compose.yml文件
+echo "🔍 检查docker-compose.yml文件..."
+if [ ! -f "docker-compose.yml" ]; then
+    echo "⚠️  未找到docker-compose.yml文件"
+    echo "📥 正在从GitHub下载..."
+    
+    # 检查curl是否可用
+    if command -v curl &> /dev/null; then
+        if curl -L -o docker-compose.yml https://raw.githubusercontent.com/zhao-zg/AI-CODEREVIEW-GITLAB/main/docker-compose.yml; then
+            echo "✅ docker-compose.yml下载成功"
+        else
+            echo "❌ 使用curl下载失败，尝试wget..."
+            if command -v wget &> /dev/null; then
+                if wget -O docker-compose.yml https://raw.githubusercontent.com/zhao-zg/AI-CODEREVIEW-GITLAB/main/docker-compose.yml; then
+                    echo "✅ docker-compose.yml下载成功"
+                else
+                    echo "❌ 下载失败，请检查网络连接或手动下载"
+                    echo "📝 手动下载地址: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB"
+                    exit 1
+                fi
+            else
+                echo "❌ curl和wget都不可用，请手动下载："
+                echo "   1. 访问: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB"
+                echo "   2. 下载docker-compose.yml文件到当前目录"
+                echo "   3. 然后重新运行此脚本"
+                exit 1
+            fi
+        fi
+    elif command -v wget &> /dev/null; then
+        if wget -O docker-compose.yml https://raw.githubusercontent.com/zhao-zg/AI-CODEREVIEW-GITLAB/main/docker-compose.yml; then
+            echo "✅ docker-compose.yml下载成功"
+        else
+            echo "❌ 下载失败，请检查网络连接或手动下载"
+            echo "📝 手动下载地址: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB"
+            exit 1
+        fi
+    else
+        echo "❌ curl和wget都不可用，请手动下载："
+        echo "   1. 访问: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB"
+        echo "   2. 下载docker-compose.yml文件到当前目录"
+        echo "   3. 然后重新运行此脚本"
+        exit 1
+    fi
+else
+    echo "✅ docker-compose.yml文件已存在"
 fi
 
 # 启动服务

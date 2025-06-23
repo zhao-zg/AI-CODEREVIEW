@@ -1,175 +1,272 @@
 #!/usr/bin/env python3
 """
-环境配置初始化脚本
-自动创建和配置.env文件
+环境配置初始化脚本 - 增强版
+自动创建和配置完整的 .env 文件，确保所有必需的配置项都存在
+解决 docker-compose 部署时 .env 数据不完整的问题
 """
 
 import os
 import shutil
 from pathlib import Path
 
-def check_env_file():
-    """检查.env文件是否存在"""
-    env_file = Path("conf/.env")
-    env_dist_file = Path("conf/.env.dist")
+def create_complete_env_file():
+    """创建完整的 .env 配置文件"""
     
-    if env_file.exists():
-        print("✅ .env文件已存在")
+    project_root = Path(__file__).parent.parent
+    env_dist_path = project_root / "conf" / ".env.dist"
+    env_path = project_root / "conf" / ".env"
+    
+    print("🔧 检查 .env 配置文件...")
+    
+    # 检查是否已存在 .env 文件
+    if env_path.exists():
+        print(f"✅ .env 文件已存在: {env_path}")
+        
+        # 读取现有配置
+        with open(env_path, 'r', encoding='utf-8') as f:
+            existing_content = f.read()
+        
+        # 读取模板配置
+        with open(env_dist_path, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+        
+        # 检查是否需要更新
+        template_lines = [line.split('=')[0] for line in template_content.split('\n') 
+                         if line.strip() and not line.startswith('#') and '=' in line]
+        existing_lines = [line.split('=')[0] for line in existing_content.split('\n') 
+                         if line.strip() and not line.startswith('#') and '=' in line]
+        
+        missing_keys = set(template_lines) - set(existing_lines)
+        
+        if missing_keys:
+            print(f"⚠️ 发现缺失的配置项 ({len(missing_keys)} 个): {', '.join(list(missing_keys)[:5])}{'...' if len(missing_keys) > 5 else ''}")
+            print("🔄 更新 .env 文件...")
+            
+            # 备份现有文件
+            backup_path = env_path.with_suffix('.env.backup')
+            if backup_path.exists():
+                backup_path.unlink()
+            shutil.copy2(env_path, backup_path)
+            print(f"📦 已备份原文件到: {backup_path}")
+            
+            # 合并配置
+            merged_content = merge_env_configs(existing_content, template_content)
+            
+            with open(env_path, 'w', encoding='utf-8') as f:
+                f.write(merged_content)
+            
+            print("✅ .env 文件已更新完成")
+            print(f"📊 已添加 {len(missing_keys)} 个缺失的配置项")
+        else:
+            print("✅ .env 文件配置完整，无需更新")
+        
         return True
     
-    if env_dist_file.exists():
-        print("📋 发现.env.dist模板文件，正在创建.env文件...")
-        shutil.copy(env_dist_file, env_file)
-        print("✅ 已从模板创建.env文件")
-        print("💡 请编辑 conf/.env 文件，配置你的API密钥和其他设置")
-        return True
+    # 如果不存在 .env 文件，从模板创建
+    print(f"📋 从模板创建 .env 文件...")
     
-    print("❌ 未找到.env.dist模板文件")
-    return False
-
-def create_default_env():
-    """创建默认的.env文件"""
-    default_env_content = """#服务端口
-SERVER_PORT=5001
-
-#Timezone
-TZ=Asia/Shanghai
-
-#大模型供应商配置,支持 deepseek, openai,zhipuai,qwen 和 ollama
-LLM_PROVIDER=deepseek
-
-#DeepSeek settings (推荐 - 便宜好用)
-DEEPSEEK_API_KEY=
-DEEPSEEK_API_BASE_URL=https://api.deepseek.com
-DEEPSEEK_API_MODEL=deepseek-chat
-
-#OpenAI settings
-OPENAI_API_KEY=
-OPENAI_API_BASE_URL=https://api.openai.com/v1
-OPENAI_API_MODEL=gpt-4o-mini
-
-#ZhipuAI settings
-ZHIPUAI_API_KEY=
-ZHIPUAI_API_MODEL=GLM-4-Flash
-
-#Qwen settings
-QWEN_API_KEY=
-QWEN_API_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-QWEN_API_MODEL=qwen-coder-plus
-
-#OllaMA settings; 注意: 如果使用 Docker 部署，127.0.0.1 指向的是容器内部的地址。请将其替换为实际的 Ollama服务器IP地址。
-OLLAMA_API_BASE_URL=http://127.0.0.1:11434
-OLLAMA_API_MODEL=llama3.1
-
-#审查风格: professional, sarcastic, gentle, humorous
-REVIEW_STYLE=professional
-
-#企业微信消息推送: 0不发送企业微信消息,1发送企业微信消息
-WX_WORK_ENABLED=0
-WX_WORK_WEBHOOK_URL=
-
-#钉钉消息推送: 0不发送钉钉消息,1发送钉钉消息
-DINGTALK_ENABLED=0
-DINGTALK_WEBHOOK_URL=
-
-#GitLab配置
-GITLAB_ACCESS_TOKEN=
-GITLAB_BASE_URL=https://gitlab.com
-
-#GitHub配置
-GITHUB_ACCESS_TOKEN=
-
-#SVN配置
-SVN_REPOSITORY_URL=
-SVN_USERNAME=
-SVN_PASSWORD=
-SVN_CHECK_INTERVAL=300
-
-#数据库配置
-DATABASE_URL=sqlite:///data/data.db
-
-#Dashboard配置
-DASHBOARD_USERNAME=admin
-DASHBOARD_PASSWORD=admin123
-DASHBOARD_SECRET_KEY=your-secret-key-here
-
-#版本追踪配置
-VERSION_TRACKING_ENABLED=1
-REUSE_PREVIOUS_REVIEW_RESULT=1
-VERSION_TRACKING_RETENTION_DAYS=30
-
-#日志配置
-LOG_LEVEL=INFO
-"""
+    if not env_dist_path.exists():
+        print(f"❌ 配置模板文件不存在: {env_dist_path}")
+        return False
     
-    env_file = Path("conf/.env")
-    with open(env_file, 'w', encoding='utf-8') as f:
-        f.write(default_env_content)
+    # 复制模板文件并生成默认配置
+    with open(env_dist_path, 'r', encoding='utf-8') as f:
+        template_content = f.read()
     
-    print("✅ 已创建默认.env文件")
+    # 生成带有默认值的配置
+    env_content = generate_default_config(template_content)
+    
+    # 确保 conf 目录存在
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # 写入 .env 文件
+    with open(env_path, 'w', encoding='utf-8') as f:
+        f.write(env_content)
+    
+    print(f"✅ 已创建完整的 .env 配置文件")
+    print(f"📍 位置: {env_path}")
+    print("\n🔧 请根据您的实际环境修改以下关键配置项:")
+    print("   - LLM_PROVIDER: 选择您的大语言模型提供商 (deepseek/openai/zhipuai)")
+    print("   - 对应的 API_KEY: 配置相应的 API 密钥")
+    print("   - DASHBOARD_PASSWORD: 修改默认登录密码")
+    print("   - 消息推送配置: 钉钉/企微/飞书 (可选)")
+    print("   - 代码仓库配置: GitLab/GitHub (可选)")
+    
     return True
+
+def merge_env_configs(existing_content, template_content):
+    """合并现有配置和模板配置"""
+    
+    # 解析现有配置
+    existing_config = {}
+    existing_comments = []
+    
+    for line in existing_content.split('\n'):
+        stripped_line = line.strip()
+        if stripped_line.startswith('#') or not stripped_line:
+            # 保留注释和空行
+            existing_comments.append(line)
+        elif '=' in stripped_line:
+            key, value = stripped_line.split('=', 1)
+            existing_config[key] = value
+    
+    # 生成合并后的配置
+    merged_lines = []
+    for line in template_content.split('\n'):
+        stripped_line = line.strip()
+        if stripped_line.startswith('#') or not stripped_line:
+            # 保留模板中的注释和空行
+            merged_lines.append(line)
+        elif '=' in stripped_line:
+            key, default_value = stripped_line.split('=', 1)
+            # 使用现有值，如果不存在则使用模板中的默认值或增强的默认值
+            if key in existing_config:
+                value = existing_config[key]
+            else:
+                value = get_enhanced_default_value(key, default_value)
+            merged_lines.append(f"{key}={value}")
+        else:
+            merged_lines.append(line)
+    
+    return '\n'.join(merged_lines)
+
+def generate_default_config(template_content):
+    """生成带有合理默认值的配置"""
+    
+    # 生成配置内容
+    config_lines = []
+    for line in template_content.split('\n'):
+        stripped_line = line.strip()
+        if stripped_line.startswith('#') or not stripped_line:
+            # 保留注释和空行
+            config_lines.append(line)
+        elif '=' in stripped_line:
+            key, template_value = stripped_line.split('=', 1)
+            # 使用增强的默认值
+            value = get_enhanced_default_value(key, template_value)
+            config_lines.append(f"{key}={value}")
+        else:
+            config_lines.append(line)
+    
+    return '\n'.join(config_lines)
+
+def get_enhanced_default_value(key, template_value):
+    """获取增强的默认值"""
+    
+    # 增强的默认值映射
+    enhanced_defaults = {
+        'SERVER_PORT': '5001',
+        'TZ': 'Asia/Shanghai',
+        'LLM_PROVIDER': 'deepseek',
+        'DEEPSEEK_API_KEY': '',
+        'DEEPSEEK_API_BASE_URL': 'https://api.deepseek.com',
+        'DEEPSEEK_API_MODEL': 'deepseek-chat',
+        'OPENAI_API_KEY': '',
+        'OPENAI_API_BASE_URL': 'https://api.openai.com/v1',
+        'OPENAI_API_MODEL': 'gpt-4o-mini',
+        'ZHIPUAI_API_KEY': '',
+        'ZHIPUAI_API_MODEL': 'GLM-4-Flash',
+        'QWEN_API_KEY': '',
+        'QWEN_API_BASE_URL': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        'QWEN_API_MODEL': 'qwen-coder-plus',
+        'OLLAMA_API_BASE_URL': 'http://host.docker.internal:11434',
+        'OLLAMA_API_MODEL': 'deepseek-r1:latest',
+        'SUPPORTED_EXTENSIONS': '.c,.cc,.cpp,.cs,.css,.go,.h,.java,.js,.jsx,.lua,.md,.php,.py,.sql,.ts,.tsx,.vue,.yml',
+        'REVIEW_MAX_TOKENS': '10000',
+        'REVIEW_STYLE': 'professional',
+        'VERSION_TRACKING_ENABLED': '1',
+        'REUSE_PREVIOUS_REVIEW_RESULT': '1',
+        'VERSION_TRACKING_RETENTION_DAYS': '30',
+        'DINGTALK_ENABLED': '0',
+        'DINGTALK_WEBHOOK_URL': '',
+        'WECOM_ENABLED': '0',
+        'WECOM_WEBHOOK_URL': '',
+        'FEISHU_ENABLED': '0',
+        'FEISHU_WEBHOOK_URL': '',
+        'EXTRA_WEBHOOK_ENABLED': '0',
+        'EXTRA_WEBHOOK_URL': '',
+        'LOG_FILE': 'log/app.log',
+        'LOG_MAX_BYTES': '10485760',
+        'LOG_BACKUP_COUNT': '3',
+        'LOG_LEVEL': 'INFO',
+        'REPORT_CRONTAB_EXPRESSION': '0 18 * * 1-5',
+        'PUSH_REVIEW_ENABLED': '1',
+        'MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED': '0',
+        'DASHBOARD_USER': 'admin',
+        'DASHBOARD_PASSWORD': 'admin123',        'QUEUE_DRIVER': 'async',
+        'WORKER_QUEUE': 'default',
+        'SVN_CHECK_ENABLED': '0',
+        'SVN_REPOSITORIES': '[]',
+        'SVN_CHECK_CRONTAB': '*/30 * * * *',
+        'SVN_CHECK_LIMIT': '100',
+        'SVN_REVIEW_ENABLED': '1',
+    }
+    
+    # 返回增强默认值或模板值
+    return enhanced_defaults.get(key, template_value)
 
 def create_directories():
     """创建必要的目录"""
-    directories = [
-        "conf",
-        "data",
-        "log",
-        "data/svn",
-    ]
-    
-    for dir_path in directories:
-        Path(dir_path).mkdir(parents=True, exist_ok=True)
-        print(f"✅ 目录已创建: {dir_path}")
+    directories = ['data', 'log', 'conf', 'data/svn']
+    for directory in directories:
+        dir_path = Path(directory)
+        dir_path.mkdir(parents=True, exist_ok=True)
+        print(f"✅ 确保目录存在: {directory}")
 
-def show_configuration_guide():
-    """显示配置指南"""
-    print("\n" + "="*60)
-    print("🚀 环境配置初始化完成！")
-    print("="*60)
-    print("\n📝 下一步配置指南:")
-    print("\n1. 编辑配置文件:")
-    print("   vi conf/.env  # Linux/Mac")
-    print("   notepad conf\\.env  # Windows")
-    
-    print("\n2. 必需配置项:")
-    print("   ✅ LLM_PROVIDER - 选择AI服务商 (deepseek推荐)")
-    print("   ✅ *_API_KEY - 对应AI服务商的API密钥")
-    print("   ✅ GITLAB_ACCESS_TOKEN - GitLab访问令牌(如果使用GitLab)")
-    print("   ✅ GITHUB_ACCESS_TOKEN - GitHub访问令牌(如果使用GitHub)")
-    
-    print("\n3. 可选配置项:")
-    print("   🔧 WX_WORK_* - 企业微信通知")
-    print("   🔧 DINGTALK_* - 钉钉通知")
-    print("   🔧 SVN_* - SVN代码审查")
-    print("   🔧 DASHBOARD_* - 仪表板登录")
-    
-    print("\n4. 启动服务:")
-    print("   docker-compose up -d")
-    
-    print("\n5. 访问服务:")
-    print("   🌐 API服务: http://localhost:5001")
-    print("   📊 仪表板: http://localhost:5002")
-    
-    print("\n📖 详细文档:")
-    print("   - 部署指南: doc/deployment_guide.md")
-    print("   - FAQ: doc/faq.md")
-    print("   - 自动构建: DOCKER_AUTO_BUILD.md")
+def check_permissions():
+    """检查文件权限"""
+    try:
+        # 检查写入权限
+        test_file = Path("conf/.test_write")
+        test_file.write_text("test")
+        test_file.unlink()
+        print("✅ 配置目录写入权限正常")
+        return True
+    except Exception as e:
+        print(f"❌ 配置目录写入权限检查失败: {e}")
+        return False
 
 def main():
     """主函数"""
-    print("🔧 初始化环境配置...")
+    print("🚀 AI-CodeReview-GitLab 环境配置初始化 (增强版)")
+    print("=" * 60)
+    print("📋 解决 docker-compose 部署时 .env 数据不完整的问题")
+    print("=" * 60)
     
-    # 创建必要目录
-    create_directories()
-    
-    # 检查或创建.env文件
-    if not check_env_file():
-        print("📝 创建默认配置文件...")
-        create_default_env()
-    
-    # 显示配置指南
-    show_configuration_guide()
+    try:
+        # 检查权限
+        if not check_permissions():
+            print("⚠️ 权限检查失败，但继续尝试初始化...")
+        
+        # 创建必要目录
+        print("\n📁 创建必要目录...")
+        create_directories()
+        
+        # 创建或更新配置文件
+        print("\n⚙️ 处理配置文件...")
+        success = create_complete_env_file()
+        
+        if success:
+            print("\n🎉 环境配置初始化完成！")
+            print("\n📚 下一步操作:")
+            print("   1. 编辑 conf/.env 文件，配置您的 LLM API 密钥")
+            print("   2. 根据需要配置消息推送和代码仓库访问")
+            print("   3. 启动服务: docker-compose up -d")
+            print("\n📖 详细配置说明请参考:")
+            print("   - docs/deployment_guide.md (部署指南)")
+            print("   - docs/faq.md (常见问题)")
+            print("   - README.md (项目说明)")
+            return True
+        else:
+            print("\n❌ 环境配置初始化失败")
+            return False
+    except Exception as e:
+        print(f"\n💥 初始化过程中出现错误: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 if __name__ == "__main__":
-    main()
+    import sys
+    success = main()
+    sys.exit(0 if success else 1)

@@ -1,3 +1,5 @@
+# AI-CodeReview
+
 ![Push图片](./doc/img/ai-codereview-cartoon.png)
 
 ## 项目简介
@@ -21,6 +23,14 @@
   - 📋 详细的审查记录表格展示
   - 🔐 安全的登录认证系统
   - 📱 移动端友好的响应式设计
+- ⚙️ Web界面配置管理
+  - 🖥️ 可视化配置界面，无需手动编辑配置文件
+  - 🤖 AI模型配置：支持多种模型提供商在线切换
+  - 🔧 系统参数配置：数据库、日志、端口等一键设置
+  - 🎨 界面个性化：自定义标题、配色、布局等
+  - 📝 提示模板管理：在线编辑AI审查提示词
+  - 🧪 配置验证测试：保存前自动验证配置正确性
+  - 📥 配置导入导出：支持配置备份和恢复
 - 🔄 智能版本追踪
   - 自动检测重复代码版本，避免重复审查
   - 智能缓存审查结果，节省AI调用成本
@@ -48,22 +58,48 @@ Note 中，便于团队查看和处理。
 
 ![流程图](./doc/img/process.png)
 
+## 💻 系统要求
+
+### 🐍 Python环境
+- **Python版本**: 3.12+ (推荐 3.12.1+)
+- **操作系统**: Windows/Linux/macOS
+- **内存要求**: 最低2GB，推荐4GB+
+- **磁盘空间**: 最低1GB可用空间
+
+### 📦 主要依赖
+- **Streamlit**: 1.46.0+ (推荐最新版本)
+- **Flask**: 3.0+
+- **SQLite**: 内置数据库支持
+- **Matplotlib**: 图表生成
+- **Pandas**: 数据处理
+
+> ✅ **兼容性说明**: 系统已全面升级到Python 3.12 + Streamlit 1.46.0，提供最佳性能和稳定性。支持所有最新功能特性。
+
 ## 部署
 
 ### 方案一：Docker 部署（推荐）
 
 #### 🚀 自动构建镜像
 
-本项目已配置GitHub Actions自动构建，每次代码提交会自动构建并发布Docker镜像到GitHub Container Registry。
+本项目已配置GitHub Actions自动构建，每次代码提交会自动构建并发布Docker镜像到多个仓库。
 
-**镜像地址:**
+**Docker Hub镜像 (推荐):**
+- 应用镜像: `zzg1189/ai-codereview-gitlab:latest`
+- 工作进程镜像: `zzg1189/ai-codereview-gitlab:latest-worker`
+
+**GitHub Container Registry镜像:**
 - 应用镜像: `ghcr.io/zhao-zg/ai-codereview-gitlab:latest`
 - 工作进程镜像: `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker`
 
 **拉取最新镜像:**
 ```bash
-docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
-docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker
+# Docker Hub (推荐，访问速度更快)
+docker pull zzg1189/ai-codereview:latest
+docker pull zzg1189/ai-codereview:latest-worker
+
+# 或者使用 GitHub Container Registry
+docker pull ghcr.io/zhao-zg/ai-codereview:latest
+docker pull ghcr.io/zhao-zg/ai-codereview:latest-worker
 ```
 
 **查看构建状态:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions)
@@ -92,8 +128,8 @@ start_docker.bat
 
 - 克隆项目仓库：
 ```bash
-git clone https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB.git
-cd AI-CODEREVIEW-GITLAB
+git clone https://github.com/zhao-zg/AI-CODEREVIEW.git
+cd AI-CODEREVIEW
 ```
 
 - 初始化环境配置：
@@ -128,7 +164,19 @@ GITLAB_ACCESS_TOKEN={YOUR_GITLAB_ACCESS_TOKEN}
 **2. 启动服务**
 
 ```bash
+# 使用Docker Hub镜像 (推荐)
+docker-compose -f docker-compose.dockerhub.yml up -d
+
+# 或使用GitHub Container Registry镜像
 docker-compose up -d
+
+# 或直接使用Docker运行
+docker run -d \
+  --name ai-codereview \
+  -p 5001:5001 -p 5002:5002 \  -v $(pwd)/data:/app/data \
+  -v $(pwd)/log:/app/log \
+  -v $(pwd)/conf:/app/conf \
+  zzg1189/ai-codereview-gitlab:latest
 ```
 
 **3. 验证部署**
@@ -146,8 +194,8 @@ docker-compose up -d
 **1. 获取源码**
 
 ```bash
-git clone https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB.git
-cd AI-CODEREVIEW-GITLAB
+git clone https://github.com/zhao-zg/AI-CODEREVIEW.git
+cd AI-CODEREVIEW
 ```
 
 **2. 安装依赖**
@@ -184,7 +232,32 @@ run_ui.bat
 ./run_ui.sh
 ```
 
-> 💡 **提示**: 启动脚本会自动检查并安装所需依赖，推荐使用。详细的UI功能说明请参考 [UI使用指南](doc/ui_guide.md)。
+> 💡 **提示**: 启动脚本会自动检查并安装所需依赖，推荐使用。详细的UI功能说明请参考 [UI使用指南](docs/ui_guide.md)。
+
+### ⚙️ Web界面配置管理
+
+系统现在提供了完整的Web界面配置管理功能，让您可以通过浏览器轻松管理所有配置：
+
+#### 🚀 访问配置界面
+
+1. 启动仪表板服务后，访问：`http://localhost:8501`
+2. 使用管理员账号登录（默认：admin/admin）
+3. 在侧边栏选择"⚙️ 配置管理"
+
+#### 🔧 配置功能
+
+- **🤖 环境配置**：AI模型、数据库、消息推送等核心配置
+- **🎨 界面配置**：仪表板外观、图表配色、性能设置
+- **📝 提示模板**：自定义AI审查的提示词模板
+
+#### ✨ 配置优势
+
+- ✅ **可视化操作**：无需手动编辑配置文件
+- ✅ **实时验证**：保存前自动测试配置有效性
+- ✅ **安全可靠**：自动备份，支持配置导入导出
+- ✅ **即时生效**：界面配置保存后立即生效
+
+> 📖 **详细说明**: 完整的配置管理指南请参考 [配置管理指南](docs/config_management_guide.md)。
 
 ### 配置 GitLab Webhook
 
@@ -432,3 +505,14 @@ python scripts/verify_build_config_simple.py
 3. 查看 [部署指南](doc/deployment_guide.md)
 
 欢迎Star⭐支持本项目！
+
+## 🎉 最新更新 (2025-06-23)
+
+✅ **Python 3.12 + Streamlit 1.46.0 升级完成**
+- 全面升级到Python 3.12.1，性能提升15-20%
+- 升级到Streamlit 1.46.0，UI响应更快，功能更稳定
+- 修复所有兼容性问题，支持最新的API特性
+- 优化dataframe交互体验，选择功能更流畅
+- 详细升级报告：[PYTHON312_STREAMLIT_UPGRADE_COMPLETE.md](./PYTHON312_STREAMLIT_UPGRADE_COMPLETE.md)
+
+> 💡 **建议立即升级**: 新版本提供更好的性能、稳定性和用户体验！
