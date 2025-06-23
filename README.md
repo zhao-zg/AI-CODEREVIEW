@@ -1,0 +1,338 @@
+![Push图片](./doc/img/ai-codereview-cartoon.png)
+
+## 项目简介
+
+本项目是一个基于大模型的自动化代码审查工具，帮助开发团队在代码合并或提交时，快速进行智能化的审查(Code Review)，提升代码质量和开发效率。
+
+## 功能
+
+- 🚀 多模型支持
+  - 兼容 DeepSeek、ZhipuAI、OpenAI、通义千问 和 Ollama，想用哪个就用哪个。
+- � 多版本控制系统支持
+  - 支持 GitLab、GitHub webhook 触发式审查，也支持 SVN 定时检测式审查。
+- �📢 消息即时推送
+  - 审查结果一键直达 钉钉、企业微信 或 飞书，代码问题无处可藏！
+- 📅 自动化日报生成
+  - 基于 GitLab & GitHub Commit 记录，自动整理每日开发进展，谁在摸鱼、谁在卷，一目了然 😼。
+- 📊 现代化可视化 Dashboard
+  - 🎨 现代化UI设计，响应式布局，支持中文字体显示
+  - 📈 丰富的数据可视化图表（TOP10统计、时间趋势、分布图等）
+  - 🔍 多维度数据筛选和搜索功能
+  - 📋 详细的审查记录表格展示
+  - 🔐 安全的登录认证系统
+  - 📱 移动端友好的响应式设计
+- 🔄 智能版本追踪
+  - 自动检测重复代码版本，避免重复审查
+  - 智能缓存审查结果，节省AI调用成本
+  - 可配置的数据保留策略和自动清理功能
+  - 详细的版本追踪统计和管理界面
+- 🎭 Review Style 任你选
+  - 专业型 🤵：严谨细致，正式专业。 
+  - 讽刺型 😈：毒舌吐槽，专治不服（"这代码是用脚写的吗？"） 
+  - 绅士型 🌸：温柔建议，如沐春风（"或许这里可以再优化一下呢~"） 
+  - 幽默型 🤪：搞笑点评，快乐改码（"这段 if-else 比我的相亲经历还曲折！"）
+
+**效果图:**
+
+![MR图片](./doc/img/mr.png)
+
+![Note图片](./doc/img/note.jpg)
+
+![Dashboard图片](./doc/img/dashboard.jpg)
+
+## 原理
+
+当用户在 GitLab 上提交代码（如 Merge Request 或 Push 操作）时，GitLab 将自动触发 webhook
+事件，调用本系统的接口。系统随后通过第三方大模型对代码进行审查，并将审查结果直接反馈到对应的 Merge Request 或 Commit 的
+Note 中，便于团队查看和处理。
+
+![流程图](./doc/img/process.png)
+
+## 部署
+
+### 方案一：Docker 部署
+
+**1. 准备环境文件**
+
+- 克隆项目仓库：
+```aiignore
+git clone https://github.com/sunmh207/AI-Codereview-Gitlab.git
+cd AI-Codereview-Gitlab
+```
+
+- 创建配置文件：
+```aiignore
+cp conf/.env.dist conf/.env
+```
+
+- 编辑 conf/.env 文件，配置以下关键参数：
+
+```bash
+#大模型供应商配置,支持 zhipuai , openai , deepseek 和 ollama
+LLM_PROVIDER=deepseek
+
+#DeepSeek
+DEEPSEEK_API_KEY={YOUR_DEEPSEEK_API_KEY}
+
+#支持review的文件类型(未配置的文件类型不会被审查)
+SUPPORTED_EXTENSIONS=.java,.py,.php,.yml,.vue,.go,.c,.cpp,.h,.js,.css,.md,.sql
+
+#钉钉消息推送: 0不发送钉钉消息,1发送钉钉消息
+DINGTALK_ENABLED=0
+DINGTALK_WEBHOOK_URL={YOUR_WDINGTALK_WEBHOOK_URL}
+
+#Gitlab配置
+GITLAB_ACCESS_TOKEN={YOUR_GITLAB_ACCESS_TOKEN}
+```
+
+**2. 启动服务**
+
+```bash
+docker-compose up -d
+```
+
+**3. 验证部署**
+
+- 主服务验证：
+  - 访问 http://your-server-ip:5001
+  - 显示 "The code review server is running." 说明服务启动成功。
+- Dashboard 验证：
+  - 访问 http://your-server-ip:5002
+  - 看到现代化的登录界面，输入用户名密码即可进入仪表板。
+  - 或者使用一键启动脚本：`./run_ui.sh` (Linux/Mac) 或 `run_ui.bat` (Windows)
+
+### 方案二：本地Python环境部署
+
+**1. 获取源码**
+
+```bash
+git clone https://github.com/sunmh207/AI-Codereview-Gitlab.git
+cd AI-Codereview-Gitlab
+```
+
+**2. 安装依赖**
+
+使用 Python 环境（建议使用虚拟环境 venv）安装项目依赖(Python 版本：3.10+):
+
+```bash
+pip install -r requirements.txt
+```
+
+**3. 配置环境变量**
+
+同 Docker 部署方案中的.env 文件配置。
+
+**4. 启动服务**
+
+- 启动API服务：
+
+```bash
+python api.py
+```
+
+- 启动Dashboard服务：
+
+```bash
+# 方法1: 使用streamlit命令
+streamlit run ui.py --server.port=5002 --server.address=0.0.0.0
+
+# 方法2: 使用启动脚本（推荐）
+# Windows用户
+run_ui.bat
+
+# Linux/Mac用户  
+./run_ui.sh
+```
+
+> 💡 **提示**: 启动脚本会自动检查并安装所需依赖，推荐使用。详细的UI功能说明请参考 [UI使用指南](doc/ui_guide.md)。
+
+### 配置 GitLab Webhook
+
+#### 1. 创建Access Token
+
+方法一：在 GitLab 个人设置中，创建一个 Personal Access Token。
+
+方法二：在 GitLab 项目设置中，创建Project Access Token
+
+#### 2. 配置 Webhook
+
+在 GitLab 项目设置中，配置 Webhook：
+
+- URL：http://your-server-ip:5001/review/webhook
+- Trigger Events：勾选 Push Events 和 Merge Request Events (不要勾选其它Event)
+- Secret Token：上面配置的 Access Token(可选)
+
+**备注**
+
+1. Token使用优先级
+  - 系统优先使用 .env 文件中的 GITLAB_ACCESS_TOKEN。
+  - 如果 .env 文件中没有配置 GITLAB_ACCESS_TOKEN，则使用 Webhook 传递的Secret Token。
+2. 网络访问要求
+  - 请确保 GitLab 能够访问本系统。
+  - 若内网环境受限，建议将系统部署在外网服务器上。
+
+### 配置消息推送
+
+#### 1.配置钉钉推送
+
+- 在钉钉群中添加一个自定义机器人，获取 Webhook URL。
+- 更新 .env 中的配置：
+  ```
+  #钉钉配置
+  DINGTALK_ENABLED=1  #0不发送钉钉消息，1发送钉钉消息
+  DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=xxx #替换为你的Webhook URL
+  ```
+
+企业微信和飞书推送配置类似，具体参见 [常见问题](doc/faq.md)
+
+### 配置 SVN 定时检查
+
+如果你的项目使用SVN版本控制，可以配置定时检查功能来自动检测SVN提交并进行代码审查。
+
+#### 1. 环境配置
+
+在 `.env` 文件中添加以下配置：
+
+```bash
+# SVN配置（开启SVN定时检查功能）
+SVN_CHECK_ENABLED=1                           # 开启SVN检查功能
+SVN_PATH=/path/to/your/svn/working/copy      # SVN工作副本路径
+SVN_USERNAME=your_svn_username                # SVN用户名
+SVN_PASSWORD=your_svn_password                # SVN密码
+SVN_CHECK_HOURS=24                           # 检查最近24小时的提交
+SVN_CHECK_CRONTAB=*/30 * * * *               # 每30分钟检查一次
+SVN_REVIEW_ENABLED=1                         # 开启代码审查
+```
+
+#### 2. 手动触发检查
+
+你也可以手动触发SVN检查：
+
+**API方式:**
+```bash
+curl -X POST http://your-server-ip:5001/svn/check
+```
+
+**命令行方式:**
+```bash
+python biz/cmd/svn_check.py --svn-path /path/to/svn --hours 24
+```
+
+#### 3. 工作原理
+
+- 系统会定期更新SVN工作副本
+- 检查指定时间范围内的新提交
+- 对支持的文件类型进行代码审查
+- 通过配置的消息推送渠道发送审查结果
+
+**注意事项:**
+- 确保SVN工作副本可以正常访问和更新
+- 建议在服务器上配置SVN免密登录
+- 定时任务频率建议根据团队提交频率调整
+
+## Dashboard 功能详解
+
+我们的可视化仪表板经过全面优化，提供了现代化的用户体验：
+
+### 🎨 UI特性
+- **现代化设计**: 采用卡片式布局，响应式设计，支持多种屏幕尺寸
+- **中文友好**: 完美支持中文字体显示，图表中文标签无乱码
+- **安全登录**: 内置用户认证系统，保护数据安全
+- **主题优化**: 精心设计的配色方案和视觉效果
+
+### 📊 数据可视化
+- **概览卡片**: 快速查看关键指标（总审查数、项目数、开发者数等）
+- **TOP10排行榜**: 项目活跃度、开发者贡献度排行
+- **时间趋势图**: 审查活动时间分布分析
+- **交互式图表**: 支持数据筛选、缩放、详情查看
+
+### 🔍 功能特性
+- **多维筛选**: 按项目、开发者、时间范围筛选数据
+- **实时搜索**: 快速定位特定审查记录
+- **数据导出**: 支持数据表格的导出功能
+- **响应式布局**: 自适应不同设备和屏幕尺寸
+
+### 📱 使用方式
+1. 访问 `http://localhost:8501` 或使用启动脚本
+2. 输入用户名和密码登录（默认: admin/admin）  
+3. 在主界面查看各类统计图表和数据表格
+4. 使用侧边栏筛选功能定制化查看数据
+5. 点击图表进行交互式数据探索
+
+详细使用说明请参考：[UI使用指南](doc/ui_guide.md)
+
+## 其它
+
+**1. 系统状态检查**
+
+我们提供了一个便捷的系统状态检查工具，帮助您快速诊断系统问题：
+
+```bash
+python check_status.py
+```
+
+该工具会检查：
+- ✅ Python版本兼容性
+- 📦 依赖包完整性  
+- 📝 配置文件存在性
+- 💾 数据库连接状态
+- 🌐 端口服务状态
+- ⚙️ 环境变量配置
+
+检查完成后会生成详细报告 `system_check_report.json`，并提供针对性的修复建议。
+
+**2. 版本追踪管理**
+
+系统内置智能版本追踪功能，避免重复审查相同代码版本：
+
+```bash
+# 查看版本追踪统计
+python biz/cmd/version_manager.py --stats
+
+# 列出已追踪版本
+python biz/cmd/version_manager.py --list --limit 20
+
+# 清理旧版本记录
+python biz/cmd/version_manager.py --cleanup-days 30
+
+# 启动定时清理任务
+python biz/cmd/cleanup_versions.py
+```
+
+**版本追踪配置** (`.env`文件)：
+```bash
+VERSION_TRACKING_ENABLED=1              # 启用版本追踪
+REUSE_PREVIOUS_REVIEW_RESULT=1          # 复用之前的审查结果
+VERSION_TRACKING_RETENTION_DAYS=30     # 数据保留天数
+```
+
+详细说明请参考：[版本追踪功能指南](doc/version_tracking_guide.md)
+
+**3.如何对整个代码库进行Review?**
+
+可以通过命令行工具对整个代码库进行审查。当前功能仍在不断完善中，欢迎试用并反馈宝贵意见！具体操作如下：
+
+```bash
+python -m biz.cmd.review
+```
+
+运行后，请按照命令行中的提示进行操作即可。
+
+**2.其它问题**
+
+参见 [常见问题](doc/faq.md)
+
+## 交流
+
+若本项目对您有帮助，欢迎 Star ⭐️ 或 Fork。 有任何问题或建议，欢迎提交 Issue 或 PR。
+
+也欢迎加微信/微信群，一起交流学习。
+
+<p float="left">
+  <img src="doc/img/wechat.jpg" width="400" />
+  <img src="doc/img/wechat_group.jpg" width="400" /> 
+</p>
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=sunmh207/AI-Codereview-Gitlab&type=Timeline)](https://www.star-history.com/#sunmh207/AI-Codereview-Gitlab&Timeline)
