@@ -56,25 +56,23 @@
 ## 🔧 Docker配置修改
 
 ### 修改内容
-将Docker镜像的用户名从 `sunmh207` 更改为 `zhaozhenggang`
+将Docker镜像的用户名从 `sunmh207` 更改为 `zhao-zg`
 
 ### 修改的文件
 1. **docker-compose.yml**
-   ```yaml
-   # 修改前
+   ```yaml   # 修改前
    image: ghcr.io/sunmh207/ai-codereview-gitlab:1.3.11
    
    # 修改后  
-   image: ghcr.io/zhaozhenggang/ai-codereview-gitlab:1.3.11
+   image: ghcr.io/zhao-zg/ai-codereview-gitlab:1.3.11
    ```
 
 2. **docker-compose.rq.yml**
-   ```yaml
-   # app服务镜像
-   image: ghcr.io/zhaozhenggang/ai-codereview-gitlab:1.3.11
+   ```yaml   # app服务镜像
+   image: ghcr.io/zhao-zg/ai-codereview-gitlab:1.3.11
    
    # worker服务镜像
-   image: ghcr.io/zhaozhenggang/ai-codereview-gitlab:1.3.11-worker
+   image: ghcr.io/zhao-zg/ai-codereview-gitlab:1.3.11-worker
    ```
 
 ## 📊 清理效果

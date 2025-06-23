@@ -106,18 +106,18 @@ Settings -> Branches -> Add rule
 
 ```bash
 # 拉取主应用镜像
-docker pull ghcr.io/用户名/ai-codereview-gitlab:latest
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
 
 # 拉取工作进程镜像
-docker pull ghcr.io/用户名/ai-codereview-gitlab:latest-worker
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker
 ```
 
 ### 使用特定版本
 
 ```bash
 # 使用特定版本
-docker pull ghcr.io/用户名/ai-codereview-gitlab:v1.4.0
-docker pull ghcr.io/用户名/ai-codereview-gitlab:v1.4.0-worker
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:v1.4.0
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:v1.4.0-worker
 ```
 
 ### Docker Compose配置
@@ -125,11 +125,11 @@ docker pull ghcr.io/用户名/ai-codereview-gitlab:v1.4.0-worker
 ```yaml
 services:
   app:
-    image: ghcr.io/用户名/ai-codereview-gitlab:latest
+    image: ghcr.io/zhao-zg/ai-codereview-gitlab:latest
     # ... 其他配置
   
   worker:
-    image: ghcr.io/用户名/ai-codereview-gitlab:latest-worker
+    image: ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker
     # ... 其他配置
 ```
 
@@ -158,7 +158,7 @@ git push origin v1.4.0
 ```yaml
 services:
   app:
-    image: ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.4.0
+    image: ghcr.io/zhao-zg/ai-codereview-gitlab:v1.4.0
 ```
 
 ## 📊 工作流状态

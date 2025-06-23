@@ -57,29 +57,51 @@ Note 中，便于团队查看和处理。
 本项目已配置GitHub Actions自动构建，每次代码提交会自动构建并发布Docker镜像到GitHub Container Registry。
 
 **镜像地址:**
-- 应用镜像: `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest`
-- 工作进程镜像: `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker`
+- 应用镜像: `ghcr.io/zhao-zg/ai-codereview-gitlab:latest`
+- 工作进程镜像: `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker`
 
 **拉取最新镜像:**
 ```bash
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker
 ```
 
-**查看构建状态:** [GitHub Actions](https://github.com/zhaozhenggang/ai-codereview-gitlab/actions)
+**查看构建状态:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions)
 
 #### 部署步骤
+
+**方法一: 一键启动脚本（推荐）**
+
+```bash
+# Linux/Mac
+./start_docker.sh
+
+# Windows
+start_docker.bat
+```
+
+脚本会自动：
+- 创建必要目录
+- 从 `.env.dist` 创建 `.env` 配置文件
+- 检查配置完整性
+- 启动Docker服务
+
+**方法二: 手动步骤**
 
 **1. 准备环境文件**
 
 - 克隆项目仓库：
-```aiignore
-git clone https://github.com/sunmh207/AI-Codereview-Gitlab.git
-cd AI-Codereview-Gitlab
+```bash
+git clone https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB.git
+cd AI-CODEREVIEW-GITLAB
 ```
 
-- 创建配置文件：
-```aiignore
+- 初始化环境配置：
+```bash
+# 自动创建配置文件和目录
+python scripts/init_env.py
+
+# 或手动复制模板
 cp conf/.env.dist conf/.env
 ```
 
@@ -124,8 +146,8 @@ docker-compose up -d
 **1. 获取源码**
 
 ```bash
-git clone https://github.com/sunmh207/AI-Codereview-Gitlab.git
-cd AI-Codereview-Gitlab
+git clone https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB.git
+cd AI-CODEREVIEW-GITLAB
 ```
 
 **2. 安装依赖**
@@ -353,7 +375,7 @@ python -m biz.cmd.review
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=sunmh207/AI-Codereview-Gitlab&type=Timeline)](https://www.star-history.com/#sunmh207/AI-Codereview-Gitlab&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=zhao-zg/AI-CODEREVIEW-GITLAB&type=Timeline)](https://www.star-history.com/#zhao-zg/AI-CODEREVIEW-GITLAB&Timeline)
 
 ## 🚀 自动化构建和发布
 
@@ -371,9 +393,9 @@ python -m biz.cmd.review
 
 | 镜像类型 | 镜像地址 | 说明 |
 |----------|----------|------|
-| 应用镜像 | `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest` | Web UI + API服务 |
-| 工作镜像 | `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker` | 后台处理服务 |
-| 版本镜像 | `ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3` | 特定版本 |
+| 应用镜像 | `ghcr.io/zhao-zg/ai-codereview-gitlab:latest` | Web UI + API服务 |
+| 工作镜像 | `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker` | 后台处理服务 |
+| 版本镜像 | `ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3` | 特定版本 |
 
 #### 管理脚本
 
@@ -397,7 +419,7 @@ python scripts/verify_build_config_simple.py
 - [📦 Docker自动构建说明](DOCKER_AUTO_BUILD.md)
 - [🔧 GitHub Actions配置说明](docs/github-actions-guide.md)
 
-**构建状态监控:** [GitHub Actions](https://github.com/zhaozhenggang/ai-codereview-gitlab/actions)
+**构建状态监控:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions)
 
 ---
 
@@ -405,7 +427,7 @@ python scripts/verify_build_config_simple.py
 
 如果在使用过程中遇到问题，欢迎：
 
-1. 提交 [GitHub Issues](https://github.com/zhaozhenggang/ai-codereview-gitlab/issues)
+1. 提交 [GitHub Issues](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/issues)
 2. 查看 [FAQ文档](doc/faq.md)
 3. 查看 [部署指南](doc/deployment_guide.md)
 

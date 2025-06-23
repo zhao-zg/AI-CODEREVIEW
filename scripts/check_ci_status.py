@@ -101,9 +101,8 @@ def check_docker_images(repo_owner, repo_name, token=None):
         return False
 
 def main():
-    """主函数"""
-    # 从环境变量或命令行参数获取仓库信息
-    repo_owner = os.getenv('GITHUB_REPOSITORY_OWNER', 'zhaozhenggang')
+    """主函数"""    # 从环境变量或命令行参数获取仓库信息
+    repo_owner = os.getenv('GITHUB_REPOSITORY_OWNER', 'zhao-zg')
     repo_name = os.getenv('GITHUB_REPOSITORY_NAME', 'ai-codereview-gitlab')
     github_token = os.getenv('GITHUB_TOKEN')  # 可选的GitHub Token
     

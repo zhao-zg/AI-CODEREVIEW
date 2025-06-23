@@ -114,7 +114,7 @@ def check_docker_compose():
         # 检查镜像配置
         if "services" in config and "app" in config["services"]:
             image = config["services"]["app"].get("image", "")
-            if "ghcr.io" in image and "zhaozhenggang" in image:
+            if "ghcr.io" in image and "zhao-zg" in image:
                 print("✅ Docker Compose镜像配置正确")
                 return True
             else:
@@ -209,8 +209,8 @@ def main():
     if all_passed:
         print("🎉 所有配置检查通过！")
         print("💡 自动构建功能已完全配置，提交代码后将自动构建Docker镜像")
-        print("🌐 监控构建状态: https://github.com/zhaozhenggang/ai-codereview-gitlab/actions")
-        print("📦 镜像地址: ghcr.io/zhaozhenggang/ai-codereview-gitlab")
+        print("🌐 监控构建状态: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions")
+        print("📦 镜像地址: ghcr.io/zhao-zg/ai-codereview-gitlab")
     else:
         print("❌ 部分配置存在问题，请检查上述错误信息")
         return 1

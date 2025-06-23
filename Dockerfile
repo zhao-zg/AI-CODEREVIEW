@@ -13,14 +13,37 @@ COPY requirements.txt .
 # 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN mkdir -p log data conf
+RUN mkdir -p log data conf scripts
 COPY biz ./biz
 COPY api.py ./api.py
 COPY ui.py ./ui.py
 COPY conf/prompt_templates.yml ./conf/prompt_templates.yml
+COPY conf/.env.dist ./conf/.env.dist
+COPY scripts/init_env.py ./scripts/init_env.py
 
-# 使用 supervisord 作为启动命令
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# 创建启动脚本来初始化环境
+RUN echo '#!/bin/bash\n\
+# 初始化环境配置\n\
+if [ ! -f /app/conf/.env ]; then\n\
+    echo "=== Initializing environment configuration ==="\n\
+    python /app/scripts/init_env.py\n\
+else\n\
+    echo "=== Environment configuration found ==="\n\
+fi\n\
+\n\
+# 加载环境变量\n\
+if [ -f /app/conf/.env ]; then\n\
+    echo "Loading environment variables from .env file..."\n\
+    export $(grep -v "^#" /app/conf/.env | xargs)\n\
+fi\n\
+\n\
+echo "=== Starting services ==="\n\
+# 启动supervisord\n\
+exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# 使用启动脚本
+CMD ["/app/start.sh"]
 
 FROM base AS app
 COPY conf/supervisord.app.conf /etc/supervisor/conf.d/supervisord.conf

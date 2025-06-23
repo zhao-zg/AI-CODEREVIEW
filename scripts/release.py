@@ -147,15 +147,15 @@ def create_github_release(tag, changelog):
 
 此版本的Docker镜像将自动构建并发布到GitHub Container Registry:
 
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:{tag.replace('v', '')}`
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:{tag.replace('v', '')}-worker`
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest`
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:{tag.replace('v', '')}`
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:{tag.replace('v', '')}-worker`
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:latest`
 
 ### 📦 使用方法
 
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
 
 # 或者使用docker-compose
 docker-compose up -d
@@ -260,15 +260,14 @@ def main():
     # 推送标签
     if not push_tag(tag):
         sys.exit(1)
-    
-    # 创建GitHub Release
+      # 创建GitHub Release
     if not args.skip_github_release:
         create_github_release(tag, changelog)
     
     print(f"\n🎉 版本 {tag} 发布完成！")
     print(f"🔄 GitHub Actions将自动构建和发布Docker镜像")
-    print(f"🌐 检查构建状态: https://github.com/zhaozhenggang/ai-codereview-gitlab/actions")
-    print(f"📦 Docker镜像将发布到: ghcr.io/zhaozhenggang/ai-codereview-gitlab")
+    print(f"🌐 检查构建状态: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions")
+    print(f"📦 Docker镜像将发布到: ghcr.io/zhao-zg/ai-codereview-gitlab")
 
 if __name__ == "__main__":
     main()

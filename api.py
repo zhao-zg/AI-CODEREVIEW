@@ -59,11 +59,10 @@ def home():
     
     return f"""<h2>AI代码审查服务正在运行</h2>
               <p><strong>SVN定时检查功能：</strong> {svn_status}</p>
-              {svn_info}
-              <p><strong>GitHub项目地址:</strong> <a href="https://github.com/sunmh207/AI-Codereview-Gitlab" target="_blank">
-              https://github.com/sunmh207/AI-Codereview-Gitlab</a></p>
-              <p><strong>Gitee项目地址:</strong> <a href="https://gitee.com/sunminghui/ai-codereview-gitlab" target="_blank">
-              https://gitee.com/sunminghui/ai-codereview-gitlab</a></p>
+              {svn_info}              <p><strong>GitHub项目地址:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB" target="_blank">
+              https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB</a></p>
+              <p><strong>Docker镜像:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/pkgs/container/ai-codereview-gitlab" target="_blank">
+              ghcr.io/zhao-zg/ai-codereview-gitlab</a></p>
               <p><strong>支持的功能:</strong></p>
               <ul>
                 <li>GitLab Webhook 触发审查</li>

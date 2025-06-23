@@ -99,12 +99,12 @@ python scripts/check_ci_status.py --trigger-build
 系统会自动构建两种镜像：
 
 1. **应用镜像** (`app`): 包含Web UI和API服务
-   - `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest`
-   - `ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3`
+   - `ghcr.io/zhao-zg/ai-codereview-gitlab:latest`
+   - `ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3`
 
 2. **工作镜像** (`worker`): 包含后台处理服务
-   - `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker`
-   - `ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3-worker`
+   - `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker`
+   - `ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3-worker`
 
 ### 支持的平台
 
@@ -115,8 +115,8 @@ python scripts/check_ci_status.py --trigger-build
 
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker
 
 # 使用docker-compose运行
 docker-compose up -d
@@ -126,7 +126,7 @@ docker run -d -p 5001:5001 -p 5002:5002 \
   -v ./data:/app/data \
   -v ./log:/app/log \
   --env-file ./conf/.env \
-  ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
+  ghcr.io/zhao-zg/ai-codereview-gitlab:latest
 ```
 
 ## 🔧 GitHub Actions工作流
@@ -149,7 +149,7 @@ docker run -d -p 5001:5001 -p 5002:5002 \
 
 ### 查看构建状态
 
-1. **GitHub网页**: https://github.com/zhaozhenggang/ai-codereview-gitlab/actions
+1. **GitHub网页**: https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions
 2. **命令行**: `python scripts/check_ci_status.py`
 3. **GitHub CLI**: `gh run list`
 
@@ -177,7 +177,7 @@ docker run -d -p 5001:5001 -p 5002:5002 \
    python scripts/check_ci_status.py --check-ci
    
    # 或访问网页
-   # https://github.com/zhaozhenggang/ai-codereview-gitlab/actions
+   # https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions
    ```
 
 2. **本地复现问题**:
@@ -204,7 +204,7 @@ docker run -d -p 5001:5001 -p 5002:5002 \
 
 2. **手动拉取测试**:
    ```bash
-   docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
+   docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
    ```
 
 3. **检查网络和认证**:

@@ -43,8 +43,8 @@ AI代码审查系统是一个现代化的代码质量管理平台，集成了多
 
 1. **克隆项目**
 ```bash
-git clone https://github.com/sunmh207/AI-Codereview-Gitlab.git
-cd AI-Codereview-Gitlab
+git clone https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB.git
+cd AI-CODEREVIEW-GITLAB
 ```
 
 2. **环境配置**

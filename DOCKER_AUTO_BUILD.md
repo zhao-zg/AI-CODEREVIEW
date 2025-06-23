@@ -14,10 +14,10 @@
 ### 2. 发布到GitHub Container Registry
 
 镜像会自动发布到：
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest` (最新版本)
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker` (工作进程)
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3` (特定版本)
-- `ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3-worker` (特定版本工作进程)
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:latest` (最新版本)
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker` (工作进程)
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3` (特定版本)
+- `ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3-worker` (特定版本工作进程)
 
 ## 📋 配置文件说明
 
@@ -84,7 +84,7 @@ git push origin v1.2.3
 
 ### 查看GitHub Actions
 
-访问：https://github.com/zhaozhenggang/ai-codereview-gitlab/actions
+访问：https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions
 
 ### 使用命令行检查
 
@@ -105,12 +105,12 @@ python scripts/check_ci_status.py --check-image
 
 ```bash
 # 拉取最新版本
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:latest-worker
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker
 
 # 拉取特定版本
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3
-docker pull ghcr.io/zhaozhenggang/ai-codereview-gitlab:v1.2.3-worker
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3
+docker pull ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3-worker
 ```
 
 ### 使用docker-compose
@@ -153,6 +153,51 @@ docker-compose up -d
 1. 确认镜像名称正确
 2. 检查网络连接
 3. 验证GitHub Container Registry访问权限
+
+## 🔧 环境配置自动化
+
+### .env文件自动创建
+
+系统提供多种方式自动创建和管理环境配置：
+
+#### 方法1: 使用快速启动脚本（推荐）
+
+```bash
+# 自动检查并创建.env文件，然后启动服务
+python quick_start.py
+```
+
+脚本会自动：
+- 创建必要目录
+- 检查.env文件是否存在
+- 从.env.dist模板创建.env（如果存在）
+- 或创建包含所有配置项的默认.env文件
+- 检查API密钥配置并给出提示
+- 启动Docker服务
+
+#### 方法2: 使用一键启动脚本
+
+```bash
+# Windows
+start_docker.bat
+
+# Linux/Mac
+./start_docker.sh
+```
+
+#### 方法3: 容器内自动创建
+
+如果启动容器时没有.env文件，容器会自动：
+- 运行初始化脚本
+- 创建默认配置文件
+- 加载环境变量
+
+### 配置检查和提醒
+
+所有启动方式都会：
+- ✅ 检查API密钥是否配置
+- ⚠️ 给出配置提醒和指导
+- 💡 提供配置建议（推荐DeepSeek）
 
 ## 🎉 总结
 
