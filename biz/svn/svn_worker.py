@@ -223,8 +223,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 msg_type="markdown", 
                 title=f"SVN代码审查 - {project_name} r{revision}"
             )
-        
-        # 代码审查完成后，记录版本
+          # 代码审查完成后，记录版本
         if version_tracking_enabled:
             VersionTracker.record_version_review(
                 project_name=project_name,
@@ -234,9 +233,13 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 branch='',
                 review_type='svn',
                 review_result=review_result,
-                score=score
+                score=score,
+                commit_message=message,
+                commit_date=commit['date'],
+                additions_count=additions,
+                deletions_count=deletions
             )
-            logger.info(f'SVN版本 r{revision} 审查结果已记录到版本追踪。')
+            logger.info(f'SVN版本 r{revision} 审查结果已记录到版本追踪（包含详细信息）。')
         
     except Exception as e:
         error_message = f'处理SVN提交 r{commit.get("revision", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'

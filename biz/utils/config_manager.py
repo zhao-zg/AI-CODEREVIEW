@@ -23,15 +23,14 @@ class ConfigManager:
     def get_env_config(self) -> Dict[str, str]:
         """获取环境变量配置"""
         config = {}
-        
-        # 首先从.env.dist获取所有可用的配置项
+          # 首先从.env.dist获取所有可用的配置项和默认值
         if self.env_dist_file.exists():
             with open(self.env_dist_file, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
-                        key = line.split('=')[0].strip()
-                        config[key] = ""
+                        key, value = line.split('=', 1)
+                        config[key.strip()] = value.strip()
         
         # 然后从.env获取实际值
         if self.env_file.exists():
@@ -126,9 +125,7 @@ class ConfigManager:
             "FEISHU_ENABLED": "消息推送配置",
             "FEISHU_WEBHOOK_URL": "消息推送配置",
             "WECOM_ENABLED": "消息推送配置",
-            "WECOM_WEBHOOK_URL": "消息推送配置",
-            
-            # 仪表板相关
+            "WECOM_WEBHOOK_URL": "消息推送配置",            # 仪表板相关
             "DASHBOARD_USER": "仪表板配置",
             "DASHBOARD_PASSWORD": "仪表板配置",
             "DASHBOARD_PORT": "仪表板配置",

@@ -141,8 +141,7 @@ class VersionTracker:
                 result = cursor.fetchone()
                 if result:
                     columns = [desc[0] for desc in cursor.description]
-                    review_info = dict(zip(columns, result))
-                    
+                    review_info = dict(zip(columns, result))                    
                     logger.info(f"Found existing review for project {project_name}, "
                               f"version {version_hash[:8]}...")
                     return review_info
@@ -157,7 +156,9 @@ class VersionTracker:
     def record_version_review(project_name: str, commits: List[Dict], 
                             changes: List[Dict] = None, author: str = "",
                             branch: str = "", review_type: str = "gitlab",
-                            review_result: str = "", score: int = 0) -> bool:
+                            review_result: str = "", score: int = 0,
+                            commit_message: str = "", commit_date: str = "",
+                            additions_count: int = 0, deletions_count: int = 0) -> bool:
         """
         记录版本审查信息
         
@@ -170,6 +171,10 @@ class VersionTracker:
             review_type: 审查类型（gitlab/github/svn）
             review_result: 审查结果
             score: 审查评分
+            commit_message: 提交消息
+            commit_date: 提交日期
+            additions_count: 新增行数
+            deletions_count: 删除行数
             
         Returns:
             是否记录成功
@@ -182,13 +187,41 @@ class VersionTracker:
             # 生成变更哈希
             changes_hash = ""
             file_paths = ""
+            file_details = ""
+            
             if changes:
                 changes_content = ''.join([change.get('diff', '') for change in changes])
                 changes_hash = hashlib.md5(changes_content.encode('utf-8')).hexdigest()
                 file_paths = json.dumps([change.get('new_path', '') for change in changes])
+                
+                # 构建文件详细信息
+                files_info = []
+                for change in changes:
+                    file_info = {
+                        'path': change.get('full_path', change.get('new_path', '')),
+                        'name': change.get('new_path', ''),
+                        'action': change.get('action', 'M'),
+                        'additions': change.get('additions', 0),
+                        'deletions': change.get('deletions', 0),
+                        'diff_preview': change.get('diff', '')[:200] + '...' if len(change.get('diff', '')) > 200 else change.get('diff', '')
+                    }
+                    files_info.append(file_info)
+                
+                file_details = json.dumps({
+                    'files': files_info,
+                    'summary': {
+                        'total_files': len(files_info),
+                        'total_additions': sum(f['additions'] for f in files_info),
+                        'total_deletions': sum(f['deletions'] for f in files_info)
+                    }
+                }, ensure_ascii=False)
             
-            # 获取第一个commit的SHA
-            commit_sha = commits[0].get('id', '') if commits else ""
+            # 获取第一个commit的SHA和相关信息
+            commit_sha = commits[0].get('id', commits[0].get('revision', '')) if commits else ""
+            if not commit_message and commits:
+                commit_message = commits[0].get('message', '')
+            if not commit_date and commits:
+                commit_date = commits[0].get('date', '')
             
             current_time = int(datetime.now().timestamp())
             
@@ -198,17 +231,19 @@ class VersionTracker:
                     INSERT OR REPLACE INTO version_tracker 
                     (project_name, version_hash, commit_sha, author, branch, 
                      file_paths, changes_hash, review_type, reviewed_at, 
-                     review_result, score, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     review_result, score, created_at, commit_message, commit_date,
+                     additions_count, deletions_count, file_details)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     project_name, version_hash, commit_sha, author, branch,
                     file_paths, changes_hash, review_type, current_time,
-                    review_result, score, current_time
+                    review_result, score, current_time, commit_message, commit_date,
+                    additions_count, deletions_count, file_details
                 ))
                 
                 conn.commit()
                 logger.info(f"Recorded version review for project {project_name}, "
-                          f"version {version_hash[:8]}...")
+                          f"version {version_hash[:8]}... with detailed info")
                 return True
                 
         except Exception as e:

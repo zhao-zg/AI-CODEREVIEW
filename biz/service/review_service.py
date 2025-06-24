@@ -276,6 +276,117 @@ class ReviewService:
             print(f"Error getting review type stats: {e}")
             return {}
 
+    @staticmethod
+    def get_review_statistics(review_type=None, start_date=None, end_date=None, 
+                            authors=None, projects=None, score_range=None):
+        """
+        获取审查统计数据
+        
+        Args:
+            review_type: 审查类型 ('mr', 'push', 'svn', 'github')
+            start_date: 开始日期
+            end_date: 结束日期  
+            authors: 作者列表
+            projects: 项目列表
+            score_range: 分数范围 [min, max]
+        
+        Returns:
+            dict: 包含success状态和data数据的字典
+        """
+        try:
+            data = []            
+            if review_type == 'mr' or review_type is None:
+                # 获取MR审查记录
+                mr_logs_df = ReviewService.get_mr_review_logs(
+                    authors=authors,
+                    project_names=projects,
+                    updated_at_gte=int(start_date.timestamp()) if start_date else None,
+                    updated_at_lte=int(end_date.timestamp()) if end_date else None
+                )
+                for _, log in mr_logs_df.iterrows():
+                    # 应用分数过滤
+                    if score_range and (log['score'] < score_range[0] or log['score'] > score_range[1]):
+                        continue
+                        
+                    data.append({
+                        'type': 'mr',
+                        'project': log['project_name'],
+                        'author': log['author'],
+                        'timestamp': log['updated_at'],
+                        'score': log['score'],
+                        'additions': log.get('additions', 0),
+                        'deletions': log.get('deletions', 0),
+                        'url': log.get('url', ''),
+                        'branch_info': f"{log['source_branch']} → {log['target_branch']}",
+                        'commit_messages': log['commit_messages'],
+                        'review_result': log['review_result']
+                    })
+            
+            if review_type == 'push' or review_type is None:
+                # 获取Push审查记录
+                push_logs_df = ReviewService.get_push_review_logs(
+                    authors=authors,
+                    project_names=projects,
+                    updated_at_gte=int(start_date.timestamp()) if start_date else None,
+                    updated_at_lte=int(end_date.timestamp()) if end_date else None
+                )
+                for _, log in push_logs_df.iterrows():
+                    # 应用分数过滤
+                    if score_range and (log['score'] < score_range[0] or log['score'] > score_range[1]):
+                        continue
+                        
+                    data.append({
+                        'type': 'push',
+                        'project': log['project_name'],
+                        'author': log['author'],
+                        'timestamp': log['updated_at'],
+                        'score': log['score'],
+                        'additions': log.get('additions', 0),
+                        'deletions': log.get('deletions', 0),
+                        'branch_info': log['branch'],
+                        'commit_messages': log['commit_messages'],
+                        'review_result': log['review_result']
+                    })            
+            if review_type in ['svn', 'github'] or review_type is None:
+                # 获取版本跟踪审查记录
+                version_logs_df = ReviewService.get_version_tracking_logs(
+                    authors=authors,
+                    project_names=projects,
+                    updated_at_gte=int(start_date.timestamp()) if start_date else None,
+                    updated_at_lte=int(end_date.timestamp()) if end_date else None,
+                    review_types=[review_type] if review_type else None
+                )
+                for _, log in version_logs_df.iterrows():
+                    # 应用分数过滤
+                    if score_range and (log['score'] < score_range[0] or log['score'] > score_range[1]):
+                        continue
+                        
+                    data.append({
+                        'type': log['review_type'],
+                        'project': log['project_name'],
+                        'author': log['author'],
+                        'timestamp': log['updated_at'],
+                        'score': log['score'],
+                        'additions': 0,  # 版本跟踪数据中可能没有这些字段
+                        'deletions': 0,
+                        'branch_info': log.get('branch', ''),
+                        'commit_messages': log.get('commit_messages', ''),
+                        'review_result': log.get('commit_messages', '')  # 使用commit_messages作为review_result
+                    })
+            
+            return {
+                'success': True,
+                'data': data,
+                'total_count': len(data)
+            }
+            
+        except Exception as e:
+            print(f"Error getting review statistics: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'data': []
+            }
 
 # Initialize database
 ReviewService.init_db()
