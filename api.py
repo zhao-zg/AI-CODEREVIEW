@@ -126,8 +126,18 @@ def setup_scheduler():
         
         # 日报定时任务
         crontab_expression = os.getenv('REPORT_CRONTAB_EXPRESSION', '0 18 * * 1-5')
+        logger.info(f"📅 Reading cron expression: '{crontab_expression}'")
         cron_parts = crontab_expression.split()
+        logger.info(f"📋 Cron parts after split: {cron_parts} (count: {len(cron_parts)})")
+        
+        # 验证cron表达式格式
+        if len(cron_parts) != 5:
+            logger.error(f"❌ Invalid cron expression format: '{crontab_expression}'. Expected 5 parts (minute hour day month day_of_week), got {len(cron_parts)}")
+            logger.info(f"💡 Using default cron expression: '0 18 * * 1-5'")
+            cron_parts = '0 18 * * 1-5'.split()
+        
         cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
+        logger.info(f"✅ Cron schedule set: minute={cron_minute}, hour={cron_hour}, day={cron_day}, month={cron_month}, day_of_week={cron_day_of_week}")
 
         scheduler.add_job(
             daily_report,
@@ -164,13 +174,12 @@ def setup_scheduler():
 
         # Start the scheduler
         scheduler.start()
-        logger.info("Scheduler started successfully.")
-
-        # Shut down the scheduler when exiting the app
+        logger.info("Scheduler started successfully.")        # Shut down the scheduler when exiting the app
         atexit.register(lambda: scheduler.shutdown())
+        
     except Exception as e:
-        logger.error(f"Error setting up scheduler: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ Error setting up scheduler: {e}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
 
 
 # 处理 GitLab Merge Request Webhook
