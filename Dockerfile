@@ -13,10 +13,10 @@ COPY requirements.txt .
 # 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN mkdir -p log data scripts .streamlit
+RUN mkdir -p log data scripts .streamlit conf_templates
 COPY biz ./biz
 COPY ui_components ./ui_components
-COPY conf ./conf
+COPY conf ./conf_templates
 COPY .streamlit ./.streamlit
 COPY api.py ./api.py
 COPY ui.py ./ui.py

@@ -17,10 +17,10 @@ services:
       - "5001:5001"    # Flask API 端口
       - "5002:5002"    # Streamlit UI 端口
     
-    # 卷映射 - 关键配置
+    # 卷映射 - 分离模板和运行时配置
     volumes:
-      # 配置目录映射（自动复制配置文件）
-      - ./conf:/app/conf
+      # 运行时配置目录映射（初始化后的配置文件）
+      - ./conf_runtime:/app/conf
       
       # 数据目录映射（持久化数据）
       - ./data:/app/data

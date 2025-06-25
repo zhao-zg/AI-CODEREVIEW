@@ -197,7 +197,19 @@ download_compose_files() {
 # 创建必要目录
 create_directories() {
     log_info "创建必要目录..."
-    mkdir -p conf data log data/svn
+    mkdir -p conf conf_runtime data log data/svn
+    
+    # 检查是否需要初始化运行时配置目录
+    if [ ! -d "conf_runtime" ] || [ -z "$(ls -A conf_runtime 2>/dev/null)" ]; then
+        log_info "运行时配置目录为空，准备从模板初始化..."
+        
+        # 如果有原始配置文件，先复制到运行时目录作为初始配置
+        if [ -d "conf" ] && [ -n "$(ls -A conf 2>/dev/null)" ]; then
+            log_info "从 conf/ 目录复制初始配置到 conf_runtime/..."
+            cp -r conf/* conf_runtime/ 2>/dev/null || true
+        fi
+    fi
+    
     log_success "目录创建完成"
 }
 

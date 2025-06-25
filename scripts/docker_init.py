@@ -16,7 +16,15 @@ def ensure_config_files():
     
     # 配置文件路径
     conf_dir = Path('/app/conf')
-      # 必要的配置文件列表
+    template_dir = Path('/app/conf_templates')
+    
+    # 确保配置目录存在
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"📁 配置目录: {conf_dir}")
+    print(f"📋 模板目录: {template_dir}")
+    
+    # 必要的配置文件列表
     config_files = {
         '.env.dist': '环境变量模板文件',
         '.env': '环境变量配置文件',
@@ -29,20 +37,29 @@ def ensure_config_files():
     
     missing_files = []
     
-    # 检查必要文件是否存在
+    # 检查配置文件是否存在，不存在则从模板复制
     for filename, description in config_files.items():
-        file_path = conf_dir / filename
-        if not file_path.exists():
-            missing_files.append((filename, description))
-            print(f"❌ 缺失: {filename} ({description})")
+        config_file = conf_dir / filename
+        template_file = template_dir / filename
+        
+        if not config_file.exists():
+            if template_file.exists():
+                print(f"📋 从模板复制: {filename}")
+                shutil.copy2(template_file, config_file)
+                print(f"✅ 已复制: {filename} ({description})")
+            else:
+                missing_files.append((filename, description))
+                print(f"❌ 缺失: {filename} ({description}) - 模板文件也不存在")
         else:
             print(f"✅ 存在: {filename} ({description})")
     
     if missing_files:
-        print(f"\n⚠️  发现 {len(missing_files)} 个缺失的配置文件")
-        return False
+        print(f"\n⚠️  发现 {len(missing_files)} 个无法从模板复制的配置文件")
+        print("💡 这些文件可能需要手动创建或检查模板目录")
+        for filename, description in missing_files:
+            print(f"   - {filename}: {description}")
     
-    print("\n✅ 所有必要的配置文件都存在")
+    print("\n✅ 配置文件初始化完成")
     
     # 特殊处理 .env 文件
     env_file = conf_dir / '.env'
