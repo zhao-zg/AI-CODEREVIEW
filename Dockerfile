@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN mkdir -p log data conf scripts
 COPY biz ./biz
+COPY ui_components ./ui_components
 COPY api.py ./api.py
 COPY ui.py ./ui.py
 COPY conf/prompt_templates.yml ./conf/prompt_templates.yml

@@ -1,0 +1,18 @@
+[server]
+headless = false
+port = 8501
+fileWatcherType = "none"
+runOnSave = false
+
+[browser]
+gatherUsageStats = false
+
+[global]
+developmentMode = false
+showWarningOnDirectExecution = false
+
+[logger]
+level = "info"
+
+[client]
+showErrorDetails = false

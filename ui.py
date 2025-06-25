@@ -4,6 +4,28 @@ AI-CodeReview 代码审查仪表板
 重构后的主UI文件 - 模块化设计
 """
 
+import sys
+import os
+from pathlib import Path
+
+# 设置项目路径
+def setup_project_path():
+    """确保Python能找到所有项目模块"""
+    current_file = Path(__file__).resolve()
+    project_root = current_file.parent
+    project_root_str = str(project_root)
+    
+    if project_root_str not in sys.path:
+        sys.path.insert(0, project_root_str)
+    
+    # 确保能找到ui_components模块
+    ui_components_path = project_root / "ui_components"
+    if ui_components_path.exists() and str(ui_components_path) not in sys.path:
+        sys.path.insert(0, str(ui_components_path))
+
+# 执行路径设置
+setup_project_path()
+
 import streamlit as st
 from ui_components.config import setup_page_config, apply_custom_css
 from ui_components.auth import check_authentication, login_page, user_menu
