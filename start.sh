@@ -220,11 +220,15 @@ show_deployment_menu() {
     echo ""
     echo "5) 查看服务日志"
     echo ""
-    echo "6) 安装/更新环境"
+    echo "6) 清理 Docker 资源"
+    echo "   - 停止并删除所有相关容器"
+    echo "   - 清理网络和卷资源"
+    echo ""
+    echo "7) 安装/更新环境"
     echo "   - 安装 Docker 和 Docker Compose"
     echo "   - 下载最新配置文件"
     echo ""
-    echo "7) 下载配置文件"
+    echo "8) 下载配置文件"
     echo "   - 下载/更新 docker-compose.yml"
     echo "   - 下载/更新相关配置"
     echo ""
@@ -320,7 +324,40 @@ stop_all_services() {
         docker_compose -f docker-compose.single.yml down
     fi
     
+    # 清理可能存在的网络冲突
+    if docker network ls | grep -q "ai-codereview-network"; then
+        log_info "清理网络..."
+        docker network rm ai-codereview-network 2>/dev/null || true
+    fi
+    
     log_success "所有服务已停止"
+}
+
+# 清理 Docker 网络和资源
+cleanup_docker_resources() {
+    log_info "清理 Docker 资源..."
+    
+    # 停止所有相关容器
+    log_info "停止 AI-CodeReview 相关容器..."
+    docker stop $(docker ps -q --filter "name=ai-codereview") 2>/dev/null || true
+    
+    # 删除所有相关容器
+    log_info "删除 AI-CodeReview 相关容器..."
+    docker rm $(docker ps -aq --filter "name=ai-codereview") 2>/dev/null || true
+    
+    # 删除网络
+    log_info "删除网络..."
+    docker network rm ai-codereview-network 2>/dev/null || true
+    
+    # 删除未使用的卷
+    log_info "清理未使用的卷..."
+    docker volume prune -f 2>/dev/null || true
+    
+    # 清理未使用的网络
+    log_info "清理未使用的网络..."
+    docker network prune -f 2>/dev/null || true
+    
+    log_success "Docker 资源清理完成"
 }
 
 # 查看服务状态
@@ -420,7 +457,7 @@ main() {
 
     while true; do
         show_deployment_menu
-        read -p "请选择操作 [0-7]: " choice
+        read -p "请选择操作 [0-8]: " choice
         
         # 处理空输入
         if [ -z "$choice" ]; then
@@ -451,13 +488,16 @@ main() {
                 show_service_logs
                 ;;
             6)
+                cleanup_docker_resources
+                ;;
+            7)
                 log_info "开始安装/更新环境..."
                 install_docker
                 install_docker_compose
                 download_compose_files
                 log_success "环境安装/更新完成"
                 ;;
-            7)
+            8)
                 log_info "开始下载配置文件..."
                 download_compose_files
                 log_success "配置文件下载完成"
@@ -467,7 +507,7 @@ main() {
                 exit 0
                 ;;
             *)
-                log_warning "无效选择：'$choice'，请输入 0-7 之间的数字"
+                log_warning "无效选择：'$choice'，请输入 0-8 之间的数字"
                 echo "提示: 输入 0 退出程序"
                 ;;
         esac
