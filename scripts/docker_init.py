@@ -77,22 +77,12 @@ def setup_supervisord_config():
     
     print("\n配置 supervisord...")
     
-    # 确定运行模式 (默认为 app)
-    run_mode = os.environ.get('DOCKER_RUN_MODE', 'app')
-    
     supervisord_conf_dir = Path('/etc/supervisor/conf.d')
     supervisord_conf_dir.mkdir(parents=True, exist_ok=True)
     
-    # 确定配置文件名
-    if run_mode == 'worker':
-        conf_filename = 'supervisord.worker.conf'
-        print("配置为 Worker 模式")
-    elif run_mode == 'all':
-        conf_filename = 'supervisord.all.conf'
-        print("配置为 All-in-One 模式（API + UI + 后台任务）")
-    else:
-        conf_filename = 'supervisord.app.conf'
-        print("配置为 App 模式")
+    # 使用统一配置（API + UI 在一个服务中）
+    conf_filename = 'supervisord.all.conf'
+    print("配置为统一服务模式（API + UI + 后台任务）")
     
     # 按优先级查找配置文件：运行时配置 -> 模板配置
     source_conf = None

@@ -1,15 +1,14 @@
-# AI-CodeReview Docker Compose 配置 (多容器模式)
-# 标准格式配置，不依赖 .env 文件
+# AI-CodeReview Docker Compose 配置 (单服务架构)
+# 简化的单容器部署，API服务与Worker服务合并
 
 services:
-  # AI 代码审查应用服务
+  # AI 代码审查服务（包含API、UI、Worker功能）
   ai-codereview:
     build:
       context: .
       dockerfile: Dockerfile
-      target: app
     image: ghcr.io/zhao-zg/ai-codereview:latest
-    container_name: ai-codereview-app
+    container_name: ai-codereview
     restart: unless-stopped
     
     # 端口映射
@@ -17,10 +16,10 @@ services:
       - "5001:5001"    # Flask API 端口
       - "5002:5002"    # Streamlit UI 端口
     
-    # 卷映射 - 分离模板和运行时配置
+    # 卷映射
     volumes:
-      # 运行时配置目录映射（初始化后的配置文件）
-      - ./conf_runtime:/app/conf
+      # 运行时配置目录映射
+      - ./conf:/app/conf
       
       # 数据目录映射（持久化数据）
       - ./data:/app/data
@@ -30,110 +29,29 @@ services:
       - ./data/svn:/app/data/svn
     
     environment:
-      # 运行模式
-      - DOCKER_RUN_MODE=app
-      
       # 基础配置
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
       - PYTHON_ENV=production
       
-      # Redis 配置      - REDIS_URL=redis://redis:6379/0
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    
-    # 网络配置
-    networks:
-      - ai-codereview-network
-
-  # 后台工作服务（处理队列任务和定时任务）
-  ai-codereview-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: worker
-    image: ghcr.io/zhao-zg/ai-codereview:latest
-    container_name: ai-codereview-worker
-    restart: unless-stopped
-    
-    # 共享配置和数据目录
-    volumes:
-      - ./conf:/app/conf
-      - ./data:/app/data
-      - ./log:/app/log
-      - ./data/svn:/app/data/svn
-    
-    environment:
-      # 运行模式
-      - DOCKER_RUN_MODE=worker
-      
-      # 基础配置
-      - TZ=Asia/Shanghai
-      - LOG_LEVEL=INFO
-      - PYTHON_ENV=production
-      
-      # 后台任务配置
+      # 启用所有功能
+      - ENABLE_API=true
+      - ENABLE_UI=true
       - ENABLE_WORKER=true
-      - QUEUE_DRIVER=rq
+      
+      # 队列配置（使用内存队列，简化部署）
+      - QUEUE_DRIVER=memory
       
       # SVN 配置
       - SVN_CHECK_ENABLED=false
       - SVN_CHECK_INTERVAL=300
-      
-      # Redis 配置
-      - REDIS_URL=redis://redis:6379/0
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    
-    # 依赖应用服务和 Redis
-    depends_on:
-      - ai-codereview
-      - redis
     
     # 网络配置
     networks:
       - ai-codereview-network
-    
-    # 可选启用，通过 profile 控制
-    profiles:
-      - worker
-
-  # Redis 服务（用于队列和缓存）
-  redis:
-    image: redis:7-alpine
-    container_name: ai-codereview-redis
-    restart: unless-stopped
-    
-    # Redis 配置
-    command: >
-      redis-server
-      --appendonly yes
-      --maxmemory 256m
-      --maxmemory-policy allkeys-lru
-    
-    # 数据持久化
-    volumes:
-      - redis_data:/data
-    
-    # 网络配置
-    networks:
-      - ai-codereview-network
-    
-    # 与 worker 服务一起启用
-    profiles:
-      - worker
-
-# 定义数据卷
-volumes:
-  # Redis 数据卷
-  redis_data:
-    driver: local
 
 # 网络配置
 networks:
   ai-codereview-network:
     name: ai-codereview-network
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.28.0.0/16

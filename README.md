@@ -79,13 +79,21 @@ Note 中，便于团队查看和处理。
 
 ### 方案一：Docker 部署（推荐）
 
-#### 🚀 现代化部署架构
+#### 🚀 现代化单服务架构
 
-本项目支持两种部署模式：
-- **多容器模式**：服务分离，可独立扩展（推荐生产环境）
-- **单容器模式**：所有服务在一个容器中（适合开发和测试）
+本项目已优化为**单服务单容器架构**，在一个容器中运行所有功能：
+- **API服务**：处理 webhook 请求和代码审查
+- **Web UI**：现代化可视化界面
+- **后台任务**：内存队列处理，无需 Redis
+- **定时任务**：SVN 检查等自动化任务
 
-#### 🎯 快速开始（全新安装）
+✅ **架构优势**：
+- 🎯 **极简部署**：一个命令启动所有服务
+- 🚀 **高性能**：内存队列，响应更快
+- 🔧 **易运维**：统一日志，单点管理
+- 💰 **低成本**：减少资源消耗
+
+#### 🎯 快速开始（一键部署）
 
 **零基础一键部署**：
 
@@ -118,26 +126,16 @@ start.bat
 start.bat
 ```
 
-**手动部署（无需 .env 文件）**：
+**手动部署（推荐）**：
 
 所有配置已内置，无需复制环境文件：
 
-**多容器模式（推荐生产环境）：**
 ```bash
-# 基础模式：仅启动 API + UI
+# 启动单服务（推荐）
 docker-compose up -d
 
-# 完整模式：启动所有服务（API + UI + Worker + Redis）
-COMPOSE_PROFILES=worker docker-compose up -d
-```
-
-**单容器模式（开发/测试）：**
-```bash
-# 使用单容器配置文件
+# 或使用备用配置
 docker-compose -f docker-compose.single.yml up -d
-
-# 如需Redis队列支持
-COMPOSE_PROFILES=redis docker-compose -f docker-compose.single.yml up -d
 ```
 
 **验证部署**：
@@ -152,9 +150,8 @@ COMPOSE_PROFILES=redis docker-compose -f docker-compose.single.yml up -d
   # 查看日志
   docker-compose logs -f
   
-  # 运行自动化测试
-  python test_multi_container.py  # 多容器测试
-  python test_single_container.py # 单容器测试
+  # 测试配置
+  python test_config_reload.py
   ```
 
 ### 方案二：本地Python环境部署

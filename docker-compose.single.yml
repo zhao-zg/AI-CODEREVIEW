@@ -1,13 +1,11 @@
-# AI-CodeReview Docker Compose 配置 (单容器模式)
-# 在一个容器中运行所有服务：API、UI、后台任务
+# AI-CodeReview Docker Compose 配置 (单容器简化版)
+# 最简单的单服务部署，所有功能集成在一个容器中
 
 services:
-  # AI 代码审查应用服务 (包含所有功能)
   ai-codereview:
     build:
       context: .
       dockerfile: Dockerfile
-      target: app
     image: ghcr.io/zhao-zg/ai-codereview:latest
     container_name: ai-codereview
     restart: unless-stopped
@@ -17,10 +15,10 @@ services:
       - "5001:5001"    # Flask API 端口
       - "5002:5002"    # Streamlit UI 端口
     
-    # 卷映射 - 分离模板和运行时配置
+    # 卷映射
     volumes:
-      # 运行时配置目录映射（初始化后的配置文件）
-      - ./conf_runtime:/app/conf
+      # 配置目录映射
+      - ./conf:/app/conf
       
       # 数据目录映射（持久化数据）
       - ./data:/app/data
@@ -29,25 +27,23 @@ services:
       # SVN 工作目录映射
       - ./data/svn:/app/data/svn
     
-    # 环境变量配置
     environment:
-      # 运行模式 - 使用统一模式
-      - DOCKER_RUN_MODE=all
-      
       # 基础配置
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
       - PYTHON_ENV=production
       
-      # 后台任务配置
+      # 启用所有功能（内置在api.py中）
+      - ENABLE_API=true
+      - ENABLE_UI=true
       - ENABLE_WORKER=true
-      - QUEUE_DRIVER=process
       
-      # LLM 服务配置
-      - LLM_PROVIDER=${LLM_PROVIDER:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}      
+      # 使用内存队列（无需Redis）
+      - QUEUE_DRIVER=memory
+      
       # SVN 配置
+      - SVN_CHECK_ENABLED=false
+      - SVN_CHECK_INTERVAL=300
       - SVN_CHECK_ENABLED=false
       - SVN_CHECK_INTERVAL=300
       

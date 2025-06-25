@@ -5,7 +5,10 @@ load_dotenv("conf/.env")
 import atexit
 import json
 import os
+import signal
 import traceback
+import threading
+import time
 from datetime import datetime
 from urllib.parse import urlparse
 
@@ -28,9 +31,59 @@ from biz.utils.default_config import get_env_bool, get_env_with_default, get_env
 
 api_app = Flask(__name__)
 
+# 全局配置变量
 push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
 svn_check_enabled = get_env_bool('SVN_CHECK_ENABLED')
 
+# 后台任务相关全局变量
+background_threads = []
+scheduler = None
+
+
+def reload_config():
+    """重新加载配置"""
+    global push_review_enabled, svn_check_enabled
+    
+    try:
+        # 重新加载环境变量
+        load_dotenv("conf/.env", override=True)
+        
+        # 更新全局配置变量
+        push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
+        svn_check_enabled = get_env_bool('SVN_CHECK_ENABLED')
+        
+        logger.info("API服务配置已重新加载")
+        print("[API] 配置已重新加载")
+        
+    except Exception as e:
+        logger.error(f"API服务重新加载配置失败: {e}")
+        print(f"[API] 重新加载配置失败: {e}")
+
+
+def setup_signal_handlers():
+    """设置信号处理器"""
+    def signal_handler(signum, frame):
+        if hasattr(signal, 'SIGUSR1') and signum == signal.SIGUSR1:
+            print("[API] 收到配置重载信号 (SIGUSR1)")
+            reload_config()
+        elif signum == signal.SIGTERM:
+            print("[API] 收到终止信号 (SIGTERM)")
+            # 这里可以添加优雅关闭逻辑
+            shutdown_background_tasks()
+        elif hasattr(signal, 'SIGHUP') and signum == signal.SIGHUP:
+            print("[API] 收到重启信号 (SIGHUP)")
+            reload_config()
+    
+    # 注册信号处理器（仅在支持的系统上）
+    if hasattr(signal, 'SIGUSR1'):
+        signal.signal(signal.SIGUSR1, signal_handler)  # 配置重载
+    signal.signal(signal.SIGTERM, signal_handler)  # 优雅关闭
+    if hasattr(signal, 'SIGHUP'):
+        signal.signal(signal.SIGHUP, signal_handler)   # 重启/重载
+
+
+# 设置信号处理器
+setup_signal_handlers()
 
 @api_app.route('/')
 def home():
@@ -122,6 +175,8 @@ def setup_scheduler():
     """
     配置并启动定时任务调度器
     """
+    global scheduler
+    
     try:
         scheduler = BackgroundScheduler()
           # 日报定时任务
@@ -404,9 +459,172 @@ def trigger_svn_check(hours: int = None):
     handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit)
 
 
+# 添加配置重载的API端点
+@api_app.route('/reload-config', methods=['POST'])
+def reload_config_endpoint():
+    """配置重载API端点"""
+    try:
+        reload_config()
+        return jsonify({
+            "success": True,
+            "message": "配置已成功重新加载",
+            "timestamp": datetime.now().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"配置重载失败: {str(e)}",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+
+def run_rq_worker():
+    """运行 RQ 队列工作器"""
+    try:
+        from redis import Redis
+        from rq import Worker, Queue
+        
+        # 获取 Redis 配置
+        redis_url = get_env_with_default('REDIS_URL')
+        if redis_url:
+            redis_conn = Redis.from_url(redis_url)
+        else:
+            redis_host = get_env_with_default('REDIS_HOST')
+            redis_port = int(get_env_with_default('REDIS_PORT'))
+            redis_conn = Redis(host=redis_host, port=redis_port)
+        
+        # 创建队列列表
+        queue_names = ['default', 'gitlab', 'github', 'svn']
+        queues = [Queue(name, connection=redis_conn) for name in queue_names]
+        
+        logger.info(f"🚀 启动 RQ Worker，监听队列: {queue_names}")
+        
+        # 创建并启动工作器
+        worker = Worker(queues, connection=redis_conn)
+        worker.work()
+        
+    except ImportError:
+        logger.error("❌ RQ 或 Redis 库未安装，无法启动队列工作器")
+        return False
+    except Exception as e:
+        logger.error(f"❌ RQ Worker 启动失败: {e}")
+        return False
+
+
+def run_svn_worker():
+    """运行 SVN 后台检查任务"""
+    try:
+        from biz.svn.svn_worker import main as svn_main
+        
+        logger.info("🚀 启动 SVN 后台任务处理器")
+        
+        # 在单独的线程中运行 SVN 任务
+        def svn_worker_thread():
+            while True:
+                try:
+                    svn_main()
+                except Exception as e:
+                    logger.error(f"❌ SVN 任务执行失败: {e}")
+                
+                # 等待一段时间后再次执行
+                interval = int(get_env_with_default('SVN_CHECK_INTERVAL'))
+                time.sleep(interval)
+        
+        thread = threading.Thread(target=svn_worker_thread, daemon=True)
+        thread.start()
+        return thread
+        
+    except ImportError:
+        logger.error("❌ SVN 模块未找到")
+        return None
+    except Exception as e:
+        logger.error(f"❌ SVN 任务启动失败: {e}")
+        return None
+
+
+def start_background_tasks():
+    """启动后台任务"""
+    global background_threads
+    
+    # 检查是否启用后台任务
+    enable_worker = get_env_bool('ENABLE_WORKER')
+    if not enable_worker:
+        logger.info("ℹ️ 后台任务处理器已禁用")
+        return
+    
+    logger.info("🚀 启动后台任务...")
+    
+    # 获取队列驱动配置
+    queue_driver = get_env_with_default('QUEUE_DRIVER')
+    svn_enabled = get_env_bool('SVN_CHECK_ENABLED')
+    
+    # 启动 SVN 后台任务（如果启用）
+    if svn_enabled:
+        svn_thread = run_svn_worker()
+        if svn_thread:
+            background_threads.append(svn_thread)
+    
+    # 根据队列驱动类型启动相应的工作器
+    if queue_driver == 'rq':
+        # RQ 模式 - 在单独线程中运行队列工作器
+        logger.info("📦 使用 RQ 队列模式")
+        def rq_worker_thread():
+            try:
+                run_rq_worker()
+            except Exception as e:
+                logger.error(f"❌ RQ Worker 线程异常: {e}")
+        
+        rq_thread = threading.Thread(target=rq_worker_thread, daemon=True)
+        rq_thread.start()
+        background_threads.append(rq_thread)
+    else:
+        # 进程模式 - 只运行非队列任务
+        logger.info("🔄 使用内存队列模式")
+
+def shutdown_background_tasks():
+    """关闭后台任务"""
+    global background_threads, scheduler
+    
+    logger.info("⏹️ 正在关闭后台任务...")
+    
+    # 关闭调度器
+    if scheduler:
+        scheduler.shutdown()
+    
+    # 等待后台线程结束
+    for thread in background_threads:
+        if thread.is_alive():
+            logger.info(f"等待线程 {thread.name} 结束...")
+            thread.join(timeout=5)
+    
+    logger.info("✅ 后台任务已关闭")
+
+
 if __name__ == '__main__':
-    check_config()
-    # 启动定时任务调度器
-    setup_scheduler()    # 启动Flask API服务
-    port = get_env_int('SERVER_PORT')
-    api_app.run(host='0.0.0.0', port=port)
+    try:
+        logger.info("🚀 启动 AI-CodeReview 统一服务")
+        
+        check_config()
+        
+        # 启动定时任务调度器
+        setup_scheduler()
+        
+        # 启动后台任务
+        start_background_tasks()
+        
+        # 启动Flask API服务
+        port = get_env_int('SERVER_PORT')
+        logger.info(f"🌐 启动 Flask API 服务，端口: {port}")
+        
+        # 注册优雅关闭处理
+        atexit.register(shutdown_background_tasks)
+        
+        api_app.run(host='0.0.0.0', port=port)
+        
+    except KeyboardInterrupt:
+        logger.info("⏹️ 收到停止信号，正在关闭服务...")
+        shutdown_background_tasks()
+    except Exception as e:
+        logger.error(f"❌ 服务启动失败: {e}")
+        shutdown_background_tasks()
+        raise

@@ -1,5 +1,5 @@
 # 使用官方的 Python 基础镜像
-FROM python:3.12-slim AS base
+FROM python:3.12-slim
 
 # 设置工作目录
 WORKDIR /app
@@ -34,22 +34,13 @@ if [ $init_result -ne 0 ]; then\n\
     exit $init_result\n\
 fi\n\
 \n\
-echo "=== Starting services ==="\n\
-# 启动supervisord\n\
+echo "=== Starting AI-CodeReview Service ==="\n\
+# 启动supervisord（同时运行API、UI和Worker）\n\
 exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
-# 使用启动脚本
-CMD ["/app/start.sh"]
-
-FROM base AS app
-# 设置运行模式环境变量
-ENV DOCKER_RUN_MODE=app
-# supervisord 配置将在启动时自动复制
 # 暴露 Flask 和 Streamlit 的端口
 EXPOSE 5001 5002
 
-FROM base AS worker
-# 设置运行模式环境变量
-ENV DOCKER_RUN_MODE=worker
-# supervisord 配置将在启动时自动复制
+# 使用启动脚本
+CMD ["/app/start.sh"]

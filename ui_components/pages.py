@@ -3,9 +3,188 @@
 """
 
 import streamlit as st
+import requests
+import os
+from dotenv import load_dotenv
 from biz.utils.config_manager import ConfigManager
 from .utils import get_platform_status, get_review_stats, get_available_authors, get_available_projects
 from .data_display import display_version_tracking_data, display_legacy_data
+
+def apply_config_changes():
+    """应用配置更改，使其立即生效"""
+    success_count = 0
+    total_attempts = 0
+    
+    try:
+        # 方法1: 尝试通过 ConfigReloader 热重载
+        try:
+            from biz.utils.config_reloader import ConfigReloader
+            reloader = ConfigReloader()
+            result = reloader.reload_all_configs()
+            
+            if result.get("success", False):
+                success_count += 1
+                st.info("✅ 配置热重载成功")
+            else:
+                st.warning(f"⚠️ 配置热重载部分成功: {result.get('message', '未知错误')}")
+                
+            total_attempts += 1
+            
+        except Exception as e:
+            st.warning(f"⚠️ 配置热重载失败: {e}")
+        
+        # 方法2: 尝试通过 API 端点重载配置
+        try:
+            api_port = os.environ.get('API_PORT', '5001')
+            api_url = f"http://localhost:{api_port}/reload-config"
+            
+            response = requests.post(api_url, timeout=5)
+            if response.status_code == 200:
+                success_count += 1
+                st.info("✅ API服务配置重载成功")
+            else:
+                st.warning(f"⚠️ API服务配置重载失败: {response.text}")
+                
+            total_attempts += 1
+            
+        except requests.exceptions.ConnectionError:
+            st.info("ℹ️ API服务不可达，可能未启动")
+        except Exception as e:
+            st.warning(f"⚠️ API服务配置重载失败: {e}")
+        
+        # 方法3: 重新加载当前进程的环境变量
+        try:
+            load_dotenv("conf/.env", override=True)
+            success_count += 1
+            st.info("✅ UI进程环境变量重载成功")
+            total_attempts += 1
+            
+        except Exception as e:
+            st.warning(f"⚠️ UI进程环境变量重载失败: {e}")
+        
+        # 判断整体成功率
+        if total_attempts == 0:
+            return False
+        
+        success_rate = success_count / total_attempts
+        return success_rate >= 0.5  # 50%以上成功率认为成功
+        
+    except Exception as e:
+        st.error(f"❌ 应用配置更改时发生异常: {e}")
+        return False
+
+def test_current_configuration():
+    """测试当前配置的有效性"""
+    results = {
+        "ai_model": {"status": "unknown", "message": ""},
+        "database": {"status": "unknown", "message": ""},
+        "gitlab": {"status": "unknown", "message": ""},
+        "github": {"status": "unknown", "message": ""},
+        "messaging": {"status": "unknown", "message": ""}
+    }
+    
+    try:
+        # 测试AI模型配置
+        llm_provider = os.environ.get('LLM_PROVIDER', '').lower()
+        if llm_provider:
+            if llm_provider == 'deepseek' and os.environ.get('DEEPSEEK_API_KEY'):
+                results["ai_model"] = {"status": "success", "message": f"DeepSeek API密钥已配置"}
+            elif llm_provider == 'openai' and os.environ.get('OPENAI_API_KEY'):
+                results["ai_model"] = {"status": "success", "message": f"OpenAI API密钥已配置"}
+            elif llm_provider == 'zhipuai' and os.environ.get('ZHIPUAI_API_KEY'):
+                results["ai_model"] = {"status": "success", "message": f"智谱AI API密钥已配置"}
+            elif llm_provider == 'qwen' and os.environ.get('QWEN_API_KEY'):
+                results["ai_model"] = {"status": "success", "message": f"Qwen API密钥已配置"}
+            elif llm_provider == 'ollama' and os.environ.get('OLLAMA_API_BASE_URL'):
+                results["ai_model"] = {"status": "success", "message": f"Ollama API地址已配置"}
+            else:
+                results["ai_model"] = {"status": "error", "message": f"已选择{llm_provider}但未正确配置API密钥"}
+        else:
+            results["ai_model"] = {"status": "warning", "message": "未选择AI模型提供商"}
+        
+        # 测试数据库连接
+        try:
+            from biz.service.review_service import ReviewService
+            review_service = ReviewService()
+            # 简单测试数据库连接
+            review_service.get_mr_review_logs(limit=1)
+            results["database"] = {"status": "success", "message": "数据库连接正常"}
+        except Exception as e:
+            results["database"] = {"status": "error", "message": f"数据库连接失败: {str(e)[:100]}"}
+        
+        # 测试GitLab配置
+        if os.environ.get('GITLAB_ENABLED', '').lower() == 'true':
+            if os.environ.get('GITLAB_ACCESS_TOKEN') and os.environ.get('GITLAB_URL'):
+                results["gitlab"] = {"status": "success", "message": "GitLab配置完整"}
+            else:
+                results["gitlab"] = {"status": "error", "message": "GitLab已启用但配置不完整"}
+        else:
+            results["gitlab"] = {"status": "info", "message": "GitLab功能未启用"}
+        
+        # 测试GitHub配置
+        if os.environ.get('GITHUB_ENABLED', '').lower() == 'true':
+            if os.environ.get('GITHUB_ACCESS_TOKEN'):
+                results["github"] = {"status": "success", "message": "GitHub配置完整"}
+            else:
+                results["github"] = {"status": "error", "message": "GitHub已启用但配置不完整"}
+        else:
+            results["github"] = {"status": "info", "message": "GitHub功能未启用"}
+        
+        # 测试消息推送配置
+        messaging_enabled = False
+        messaging_status = []
+        
+        if os.environ.get('DINGTALK_ENABLED', '').lower() == 'true':
+            if os.environ.get('DINGTALK_WEBHOOK_URL'):
+                messaging_status.append("钉钉✅")
+                messaging_enabled = True
+            else:
+                messaging_status.append("钉钉❌")
+        
+        if os.environ.get('WECOM_ENABLED', '').lower() == 'true':
+            if os.environ.get('WECOM_WEBHOOK_URL'):
+                messaging_status.append("企业微信✅")
+                messaging_enabled = True
+            else:
+                messaging_status.append("企业微信❌")
+        
+        if os.environ.get('FEISHU_ENABLED', '').lower() == 'true':
+            if os.environ.get('FEISHU_WEBHOOK_URL'):
+                messaging_status.append("飞书✅")
+                messaging_enabled = True
+            else:
+                messaging_status.append("飞书❌")
+        
+        if messaging_enabled:
+            results["messaging"] = {"status": "success", "message": f"消息推送: {', '.join(messaging_status)}"}
+        elif messaging_status:
+            results["messaging"] = {"status": "warning", "message": f"消息推送配置不完整: {', '.join(messaging_status)}"}
+        else:
+            results["messaging"] = {"status": "info", "message": "消息推送功能未启用"}
+            
+    except Exception as e:
+        results["error"] = {"status": "error", "message": f"配置测试异常: {e}"}
+    
+    return results
+
+def display_test_results(results):
+    """显示配置测试结果"""
+    st.markdown("#### 🧪 配置测试结果")
+    
+    for component, result in results.items():
+        status = result["status"]
+        message = result["message"]
+        
+        if status == "success":
+            st.success(f"✅ {component.upper()}: {message}")
+        elif status == "error":
+            st.error(f"❌ {component.upper()}: {message}")
+        elif status == "warning":
+            st.warning(f"⚠️ {component.upper()}: {message}")
+        elif status == "info":
+            st.info(f"ℹ️ {component.upper()}: {message}")
+        else:
+            st.text(f"❓ {component.upper()}: {message}")
 
 def home_page():
     """首页"""
@@ -288,7 +467,7 @@ def _display_data_overview(review_stats, platforms):
                 """, unsafe_allow_html=True)
             else:
                 st.markdown(f"""
-                <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #6c757d;">
+                <div style="padding: 1rem; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #6c757d;">
                     <h4>❌ SVN</h4>
                     <p style="color: #6c757d;">平台已禁用</p>
                 </div>
@@ -300,7 +479,7 @@ def _display_data_overview(review_stats, platforms):
             if platforms.get('github', False):
                 status_icon = "✅" if github_count > 0 else "⚠️"
                 st.markdown(f"""
-                <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #6f42c1;">
+                <div style="padding: 1rem; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #6f42c1;">
                     <h4>{status_icon} GitHub</h4>
                     <p>PR审查: <strong>{github_count}</strong></p>
                 </div>
@@ -841,19 +1020,54 @@ def env_management_page():
                 try:
                     if config_manager.save_env_config(new_config):
                         st.success("✅ 系统配置已成功保存！")
-                        st.info("💡 配置更改需要重启应用程序才能生效。")
-                        # 建议重新加载环境变量
+                        
+                        # 尝试立即生效配置
+                        with st.spinner("🔄 正在应用配置更改..."):
+                            reload_success = apply_config_changes()
+                            
+                        if reload_success:
+                            st.success("🎉 配置已立即生效！无需重启服务。")
+                            st.balloons()
+                        else:
+                            st.warning("⚠️ 配置已保存，但部分更改可能需要重启服务才能完全生效。")
+                            st.info("💡 建议手动重启相关服务以确保所有更改生效。")
+                        
+                        # 重新加载当前页面的环境变量
                         load_dotenv("conf/.env", override=True)
                         
-                        # 保存成功后自动刷新页面
-                        st.info("🔄 页面即将自动刷新...")
+                        # 短暂延迟后刷新页面
                         import time
-                        time.sleep(1)  # 让用户看到成功消息
+                        time.sleep(2)
                         st.rerun()
                     else:
                         st.error("❌ 保存配置失败，请检查文件权限。")
                 except Exception as e:
                     st.error(f"❌ 保存配置失败: {e}")
+            
+            # 添加配置测试按钮
+            st.markdown("---")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("🧪 测试当前配置", help="测试当前配置的有效性"):
+                    with st.spinner("正在测试配置..."):
+                        test_results = test_current_configuration()
+                        display_test_results(test_results)
+            
+            with col2:
+                if st.button("🔄 立即重载配置", help="不重启服务的情况下重新加载配置"):
+                    with st.spinner("正在重载配置..."):
+                        reload_success = apply_config_changes()
+                        if reload_success:
+                            st.success("✅ 配置重载成功！")
+                        else:
+                            st.warning("⚠️ 配置重载部分成功，建议检查服务状态")
+            
+            with col3:
+                if st.button("📊 检查服务状态", help="检查各个服务组件的运行状态"):
+                    with st.spinner("正在检查服务状态..."):
+                        service_status = check_service_status()
+                        display_service_status(service_status)
     
     with tab2:
         st.markdown("### 📋 配置总览")
@@ -1039,3 +1253,100 @@ def env_management_page():
                         st.error("❌ 无法读取当前配置")
                 except Exception as e:
                     st.error(f"❌ 导出配置失败: {e}")
+
+def check_service_status():
+    """检查各个服务的运行状态"""
+    status = {
+        "api": {"running": False, "message": ""},
+        "ui": {"running": True, "message": "当前UI服务正在运行"},
+        "worker": {"running": False, "message": ""},
+        "redis": {"running": False, "message": ""}
+    }
+    
+    try:
+        # 检查API服务
+        api_port = os.environ.get('API_PORT', '5001')
+        try:
+            response = requests.get(f"http://localhost:{api_port}/health", timeout=3)
+            if response.status_code == 200:
+                status["api"] = {"running": True, "message": f"API服务运行正常 (端口{api_port})"}
+            else:
+                status["api"] = {"running": False, "message": f"API服务响应异常 (状态码: {response.status_code})"}
+        except requests.exceptions.ConnectionError:
+            status["api"] = {"running": False, "message": f"API服务连接失败 (端口{api_port})"}
+        except Exception as e:
+            status["api"] = {"running": False, "message": f"API服务检查异常: {str(e)[:50]}"}
+        
+        # 检查Worker进程（通过进程查找）
+        try:
+            import psutil
+            worker_found = False
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    cmdline = proc.info['cmdline']
+                    if cmdline and any('background_worker.py' in cmd for cmd in cmdline):
+                        worker_found = True
+                        break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+            
+            if worker_found:
+                status["worker"] = {"running": True, "message": "Worker进程运行正常"}
+            else:
+                status["worker"] = {"running": False, "message": "未找到Worker进程"}
+                
+        except ImportError:
+            status["worker"] = {"running": False, "message": "无法检查Worker进程 (缺少psutil库)"}
+        except Exception as e:
+            status["worker"] = {"running": False, "message": f"Worker进程检查异常: {str(e)[:50]}"}
+        
+        # 检查Redis服务
+        queue_driver = os.environ.get('QUEUE_DRIVER', 'memory').lower()
+        if queue_driver == 'redis':
+            try:
+                import redis
+                redis_host = os.environ.get('REDIS_HOST', 'localhost')
+                redis_port = int(os.environ.get('REDIS_PORT', '6379'))
+                
+                r = redis.Redis(host=redis_host, port=redis_port, socket_timeout=3)
+                r.ping()
+                status["redis"] = {"running": True, "message": f"Redis服务运行正常 ({redis_host}:{redis_port})"}
+                
+            except ImportError:
+                status["redis"] = {"running": False, "message": "Redis库未安装"}
+            except Exception as e:
+                status["redis"] = {"running": False, "message": f"Redis连接失败: {str(e)[:50]}"}
+        else:
+            status["redis"] = {"running": False, "message": f"当前使用{queue_driver}队列，未启用Redis"}
+            
+    except Exception as e:
+        status["error"] = {"running": False, "message": f"服务状态检查异常: {e}"}
+    
+    return status
+
+def display_service_status(status):
+    """显示服务状态"""
+    st.markdown("#### 📊 服务运行状态")
+    
+    for service, info in status.items():
+        if service == "error":
+            st.error(f"❌ {info['message']}")
+            continue
+            
+        is_running = info["running"]
+        message = info["message"]
+        
+        if is_running:
+            st.success(f"🟢 {service.upper()}: {message}")
+        else:
+            st.error(f"🔴 {service.upper()}: {message}")
+    
+    # 添加服务管理提示
+    st.markdown("---")
+    st.markdown("##### 💡 服务管理提示")
+    st.info("""
+    - **API服务**: 处理webhook请求和代码审查
+    - **UI服务**: 当前仪表板界面 (正在运行)
+    - **Worker进程**: 后台任务处理器
+    - **Redis**: 队列服务 (仅在启用Redis队列时需要)
+    """)

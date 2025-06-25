@@ -1,16 +1,17 @@
-# AI-CodeReview 单容器部署指南
+# AI-CodeReview 单服务单容器部署指南
 
 ## 🎯 概述
 
-新版本的 Docker Compose 配置支持在单个容器中运行所有服务，包括：
+AI-CodeReview 已优化为单服务单容器架构，在一个容器中运行所有功能：
 - 🌐 Flask API 服务 (端口 5001)
 - 🎨 Streamlit Web UI (端口 5002)  
-- ⚙️ 后台任务处理器 (可选)
-- 📊 SVN 定时检查 (可选)
+- ⚙️ 后台任务处理器（内存队列）
+- 📊 SVN 定时检查
+- 🔄 代码审查任务处理
 
 ## 🚀 快速开始
 
-### 1. 基础部署（推荐）
+### 一键部署
 
 ```bash
 # 复制环境变量配置文件
@@ -22,23 +23,19 @@ docker-compose up -d
 
 这将启动一个包含所有功能的容器：
 - ✅ API 和 Web UI 服务
-- ✅ 后台任务处理器（进程模式）
+- ✅ 后台任务处理器（内存队列模式）
 - ✅ 支持 GitLab/GitHub Webhook
-- ✅ 支持 SVN 定时检查（如果启用）
+- ✅ 支持 SVN 定时检查
+- ✅ 一体化架构，简化部署和运维
 
-### 2. 高性能部署（使用 Redis 队列）
+## ⚙️ 配置选项
 
-如果需要处理大量并发请求，可以启用 Redis 队列模式：
+### 核心配置
 
 ```bash
-# 编辑 .env 文件
-QUEUE_DRIVER=rq
-COMPOSE_PROFILES=redis
-
-# 启动服务（包含 Redis）
-docker-compose --profile redis up -d
-```
-
+# 基础服务配置
+API_PORT=5001                    # API 服务端口
+UI_PORT=5002                     # Web UI 端口
 ## ⚙️ 配置选项
 
 ### 核心配置
@@ -49,48 +46,49 @@ API_PORT=5001                    # API 服务端口
 UI_PORT=5002                     # Web UI 端口
 CONTAINER_NAME_PREFIX=ai-codereview  # 容器名前缀
 
-# 后台任务配置
-ENABLE_WORKER=true               # 是否启用后台任务处理器
-QUEUE_DRIVER=process             # 队列模式: process 或 rq
+# 队列配置（已优化为内存队列）
+QUEUE_DRIVER=memory              # 队列模式: memory（推荐）
 
 # SVN 配置
 SVN_CHECK_ENABLED=false          # 是否启用 SVN 定时检查
 SVN_CHECK_INTERVAL=300           # SVN 检查间隔（秒）
 ```
 
-### 队列模式对比
+### 架构优势
 
-| 模式 | 优点 | 缺点 | 适用场景 |
-|------|------|------|----------|
-| **process** | 简单、无需 Redis | 并发能力有限 | 小团队、轻量使用 |
-| **rq** | 高并发、可扩展 | 需要 Redis 服务 | 大团队、高并发 |
+| 特性 | 单服务架构 | 传统多容器架构 |
+|------|------------|----------------|
+| **部署复杂度** | 极简单，一个容器 | 复杂，多个容器协调 |
+| **资源消耗** | 低，统一资源池 | 高，各容器独立资源 |
+| **运维难度** | 简单，统一管理 | 复杂，多服务监控 |
+| **故障排查** | 容易，单点日志 | 困难，分布式日志 |
+| **并发处理** | 内存队列，高效 | 需要Redis等中间件 |
 
 ## 📁 目录结构
 
 ```
 AI-CodeReview/
-├── docker-compose.yml              # 单容器配置（主配置）
-├── docker-compose.single.yml       # 单容器配置（备用）
+├── docker-compose.yml              # 单服务配置（主配置）
+├── docker-compose.single.yml       # 单服务配置（备用）
 ├── .env.docker.example             # 环境变量示例
 ├── .env                            # 实际环境变量
 ├── conf/
-│   ├── supervisord.app.conf        # 仅 API + UI
-│   ├── supervisord.worker.conf     # 仅后台任务
-│   └── supervisord.all.conf        # 所有服务 (新增)
+│   └── supervisord.all.conf        # 单服务进程管理（API + UI）
 ├── scripts/
-│   ├── background_worker.py        # 后台任务处理器 (新增)
 │   └── docker_init.py              # 配置初始化脚本
+├── api.py                          # 主服务入口（集成所有功能）
+├── ui.py                          # Web UI 入口
 └── ...
 ```
 
 ## 🔧 高级配置
 
-### 自定义后台任务
+### 自定义功能
 
 编辑 `.env` 文件：
 
 ```bash
-# 启用特定功能
+# 启用SVN检查
 SVN_CHECK_ENABLED=true
 SVN_CHECK_INTERVAL=600          # 10分钟检查一次
 
@@ -98,23 +96,8 @@ SVN_CHECK_INTERVAL=600          # 10分钟检查一次
 LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=your_key_here
 
-# 通知配置
+# 仪表板配置
 DASHBOARD_PASSWORD=your_password
-```
-
-### Redis 队列模式
-
-启用高性能队列处理：
-
-```bash
-# .env 文件配置
-QUEUE_DRIVER=rq
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_MAXMEMORY=512m
-
-# 启动命令
-COMPOSE_PROFILES=redis docker-compose up -d
 ```
 
 ## 🚀 启动脚本
