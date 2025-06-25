@@ -261,7 +261,7 @@ def check_permissions():
 
 def main():
     """主函数"""
-    print("🚀 AI-CodeReview-GitLab 环境配置初始化 (增强版)")
+    print("🚀 AI-CodeReview 环境配置初始化 (增强版)")
     print("=" * 60)
     print("📋 解决 docker-compose 部署时 .env 数据不完整的问题")
     print("=" * 60)

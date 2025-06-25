@@ -61,7 +61,7 @@ def main():
                 print(f"  - {name}: {url}")
         else:
             print("没有配置多仓库，检查单仓库配置...")
-            svn_remote_url = os.environ.get('SVN_REMOTE_URL')
+            svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
             if svn_remote_url:
                 print(f"  - legacy: {svn_remote_url}")
             else:

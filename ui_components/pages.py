@@ -54,11 +54,11 @@ def home_page():
             <p>SVN•GitLab•GitHub</p>
         </div>
         """, unsafe_allow_html=True)
-    
-    # 系统状态监控
+      # 系统状态监控
     st.markdown("### ⚙️ 系统状态")
     
     try:
+        from biz.utils.config_manager import ConfigManager
         config_manager = ConfigManager()
         platforms = get_platform_status(config_manager)
         env_config = config_manager.get_env_config()
@@ -127,12 +127,12 @@ def home_page():
         - ✅ AI智能代码分析
         - ✅ 实时数据统计和可视化
         - ✅ 自定义审查规则
-        - ✅ 多种AI模型支持
-        """)
+        - ✅ 多种AI模型支持        """)
     
     with info_col2:
         st.markdown("**当前配置信息**")
         try:
+            from biz.utils.config_manager import ConfigManager
             config_manager = ConfigManager()
             env_config = config_manager.get_env_config()
             
@@ -152,8 +152,8 @@ def data_analysis_page():
         <p style="margin: 0.5rem 0 0 0; color: #7f8c8d;">分析代码审查数据，洞察代码质量趋势</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    # 获取平台开关配置
+      # 获取平台开关配置
+    from biz.utils.config_manager import ConfigManager
     config_manager = ConfigManager()
     try:
         platforms = get_platform_status(config_manager)
@@ -460,6 +460,9 @@ def env_management_page():
     from dotenv import load_dotenv
     import pandas as pd
     
+    # 确保在函数作用域内导入 ConfigManager
+    from biz.utils.config_manager import ConfigManager
+    
     st.markdown("""
     <div style="text-align: center; padding: 1.5rem; 
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -469,7 +472,13 @@ def env_management_page():
     </div>
     """, unsafe_allow_html=True)
     
-    config_manager = ConfigManager()
+    try:
+        # 安全地创建 ConfigManager 实例，添加错误处理
+        config_manager = ConfigManager()
+    except Exception as e:
+        st.error(f"❌ 初始化配置管理器失败: {e}")
+        st.info("请检查以下问题：\n1. 确保 biz.utils.config_manager 模块存在\n2. 确保 ConfigManager 类正确定义\n3. 检查文件权限和路径")
+        return
     # 创建选项卡
     tab1, tab2, tab3 = st.tabs(["🎛️ 系统配置", "📋 配置总览", "🔧 配置模板"])
     
@@ -1004,12 +1013,12 @@ def env_management_page():
                     st.error(f"❌ 重置配置失败: {e}")
             
             st.markdown("---")
-            
-            # 导出配置
+              # 导出配置
             if st.button("📥 导出当前配置", key="export_config"):
                 try:
                     current_config = config_manager.get_env_config()
-                    if current_config:                        # 创建导出内容
+                    if current_config:
+                        # 创建导出内容
                         export_content = "# AI代码审查系统配置文件\n"
                         export_content += f"# 导出时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                         

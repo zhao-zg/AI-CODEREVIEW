@@ -79,115 +79,83 @@ Note 中，便于团队查看和处理。
 
 ### 方案一：Docker 部署（推荐）
 
-#### 🚀 自动构建镜像
+#### 🚀 现代化部署架构
 
-本项目已配置GitHub Actions自动构建，每次代码提交会自动构建并发布Docker镜像到多个仓库。
+本项目支持两种部署模式：
+- **多容器模式**：服务分离，可独立扩展（推荐生产环境）
+- **单容器模式**：所有服务在一个容器中（适合开发和测试）
 
-**Docker Hub镜像 (推荐):**
-- 应用镜像: `zzg1189/ai-codereview-gitlab:latest`
-- 工作进程镜像: `zzg1189/ai-codereview-gitlab:latest-worker`
+#### 🎯 快速开始（全新安装）
 
-**GitHub Container Registry镜像:**
-- 应用镜像: `ghcr.io/zhao-zg/ai-codereview-gitlab:latest`
-- 工作进程镜像: `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker`
+**零基础一键部署**：
 
-**拉取最新镜像:**
-```bash
-# Docker Hub (推荐，访问速度更快)
-docker pull zzg1189/ai-codereview:latest
-docker pull zzg1189/ai-codereview:latest-worker
-
-# 或者使用 GitHub Container Registry
-docker pull ghcr.io/zhao-zg/ai-codereview:latest
-docker pull ghcr.io/zhao-zg/ai-codereview:latest-worker
-```
-
-**查看构建状态:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions)
-
-#### 部署步骤
-
-**方法一: 一键启动脚本（推荐）**
+如果您是首次使用，只需下载启动脚本：
 
 ```bash
 # Linux/Mac
-./start_docker.sh
+curl -fsSL https://raw.githubusercontent.com/zhao-zg/AI-CODEREVIEW/main/start.sh -o start.sh
+chmod +x start.sh
+./start.sh
 
-# Windows
-start_docker.bat
+# Windows (PowerShell 管理员模式)
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/zhao-zg/AI-CODEREVIEW/main/start.bat" -OutFile "start.bat"
+start.bat
 ```
 
 脚本会自动：
-- 创建必要目录
-- 从 `.env.dist` 创建 `.env` 配置文件
-- 检查配置完整性
-- 启动Docker服务
+- 🔧 检测并安装 Docker 环境
+- 📥 下载最新配置文件
+- 🚀 启动智能部署菜单
+- 🩺 提供健康检查和服务管理
 
-**方法二: 手动步骤**
+**现有环境快速启动**：
 
-**1. 准备环境文件**
-
-- 克隆项目仓库：
 ```bash
-git clone https://github.com/zhao-zg/AI-CODEREVIEW.git
-cd AI-CODEREVIEW
+# Linux/Mac
+./start.sh
+
+# Windows
+start.bat
 ```
 
-- 初始化环境配置：
+**手动部署（无需 .env 文件）**：
+
+所有配置已内置，无需复制环境文件：
+
+**多容器模式（推荐生产环境）：**
 ```bash
-# 自动创建配置文件和目录
-python scripts/init_env.py
-
-# 或手动复制模板
-cp conf/.env.dist conf/.env
-```
-
-- 编辑 conf/.env 文件，配置以下关键参数：
-
-```bash
-#大模型供应商配置,支持 zhipuai , openai , deepseek 和 ollama
-LLM_PROVIDER=deepseek
-
-#DeepSeek
-DEEPSEEK_API_KEY={YOUR_DEEPSEEK_API_KEY}
-
-#支持review的文件类型(未配置的文件类型不会被审查)
-SUPPORTED_EXTENSIONS=.java,.py,.php,.yml,.vue,.go,.c,.cpp,.h,.js,.css,.md,.sql
-
-#钉钉消息推送: 0不发送钉钉消息,1发送钉钉消息
-DINGTALK_ENABLED=0
-DINGTALK_WEBHOOK_URL={YOUR_WDINGTALK_WEBHOOK_URL}
-
-#Gitlab配置
-GITLAB_ACCESS_TOKEN={YOUR_GITLAB_ACCESS_TOKEN}
-```
-
-**2. 启动服务**
-
-```bash
-# 使用Docker Hub镜像 (推荐)
-docker-compose -f docker-compose.dockerhub.yml up -d
-
-# 或使用GitHub Container Registry镜像
+# 基础模式：仅启动 API + UI
 docker-compose up -d
 
-# 或直接使用Docker运行
-docker run -d \
-  --name ai-codereview \
-  -p 5001:5001 -p 5002:5002 \  -v $(pwd)/data:/app/data \
-  -v $(pwd)/log:/app/log \
-  -v $(pwd)/conf:/app/conf \
-  zzg1189/ai-codereview-gitlab:latest
+# 完整模式：启动所有服务（API + UI + Worker + Redis）
+COMPOSE_PROFILES=worker docker-compose up -d
 ```
 
-**3. 验证部署**
+**单容器模式（开发/测试）：**
+```bash
+# 使用单容器配置文件
+docker-compose -f docker-compose.single.yml up -d
 
-- 主服务验证：
-  - 访问 http://your-server-ip:5001
-  - 显示 "The code review server is running." 说明服务启动成功。
-- Dashboard 验证：
-  - 访问 http://your-server-ip:5002
-  - 看到现代化的登录界面，输入用户名密码即可进入仪表板。
-  - 或者使用一键启动脚本：`./run_ui.sh` (Linux/Mac) 或 `run_ui.bat` (Windows)
+# 如需Redis队列支持
+COMPOSE_PROFILES=redis docker-compose -f docker-compose.single.yml up -d
+```
+
+**验证部署**：
+
+- **API服务**：访问 http://localhost:5001
+- **UI界面**：访问 http://localhost:5002
+- **健康检查**：
+  ```bash
+  # 检查容器状态
+  docker-compose ps
+  
+  # 查看日志
+  docker-compose logs -f
+  
+  # 运行自动化测试
+  python test_multi_container.py  # 多容器测试
+  python test_single_container.py # 单容器测试
+  ```
 
 ### 方案二：本地Python环境部署
 
@@ -448,7 +416,7 @@ python -m biz.cmd.review
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=zhao-zg/AI-CODEREVIEW-GITLAB&type=Timeline)](https://www.star-history.com/#zhao-zg/AI-CODEREVIEW-GITLAB&Timeline)
+[![Star History Chart](https://api.star-history.com/svg?repos=zhao-zg/AI-CODEREVIEW&type=Timeline)](https://www.star-history.com/#zhao-zg/AI-CODEREVIEW&Timeline)
 
 ## 🚀 自动化构建和发布
 
@@ -466,9 +434,9 @@ python -m biz.cmd.review
 
 | 镜像类型 | 镜像地址 | 说明 |
 |----------|----------|------|
-| 应用镜像 | `ghcr.io/zhao-zg/ai-codereview-gitlab:latest` | Web UI + API服务 |
-| 工作镜像 | `ghcr.io/zhao-zg/ai-codereview-gitlab:latest-worker` | 后台处理服务 |
-| 版本镜像 | `ghcr.io/zhao-zg/ai-codereview-gitlab:v1.2.3` | 特定版本 |
+| 应用镜像 | `ghcr.io/zhao-zg/ai-codereview:latest` | Web UI + API服务 |
+| 工作镜像 | `ghcr.io/zhao-zg/ai-codereview:latest-worker` | 后台处理服务 |
+| 版本镜像 | `ghcr.io/zhao-zg/ai-codereview:v1.2.3` | 特定版本 |
 
 #### 管理脚本
 
@@ -492,7 +460,7 @@ python scripts/verify_build_config_simple.py
 - [📦 Docker自动构建说明](DOCKER_AUTO_BUILD.md)
 - [🔧 GitHub Actions配置说明](docs/github-actions-guide.md)
 
-**构建状态监控:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/actions)
+**构建状态监控:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW/actions)
 
 ---
 
@@ -500,7 +468,7 @@ python scripts/verify_build_config_simple.py
 
 如果在使用过程中遇到问题，欢迎：
 
-1. 提交 [GitHub Issues](https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/issues)
+1. 提交 [GitHub Issues](https://github.com/zhao-zg/AI-CODEREVIEW/issues)
 2. 查看 [FAQ文档](doc/faq.md)
 3. 查看 [部署指南](doc/deployment_guide.md)
 

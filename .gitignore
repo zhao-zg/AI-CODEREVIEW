@@ -37,3 +37,59 @@ __pycache__/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Docker 相关
+.env
+.env.local
+.env.*.local
+
+# IDE 和编辑器
+*.sublime-project
+*.sublime-workspace
+.vscode/settings.json
+.vscode/launch.json
+.vscode/tasks.json
+
+# 测试相关
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+
+# 构建产物
+build/
+dist/
+*.egg-info/
+
+# 备份文件和临时脚本
+*-old.*
+*-new.*
+*-backup.*
+*_backup.*
+*.bak
+
+# 测试脚本（保留重要测试）
+test_*.sh
+test_*.bat
+
+# 清理脚本保留
+# clean_project.sh 和 clean_project.bat 是有用的清理脚本
+
+# Node.js (如果使用)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# 日志文件
+*.log
+
+# 操作系统相关
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db

@@ -10,7 +10,7 @@ from .data_display import display_manager, display_version_tracking_data, displa
 
 # 版本信息
 __version__ = "2.0.0"
-__author__ = "AI-CodeReview-Gitlab Team"
+__author__ = "AI-CodeReview Team"
 
 # 导出主要类和函数
 __all__ = [

@@ -237,7 +237,7 @@ streamlit run ui.py --server.port=8502
 - 查看项目日志文件
 
 ### 2. 社区支持
-- GitHub Issues: [提交问题](https://github.com/zzg1189/ai-codereview-gitlab/issues)
+- GitHub Issues: [提交问题](https://github.com/zhao-zg/ai-codereview/issues)
 - 项目文档: [查看文档](../docs/)
 - 常见问题: [FAQ](docs/faq.md)
 

@@ -1,15 +1,15 @@
-# AI-CodeReview Docker Compose 配置 (多容器模式)
-# 标准格式配置，不依赖 .env 文件
+# AI-CodeReview Docker Compose 配置 (单容器模式)
+# 在一个容器中运行所有服务：API、UI、后台任务
 
 services:
-  # AI 代码审查应用服务
+  # AI 代码审查应用服务 (包含所有功能)
   ai-codereview:
     build:
       context: .
       dockerfile: Dockerfile
       target: app
     image: ghcr.io/zhao-zg/ai-codereview:latest
-    container_name: ai-codereview-app
+    container_name: ai-codereview
     restart: unless-stopped
     
     # 端口映射
@@ -29,16 +29,30 @@ services:
       # SVN 工作目录映射
       - ./data/svn:/app/data/svn
     
+    # 环境变量配置
     environment:
-      # 运行模式
-      - DOCKER_RUN_MODE=app
+      # 运行模式 - 使用统一模式
+      - DOCKER_RUN_MODE=all
       
       # 基础配置
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
       - PYTHON_ENV=production
       
-      # Redis 配置      - REDIS_URL=redis://redis:6379/0
+      # 后台任务配置
+      - ENABLE_WORKER=true
+      - QUEUE_DRIVER=process
+      
+      # LLM 服务配置
+      - LLM_PROVIDER=${LLM_PROVIDER:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}      
+      # SVN 配置
+      - SVN_CHECK_ENABLED=false
+      - SVN_CHECK_INTERVAL=300
+      
+      # Redis 配置（如果使用 RQ 队列）
+      - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     
@@ -54,66 +68,7 @@ services:
     networks:
       - ai-codereview-network
 
-  # 后台工作服务（处理队列任务和定时任务）
-  ai-codereview-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: worker
-    image: ghcr.io/zhao-zg/ai-codereview:latest
-    container_name: ai-codereview-worker
-    restart: unless-stopped
-    
-    # 共享配置和数据目录
-    volumes:
-      - ./conf:/app/conf
-      - ./data:/app/data
-      - ./log:/app/log
-      - ./data/svn:/app/data/svn
-    
-    environment:
-      # 运行模式
-      - DOCKER_RUN_MODE=worker
-      
-      # 基础配置
-      - TZ=Asia/Shanghai
-      - LOG_LEVEL=INFO
-      - PYTHON_ENV=production
-      
-      # 后台任务配置
-      - ENABLE_WORKER=true
-      - QUEUE_DRIVER=rq
-      
-      # SVN 配置
-      - SVN_CHECK_ENABLED=false
-      - SVN_CHECK_INTERVAL=300
-      
-      # Redis 配置
-      - REDIS_URL=redis://redis:6379/0
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-    
-    # 依赖应用服务和 Redis
-    depends_on:
-      ai-codereview:
-        condition: service_healthy
-      redis:
-        condition: service_healthy      # 健康检查
-    healthcheck:
-      test: ["CMD", "python", "-c", "import sys; import os; sys.exit(0 if os.path.exists('/app/scripts/background_worker.py') else 1)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    
-    # 网络配置
-    networks:
-      - ai-codereview-network
-    
-    # 可选启用，通过 profile 控制
-    profiles:
-      - worker
-
-  # Redis 服务（用于队列和缓存）
+  # Redis 服务（可选，仅在使用 RQ 队列时需要）
   redis:
     image: redis:7-alpine
     container_name: ai-codereview-redis
@@ -141,9 +96,9 @@ services:
     networks:
       - ai-codereview-network
     
-    # 与 worker 服务一起启用
+    # 仅在使用 RQ 队列时启用
     profiles:
-      - worker
+      - redis
 
 # 定义数据卷
 volumes:
@@ -159,4 +114,3 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
-        - subnet: ${NETWORK_SUBNET:-172.20.0.0/16}

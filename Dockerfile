@@ -24,18 +24,14 @@ COPY scripts/ ./scripts/
 
 # 创建启动脚本来初始化环境
 RUN echo '#!/bin/bash\n\
-# 初始化环境配置\n\
-if [ ! -f /app/conf/.env ]; then\n\
-    echo "=== Initializing environment configuration ==="\n\
-    python /app/scripts/init_env.py\n\
-else\n\
-    echo "=== Environment configuration found ==="\n\
-fi\n\
+# Docker 配置自动初始化\n\
+echo "=== Docker Configuration Initialization ==="\n\
+python /app/scripts/docker_init.py\n\
+init_result=$?\n\
 \n\
-# 加载环境变量\n\
-if [ -f /app/conf/.env ]; then\n\
-    echo "Loading environment variables from .env file..."\n\
-    export $(grep -v "^#" /app/conf/.env | xargs)\n\
+if [ $init_result -ne 0 ]; then\n\
+    echo "❌ Docker 配置初始化失败，退出..."\n\
+    exit $init_result\n\
 fi\n\
 \n\
 echo "=== Starting services ==="\n\
@@ -47,9 +43,13 @@ exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 CMD ["/app/start.sh"]
 
 FROM base AS app
-RUN cp /app/conf/supervisord.app.conf /etc/supervisor/conf.d/supervisord.conf
+# 设置运行模式环境变量
+ENV DOCKER_RUN_MODE=app
+# supervisord 配置将在启动时自动复制
 # 暴露 Flask 和 Streamlit 的端口
 EXPOSE 5001 5002
 
 FROM base AS worker
-RUN cp /app/conf/supervisord.worker.conf /etc/supervisor/conf.d/supervisord.conf
+# 设置运行模式环境变量
+ENV DOCKER_RUN_MODE=worker
+# supervisord 配置将在启动时自动复制

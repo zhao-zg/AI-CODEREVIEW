@@ -52,7 +52,7 @@ def home():
                 svn_info += "</ul>"
             else:
                 # 检查单仓库配置
-                svn_remote_url = os.environ.get('SVN_REMOTE_URL')
+                svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
                 if svn_remote_url:
                     svn_info = f"<p><strong>SVN仓库:</strong> {svn_remote_url}</p>"
         except json.JSONDecodeError:
@@ -60,9 +60,9 @@ def home():
     
     return f"""<h2>AI代码审查服务正在运行</h2>
               <p><strong>SVN定时检查功能：</strong> {svn_status}</p>
-              {svn_info}              <p><strong>GitHub项目地址:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB" target="_blank">
-              https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB</a></p>
-              <p><strong>Docker镜像:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/pkgs/container/ai-codereview" target="_blank">
+              {svn_info}              <p><strong>GitHub项目地址:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW" target="_blank">
+              https://github.com/zhao-zg/AI-CODEREVIEW</a></p>
+              <p><strong>Docker镜像:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW/pkgs/container/ai-codereview" target="_blank">
               ghcr.io/zhao-zg/ai-codereview</a></p>
               <p><strong>支持的功能:</strong></p>
               <ul>
@@ -232,10 +232,8 @@ def handle_github_webhook(event_type, data):    # 获取GitHub配置
 
 
 def handle_gitlab_webhook(data):
-    object_kind = data.get("object_kind")
-
-    # 优先从请求头获取，如果没有，则从环境变量获取，如果没有，则从推送事件中获取
-    gitlab_url = os.getenv('GITLAB_URL') or request.headers.get('X-Gitlab-Instance')
+    object_kind = data.get("object_kind")    # 优先从请求头获取，如果没有，则从环境变量获取，如果没有，则从推送事件中获取
+    gitlab_url = get_env_with_default('GITLAB_URL') or request.headers.get('X-Gitlab-Instance')
     if not gitlab_url:
         repository = data.get('repository')
         if not repository:
@@ -371,9 +369,8 @@ def trigger_svn_check(hours: int = None):
         return
       # 优先使用多仓库配置
     # 获取全局设置
-    check_limit = get_env_int('SVN_CHECK_LIMIT')
-    
-    svn_repositories_config = os.environ.get('SVN_REPOSITORIES')
+    check_limit = get_env_int('SVN_CHECK_LIMIT')    
+    svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
     if svn_repositories_config and svn_repositories_config.strip() != '[]':
         logger.info("使用多仓库配置进行SVN检查")
         # 添加调试信息
@@ -387,17 +384,16 @@ def trigger_svn_check(hours: int = None):
         
         handle_multiple_svn_repositories(svn_repositories_config, hours, check_limit)
         return
-    
-    # 回退到单仓库配置（向后兼容）
-    svn_remote_url = os.environ.get('SVN_REMOTE_URL')
-    svn_local_path = os.environ.get('SVN_LOCAL_PATH')
+      # 回退到单仓库配置（向后兼容）
+    svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
+    svn_local_path = get_env_with_default('SVN_LOCAL_PATH')
     
     if not svn_remote_url or not svn_local_path:
         logger.error("SVN_REPOSITORIES 或 SVN_REMOTE_URL+SVN_LOCAL_PATH 环境变量必须设置")
         return
     
-    svn_username = os.environ.get('SVN_USERNAME')
-    svn_password = os.environ.get('SVN_PASSWORD')
+    svn_username = get_env_with_default('SVN_USERNAME')
+    svn_password = get_env_with_default('SVN_PASSWORD')
       # 如果未提供小时数，从环境变量读取默认值
     if hours is None:
         check_hours = get_env_int('SVN_CHECK_INTERVAL_HOURS')
@@ -411,8 +407,6 @@ def trigger_svn_check(hours: int = None):
 if __name__ == '__main__':
     check_config()
     # 启动定时任务调度器
-    setup_scheduler()
-
-    # 启动Flask API服务
-    port = int(os.environ.get('SERVER_PORT', 5001))
+    setup_scheduler()    # 启动Flask API服务
+    port = get_env_int('SERVER_PORT')
     api_app.run(host='0.0.0.0', port=port)
