@@ -427,22 +427,6 @@ main() {
                 log_warning "无效选择，请重新输入"
                 ;;
         esac
-                stop_all_services
-                ;;
-            4)
-                show_service_status
-                ;;
-            5)
-                show_service_logs
-                ;;
-            0)
-                log_info "感谢使用 AI-CodeReview-Gitlab!"
-                exit 0
-                ;;
-            *)
-                log_warning "无效选择，请重新输入"
-                ;;
-        esac
 
         echo ""
         read -p "按回车键继续..." dummy
