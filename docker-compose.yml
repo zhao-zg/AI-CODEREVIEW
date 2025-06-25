@@ -42,14 +42,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     
-    # 健康检查
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5001/health || wget --no-verbose --tries=1 --spider http://localhost:5001/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    
     # 网络配置
     networks:
       - ai-codereview-network
@@ -95,15 +87,8 @@ services:
     
     # 依赖应用服务和 Redis
     depends_on:
-      ai-codereview:
-        condition: service_healthy
-      redis:
-        condition: service_healthy      # 健康检查
-    healthcheck:
-      test: ["CMD", "python", "-c", "import sys; import os; sys.exit(0 if os.path.exists('/app/scripts/background_worker.py') else 1)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - ai-codereview
+      - redis
     
     # 网络配置
     networks:
@@ -129,13 +114,6 @@ services:
     # 数据持久化
     volumes:
       - redis_data:/data
-    
-    # 健康检查
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
     
     # 网络配置
     networks:

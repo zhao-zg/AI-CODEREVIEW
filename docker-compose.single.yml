@@ -56,14 +56,6 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
     
-    # 健康检查
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:5001/health || wget --no-verbose --tries=1 --spider http://localhost:5001/health || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    
     # 网络配置
     networks:
       - ai-codereview-network
@@ -84,13 +76,6 @@ services:
     # 数据持久化
     volumes:
       - redis_data:/data
-    
-    # 健康检查
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 15s
-      timeout: 5s
-      retries: 3
     
     # 网络配置
     networks:
