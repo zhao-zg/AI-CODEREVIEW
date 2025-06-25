@@ -20,14 +20,7 @@ write_log() {
 }
 
 # Docker Compose 兼容函数
-#     if docker_compose down && docker_compose up -d; then
-        log_success "服务重启成功"
-        write_log "服务重启成功"
-        echo ""
-        log_info "服务地址："
-        log_info "- API: http://localhost:5001"
-        log_info "- UI: http://localhost:5002"
-        check_service_healthker compose，如果不可用则使用 docker-compose
+# 优先使用 docker compose，如果不可用则使用 docker-compose
 docker_compose() {
     # 缓存检测结果以避免重复检查
     if [ -z "$DOCKER_COMPOSE_CMD" ]; then
@@ -440,7 +433,6 @@ restart_service() {
     fi
 }
 
-# 停止所有服务
 # 停止服务
 stop_service() {
     log_info "停止服务..."
