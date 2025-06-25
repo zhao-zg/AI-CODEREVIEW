@@ -8,6 +8,19 @@ set -e
 # 信号处理 - 防止意外退出
 trap 'echo ""; log_warning "检测到中断信号，返回主菜单..."; echo ""' INT
 
+# Docker Compose 兼容函数
+# 优先使用 docker compose，如果不可用则使用 docker-compose
+docker_compose() {
+    if docker compose version &> /dev/null; then
+        docker compose "$@"
+    elif command -v docker-compose &> /dev/null; then
+        docker-compose "$@"
+    else
+        log_error "Docker Compose 未安装！请先安装 Docker Compose"
+        return 1
+    fi
+}
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -239,11 +252,11 @@ multi_container_menu() {
     case $choice in
         1)
             log_info "启动多容器基础模式..."
-            docker-compose up -d
+            docker_compose up -d
             ;;
         2)
             log_info "启动多容器完整模式..."
-            COMPOSE_PROFILES=worker docker-compose up -d
+            COMPOSE_PROFILES=worker docker_compose up -d
             ;;
         0)
             return
@@ -275,11 +288,11 @@ single_container_menu() {
     case $choice in
         1)
             log_info "启动单容器基础模式..."
-            docker-compose -f docker-compose.single.yml up -d
+            docker_compose -f docker-compose.single.yml up -d
             ;;
         2)
             log_info "启动单容器 Redis 模式..."
-            COMPOSE_PROFILES=redis docker-compose -f docker-compose.single.yml up -d
+            COMPOSE_PROFILES=redis docker_compose -f docker-compose.single.yml up -d
             ;;
         0)
             return
@@ -296,15 +309,15 @@ stop_all_services() {
     log_info "停止所有服务..."
     
     # 尝试停止多容器服务
-    if docker-compose ps -q 2>/dev/null | grep -q .; then
+    if docker_compose ps -q 2>/dev/null | grep -q .; then
         log_info "停止多容器服务..."
-        docker-compose down
+        docker_compose down
     fi
     
     # 尝试停止单容器服务
-    if docker-compose -f docker-compose.single.yml ps -q 2>/dev/null | grep -q .; then
+    if docker_compose -f docker-compose.single.yml ps -q 2>/dev/null | grep -q .; then
         log_info "停止单容器服务..."
-        docker-compose -f docker-compose.single.yml down
+        docker_compose -f docker-compose.single.yml down
     fi
     
     log_success "所有服务已停止"
@@ -314,11 +327,11 @@ stop_all_services() {
 show_service_status() {
     echo ""
     log_info "=== 多容器服务状态 ==="
-    docker-compose ps 2>/dev/null || echo "无多容器服务运行"
+    docker_compose ps 2>/dev/null || echo "无多容器服务运行"
     
     echo ""
     log_info "=== 单容器服务状态 ==="
-    docker-compose -f docker-compose.single.yml ps 2>/dev/null || echo "无单容器服务运行"
+    docker_compose -f docker-compose.single.yml ps 2>/dev/null || echo "无单容器服务运行"
     
     echo ""
     log_info "=== Docker 容器状态 ==="
@@ -346,11 +359,11 @@ show_service_logs() {
     case $choice in
         1)
             log_info "显示多容器服务日志..."
-            docker-compose logs -f --tail=100
+            docker_compose logs -f --tail=100
             ;;
         2)
             log_info "显示单容器服务日志..."
-            docker-compose -f docker-compose.single.yml logs -f --tail=100
+            docker_compose -f docker-compose.single.yml logs -f --tail=100
             ;;  
         3)
             echo ""
