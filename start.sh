@@ -3,15 +3,15 @@
 # AI-CodeReview 智能启动脚本
 # 单容器架构 - API、Worker、UI 三合一
 
-set -e
+# 注意：不使用 set -e 以允许更灵活的错误处理
 
 # 全局变量
 DOCKER_COMPOSE_CMD=""
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="${SCRIPT_DIR}/start.log"
 
 # 信号处理 - 防止意外退出
-trap 'echo ""; log_warning "检测到中断信号，返回主菜单..."; echo ""' INT
+trap 'echo ""; echo "检测到中断信号，返回主菜单..."; echo ""' INT
 
 # 写入日志文件
 write_log() {
@@ -274,10 +274,10 @@ download_compose_files() {
 create_directories() {
     log_info "创建必要目录..."
     
-    local required_dirs=("conf" "conf_runtime" "data" "log" "data/svn")
+    local required_dirs="conf data log data/svn"
     local creation_success=true
     
-    for dir in "${required_dirs[@]}"; do
+    for dir in $required_dirs; do
         if mkdir -p "$dir" 2>/dev/null; then
             log_info "确保目录存在: $dir"
         else
@@ -285,22 +285,6 @@ create_directories() {
             creation_success=false
         fi
     done
-    
-    # 检查是否需要初始化运行时配置目录
-    if [ ! -d "conf_runtime" ] || [ -z "$(ls -A conf_runtime 2>/dev/null)" ]; then
-        log_info "运行时配置目录为空，准备从模板初始化..."
-        
-        # 如果有原始配置文件，先复制到运行时目录作为初始配置
-        if [ -d "conf" ] && [ -n "$(ls -A conf 2>/dev/null)" ]; then
-            log_info "从 conf/ 目录复制初始配置到 conf_runtime/..."
-            if cp -r conf/* conf_runtime/ 2>/dev/null; then
-                log_success "初始配置复制完成"
-            else
-                log_warning "初始配置复制失败"
-                creation_success=false
-            fi
-        fi
-    fi
     
     if [ "$creation_success" = true ]; then
         log_success "目录创建完成"
@@ -600,7 +584,8 @@ check_service_health() {
     # 检查 API 服务
     log_info "检查 API 服务健康状态..."
     local api_healthy=false
-    for ((i=1; i<=max_retries; i++)); do
+    i=1
+    while [ $i -le $max_retries ]; do
         log_info "API 健康检查尝试 $i/$max_retries..."
         
         if timeout 10 curl -s http://localhost:5001/health >/dev/null 2>&1; then
@@ -630,12 +615,14 @@ check_service_health() {
             log_info "等待 ${retry_interval}s 后重试..."
             sleep $retry_interval
         fi
+        i=$((i + 1))
     done
     
     # 检查 UI 服务
     log_info "检查 UI 服务健康状态..."
     local ui_healthy=false
-    for ((i=1; i<=max_retries; i++)); do
+    i=1
+    while [ $i -le $max_retries ]; do
         log_info "UI 健康检查尝试 $i/$max_retries..."
         
         if timeout 10 curl -s http://localhost:5002 >/dev/null 2>&1; then
@@ -662,6 +649,7 @@ check_service_health() {
             log_info "等待 ${retry_interval}s 后重试..."
             sleep $retry_interval
         fi
+        i=$((i + 1))
     done
     
     # 汇总健康检查结果
@@ -702,8 +690,8 @@ preflight_check() {
     local check_passed=true
     
     # 检查必要的配置文件
-    local required_files=("docker-compose.yml")
-    for file in "${required_files[@]}"; do
+    local required_files="docker-compose.yml"
+    for file in $required_files; do
         if [ ! -f "$file" ]; then
             log_warning "缺少配置文件: $file"
             check_passed=false
@@ -737,22 +725,22 @@ preflight_check() {
 # 检查端口冲突
 check_port_conflicts() {
     log_info "检查端口占用情况..."
-    local ports_in_use=()
+    local ports_in_use=""
     
     # 检查主要端口
-    local check_ports=(5001 5002 6379)
-    for port in "${check_ports[@]}"; do
+    local check_ports="5001 5002 6379"
+    for port in $check_ports; do
         if netstat -tuln 2>/dev/null | grep -q ":${port} " || ss -tuln 2>/dev/null | grep -q ":${port} "; then
-            ports_in_use+=("$port")
+            ports_in_use="$ports_in_use $port"
             log_warning "端口 $port 已被占用"
         fi
     done
     
-    if [ ${#ports_in_use[@]} -eq 0 ]; then
+    if [ -z "$ports_in_use" ]; then
         log_info "所有必要端口都可用"
         return 0
     else
-        log_warning "发现 ${#ports_in_use[@]} 个端口被占用: ${ports_in_use[*]}"
+        log_warning "发现端口被占用: $ports_in_use"
         log_info "如果这些端口被 AI-CodeReview 的其他实例占用，请先停止它们"
         return 1
     fi
@@ -787,8 +775,8 @@ main() {
     fi
     
     if ! check_docker; then
-        log_error "Docker 环境检查失败，无法继续"
-        exit 1
+        log_warning "Docker 环境检查失败，某些功能可能不可用"
+        log_info "您仍可以使用菜单选项 7 来安装 Docker 环境"
     fi
     
     if ! create_directories; then
