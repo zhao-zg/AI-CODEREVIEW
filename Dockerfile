@@ -4,14 +4,62 @@ FROM python:3.12-slim
 # 设置工作目录
 WORKDIR /app
 
-# 安装 supervisord 作为进程管理工具
-RUN apt-get update && apt-get install -y --no-install-recommends supervisor subversion && rm -rf /var/lib/apt/lists/*
+# 安装系统依赖和构建工具
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    supervisor \
+    subversion \
+    gcc \
+    g++ \
+    python3-dev \
+    libffi-dev \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# 复制项目文件&创建必要的文件夹
+# 升级 pip 和安装构建工具
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# 复制 requirements 文件
 COPY requirements.txt .
 
-# 安装依赖
-RUN pip install --no-cache-dir -r requirements.txt
+# 安装 Python 依赖（分步骤安装以便调试）
+# 首先安装基础依赖
+RUN pip install --no-cache-dir \
+    Flask==3.0.3 \
+    APScheduler==3.10.4 \
+    python-dotenv==1.0.0 \
+    Jinja2==3.1.4 \
+    requests==2.32.3 \
+    PyYAML==6.0.1
+
+# 安装可能有编译需求的包
+RUN pip install --no-cache-dir \
+    psutil==5.9.5 \
+    watchdog==3.0.0 \
+    PyMySQL==1.1.1
+
+# 安装大型数据科学包
+RUN pip install --no-cache-dir \
+    pandas==2.2.3 \
+    matplotlib==3.8.4 \
+    plotly==5.18.0
+
+# 安装 Web 和 AI 相关包
+RUN pip install --no-cache-dir \
+    streamlit==1.39.0 \
+    openai==1.59.3 \
+    ollama==0.4.7 \
+    zhipuai==2.1.5.20230904
+
+# 安装其余包
+RUN pip install --no-cache-dir \
+    httpx[socks]==0.27.0 \
+    lizard==1.17.20 \
+    pathspec==0.12.1 \
+    python-gitlab==5.6.0 \
+    schedule==1.2.0 \
+    tabulate==0.9.0 \
+    tiktoken==0.9.0 \
+    rq==2.1.0
 
 RUN mkdir -p log data scripts .streamlit conf_templates
 COPY biz ./biz
