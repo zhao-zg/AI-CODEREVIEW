@@ -30,8 +30,6 @@ def ensure_config_files():
         '.env': '环境变量配置文件',
         'dashboard_config.py': '仪表板配置文件',
         'prompt_templates.yml': '提示模板配置文件',
-        'supervisord.app.conf': 'Supervisord应用配置',
-        'supervisord.worker.conf': 'Supervisord工作者配置',
         'supervisord.all.conf': 'Supervisord统一配置'
     }
     
@@ -113,7 +111,7 @@ def setup_supervisord_config():
         
         # 创建默认的 supervisord 配置
         try:
-            default_config = create_default_supervisord_config(run_mode)
+            default_config = create_default_supervisord_config()
             with open(target_conf, 'w', encoding='utf-8') as f:
                 f.write(default_config)
             print(f"[OK] 已创建默认配置: {target_conf}")
@@ -122,27 +120,14 @@ def setup_supervisord_config():
             print(f"[ERROR] 创建默认配置失败: {e}")
             return False
 
-def create_default_supervisord_config(run_mode):
-    """创建默认的 supervisord 配置"""
+def create_default_supervisord_config():
+    """创建默认的 supervisord 配置 - 单服务模式"""
     
-    base_config = """[supervisord]
+    return """[supervisord]
 nodaemon=true
 user=root
 
-"""
-    
-    if run_mode == 'worker':
-        return base_config + """[program:worker]
-command=python /app/scripts/background_worker.py
-directory=/app
-autostart=true
-autorestart=true
-stderr_logfile=/app/log/worker.err.log
-stdout_logfile=/app/log/worker.out.log
-environment=PYTHONPATH="/app"
-"""
-    elif run_mode == 'all':
-        return base_config + """[program:api]
+[program:api]
 command=python /app/api.py
 directory=/app
 autostart=true
@@ -152,35 +137,7 @@ stdout_logfile=/app/log/api.out.log
 environment=PYTHONPATH="/app"
 
 [program:ui]
-command=streamlit run /app/ui.py --server.port=5002 --server.address=0.0.0.0
-directory=/app
-autostart=true
-autorestart=true
-stderr_logfile=/app/log/ui.err.log
-stdout_logfile=/app/log/ui.out.log
-environment=PYTHONPATH="/app"
-
-[program:worker]
-command=python /app/scripts/background_worker.py
-directory=/app
-autostart=true
-autorestart=true
-stderr_logfile=/app/log/worker.err.log
-stdout_logfile=/app/log/worker.out.log
-environment=PYTHONPATH="/app"
-"""
-    else:  # app mode
-        return base_config + """[program:api]
-command=python /app/api.py
-directory=/app
-autostart=true
-autorestart=true
-stderr_logfile=/app/log/api.err.log
-stdout_logfile=/app/log/api.out.log
-environment=PYTHONPATH="/app"
-
-[program:ui]
-command=streamlit run /app/ui.py --server.port=5002 --server.address=0.0.0.0
+command=streamlit run /app/ui.py --server.port=5002 --server.address=0.0.0.0 --server.headless true
 directory=/app
 autostart=true
 autorestart=true
