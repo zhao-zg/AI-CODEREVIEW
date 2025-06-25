@@ -25,11 +25,45 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
         # 解析仓库配置
         if repositories_config is None:
             repositories_config = os.environ.get('SVN_REPOSITORIES', '[]')
+          # 详细的配置调试信息
+        logger.debug(f"SVN仓库配置字符串长度: {len(repositories_config)}")
+        logger.debug(f"SVN仓库配置前50字符: {repr(repositories_config[:50])}")
+          # 尝试自动修复常见的JSON格式问题
+        original_config = repositories_config
+        
+        # 修复1: 去除可能的BOM字符（优先处理）
+        if repositories_config.startswith('\ufeff'):
+            logger.warning("⚠️ 检测到BOM字符，自动移除")
+            repositories_config = repositories_config[1:]
+        
+        # 修复2: 清理多余的空白字符
+        repositories_config = repositories_config.strip()
+        
+        # 修复3: 将单引号替换为双引号（这是最常见的问题）
+        if "'" in repositories_config and '"' not in repositories_config:
+            logger.warning("⚠️ 检测到配置使用单引号，自动转换为双引号")
+            repositories_config = repositories_config.replace("'", '"')
+        
+        if repositories_config != original_config:
+            logger.info("✅ 已自动修复配置格式问题")
         
         try:
             repositories = json.loads(repositories_config)
         except json.JSONDecodeError as e:
             logger.error(f"SVN仓库配置JSON解析失败: {e}")
+            logger.error(f"配置内容: {repr(repositories_config)}")
+            logger.error(f"错误位置: 行{e.lineno}, 列{e.colno}, 字符{e.pos}")
+            
+            # 尝试显示错误上下文
+            if e.pos < len(repositories_config):
+                error_char = repositories_config[e.pos]
+                logger.error(f"错误字符: {repr(error_char)} (ASCII: {ord(error_char)})")
+                
+                # 显示错误周围的字符
+                start = max(0, e.pos - 10)
+                end = min(len(repositories_config), e.pos + 10)
+                context = repositories_config[start:end]
+                logger.error(f"错误上下文: {repr(context)}")
             return
         
         if not repositories:

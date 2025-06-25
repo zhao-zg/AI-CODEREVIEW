@@ -61,8 +61,8 @@ def home():
               <p><strong>SVN定时检查功能：</strong> {svn_status}</p>
               {svn_info}              <p><strong>GitHub项目地址:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB" target="_blank">
               https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB</a></p>
-              <p><strong>Docker镜像:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/pkgs/container/ai-codereview-gitlab" target="_blank">
-              ghcr.io/zhao-zg/ai-codereview-gitlab</a></p>
+              <p><strong>Docker镜像:</strong> <a href="https://github.com/zhao-zg/AI-CODEREVIEW-GITLAB/pkgs/container/ai-codereview" target="_blank">
+              ghcr.io/zhao-zg/ai-codereview</a></p>
               <p><strong>支持的功能:</strong></p>
               <ul>
                 <li>GitLab Webhook 触发审查</li>
@@ -373,13 +373,22 @@ def trigger_svn_check(hours: int = None):
     if not svn_check_enabled:
         logger.info("SVN检查功能未启用")
         return
-    
-    # 优先使用多仓库配置    # 获取全局设置
+      # 优先使用多仓库配置
+    # 获取全局设置
     check_limit = int(os.environ.get('SVN_CHECK_LIMIT', '100'))
     
     svn_repositories_config = os.environ.get('SVN_REPOSITORIES')
     if svn_repositories_config and svn_repositories_config.strip() != '[]':
         logger.info("使用多仓库配置进行SVN检查")
+        # 添加调试信息
+        logger.debug(f"SVN_REPOSITORIES 配置长度: {len(svn_repositories_config)}")
+        logger.debug(f"前50字符: {repr(svn_repositories_config[:50])}")
+        logger.debug(f"后10字符: {repr(svn_repositories_config[-10:])}")
+        
+        # 检测可能的单引号问题
+        if "'" in svn_repositories_config and '"' not in svn_repositories_config:
+            logger.warning("⚠️ 检测到配置中使用了单引号，JSON要求使用双引号")
+        
         handle_multiple_svn_repositories(svn_repositories_config, hours, check_limit)
         return
     
