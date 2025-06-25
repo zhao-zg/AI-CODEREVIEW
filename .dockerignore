@@ -57,6 +57,7 @@ test_*.py
 tests/
 
 # Development files
+.env
 .env.local
 .env.development
 .env.test

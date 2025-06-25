@@ -13,14 +13,14 @@ COPY requirements.txt .
 # 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN mkdir -p log data conf scripts
+RUN mkdir -p log data scripts .streamlit
 COPY biz ./biz
 COPY ui_components ./ui_components
+COPY conf ./conf
+COPY .streamlit ./.streamlit
 COPY api.py ./api.py
 COPY ui.py ./ui.py
-COPY conf/prompt_templates.yml ./conf/prompt_templates.yml
-COPY conf/.env.dist ./conf/.env.dist
-COPY scripts/init_env.py ./scripts/init_env.py
+COPY scripts/ ./scripts/
 
 # 创建启动脚本来初始化环境
 RUN echo '#!/bin/bash\n\
@@ -47,9 +47,9 @@ exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
 CMD ["/app/start.sh"]
 
 FROM base AS app
-COPY conf/supervisord.app.conf /etc/supervisor/conf.d/supervisord.conf
+RUN cp /app/conf/supervisord.app.conf /etc/supervisor/conf.d/supervisord.conf
 # 暴露 Flask 和 Streamlit 的端口
 EXPOSE 5001 5002
 
 FROM base AS worker
-COPY ./conf/supervisord.worker.conf /etc/supervisor/conf.d/supervisord.conf
+RUN cp /app/conf/supervisord.worker.conf /etc/supervisor/conf.d/supervisord.conf
