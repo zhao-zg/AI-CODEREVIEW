@@ -37,7 +37,8 @@ services:
       # 启用所有功能
       - ENABLE_API=true
       - ENABLE_UI=true
-      - ENABLE_WORKER=true
+      # 基础配置
+      - APP_MODE=single
       
       # 队列配置（使用内存队列，简化部署）
       - QUEUE_DRIVER=memory

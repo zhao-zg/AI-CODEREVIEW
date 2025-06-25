@@ -36,7 +36,8 @@ services:
       # 启用所有功能（内置在api.py中）
       - ENABLE_API=true
       - ENABLE_UI=true
-      - ENABLE_WORKER=true
+      # 基础配置
+      - APP_MODE=single
       
       # 使用内存队列（无需Redis）
       - QUEUE_DRIVER=memory

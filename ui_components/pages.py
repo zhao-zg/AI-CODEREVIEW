@@ -106,9 +106,12 @@ def test_current_configuration():
         try:
             from biz.service.review_service import ReviewService
             review_service = ReviewService()
-            # 简单测试数据库连接
-            review_service.get_mr_review_logs(limit=1)
-            results["database"] = {"status": "success", "message": "数据库连接正常"}
+            # 简单测试数据库连接 - 只获取少量数据进行测试
+            import time
+            current_time = int(time.time())
+            one_week_ago = current_time - (7 * 24 * 60 * 60)  # 一周前
+            df = review_service.get_mr_review_logs(updated_at_gte=one_week_ago)
+            results["database"] = {"status": "success", "message": f"数据库连接正常，最近一周有{len(df)}条记录"}
         except Exception as e:
             results["database"] = {"status": "error", "message": f"数据库连接失败: {str(e)[:100]}"}
         
@@ -548,7 +551,8 @@ def _display_detailed_analysis(review_stats, platforms):
     
     with col_refresh:
         st.markdown("<br>", unsafe_allow_html=True)  # 对齐按钮
-        if st.button("🔄 刷新数据", help="重新加载最新数据"):
+        refresh_btn = st.button("🔄 刷新数据", key="refresh_data_btn")
+        if refresh_btn:
             st.rerun()
     
     # 高级筛选选项
@@ -786,9 +790,8 @@ def env_management_page():
                                            ["DEBUG", "INFO", "WARNING", "ERROR"],
                                            index=["DEBUG", "INFO", "WARNING", "ERROR"].index(env_config.get("LOG_LEVEL", "DEBUG")))
                     queue_driver = st.selectbox("队列驱动", 
-                                              ["async", "rq"],
+                                              ["async", "memory"],
                                               index=0 if env_config.get("QUEUE_DRIVER", "async") == "async" else 1)
-                    worker_queue = st.text_input("工作队列名称", value=env_config.get("WORKER_QUEUE", "git_test_com"))
                     log_file = st.text_input("日志文件路径", value=env_config.get("LOG_FILE", "log/app.log"))
                 
                 with col4:
@@ -941,7 +944,6 @@ def env_management_page():
                     "TZ": timezone,
                     "LOG_LEVEL": log_level,
                     "QUEUE_DRIVER": queue_driver,
-                    "WORKER_QUEUE": worker_queue,
                     "LOG_FILE": log_file,
                     "LOG_MAX_BYTES": str(log_max_bytes),
                     "LOG_BACKUP_COUNT": str(log_backup_count),
@@ -1043,31 +1045,43 @@ def env_management_page():
                         st.error("❌ 保存配置失败，请检查文件权限。")
                 except Exception as e:
                     st.error(f"❌ 保存配置失败: {e}")
-            
-            # 添加配置测试按钮
-            st.markdown("---")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("🧪 测试当前配置", help="测试当前配置的有效性"):
+        
+        # 添加配置测试按钮 - 移出form范围
+        st.markdown("---")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            try:
+                test_btn = st.button("🧪 测试当前配置", key="env_mgmt_test_config_btn")
+                if test_btn:
                     with st.spinner("正在测试配置..."):
                         test_results = test_current_configuration()
                         display_test_results(test_results)
-            
-            with col2:
-                if st.button("🔄 立即重载配置", help="不重启服务的情况下重新加载配置"):
+            except Exception as e:
+                st.error(f"按钮错误: {e}")
+        
+        with col2:
+            try:
+                reload_btn = st.button("🔄 立即重载配置", key="env_mgmt_reload_config_btn")
+                if reload_btn:
                     with st.spinner("正在重载配置..."):
                         reload_success = apply_config_changes()
                         if reload_success:
                             st.success("✅ 配置重载成功！")
                         else:
                             st.warning("⚠️ 配置重载部分成功，建议检查服务状态")
-            
-            with col3:
-                if st.button("📊 检查服务状态", help="检查各个服务组件的运行状态"):
+            except Exception as e:
+                st.error(f"按钮错误: {e}")
+        
+        with col3:
+            try:
+                status_btn = st.button("📊 检查服务状态", key="env_mgmt_check_status_btn")
+                if status_btn:
                     with st.spinner("正在检查服务状态..."):
                         service_status = check_service_status()
                         display_service_status(service_status)
+            except Exception as e:
+                st.error(f"按钮错误: {e}")
     
     with tab2:
         st.markdown("### 📋 配置总览")
@@ -1087,7 +1101,7 @@ def env_management_page():
                                    "REVIEW_STYLE", "REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS"],
                     "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
                     "📋 版本追踪配置": ["VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
-                    "🏠 系统配置": ["SERVER_PORT", "TZ", "LOG_LEVEL", "LOG_FILE", "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER", "WORKER_QUEUE"],
+                    "🏠 系统配置": ["SERVER_PORT", "TZ", "LOG_LEVEL", "LOG_FILE", "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER"],
                     "⚡ Redis配置": ["REDIS_HOST", "REDIS_PORT"],
                     "📊 报告配置": ["REPORT_CRONTAB_EXPRESSION"],
                     "🔗 GitLab配置": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED", "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED"],
@@ -1255,12 +1269,12 @@ def env_management_page():
                     st.error(f"❌ 导出配置失败: {e}")
 
 def check_service_status():
-    """检查各个服务的运行状态"""
+    """检查各个服务的运行状态（单服务架构）"""
     status = {
         "api": {"running": False, "message": ""},
         "ui": {"running": True, "message": "当前UI服务正在运行"},
-        "worker": {"running": False, "message": ""},
-        "redis": {"running": False, "message": ""}
+        "database": {"running": False, "message": ""},
+        "config": {"running": False, "message": ""}
     }
     
     try:
@@ -1277,52 +1291,36 @@ def check_service_status():
         except Exception as e:
             status["api"] = {"running": False, "message": f"API服务检查异常: {str(e)[:50]}"}
         
-        # 检查Worker进程（通过进程查找）
+        # 检查数据库连接
         try:
-            import psutil
-            worker_found = False
-            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-                try:
-                    cmdline = proc.info['cmdline']
-                    if cmdline and any('background_worker.py' in cmd for cmd in cmdline):
-                        worker_found = True
-                        break
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    continue
-            
-            if worker_found:
-                status["worker"] = {"running": True, "message": "Worker进程运行正常"}
-            else:
-                status["worker"] = {"running": False, "message": "未找到Worker进程"}
-                
-        except ImportError:
-            status["worker"] = {"running": False, "message": "无法检查Worker进程 (缺少psutil库)"}
+            from biz.service.review_service import ReviewService
+            review_service = ReviewService()
+            # 简单的数据库连接测试
+            review_service.get_mr_review_logs()
+            status["database"] = {"running": True, "message": "数据库连接正常"}
         except Exception as e:
-            status["worker"] = {"running": False, "message": f"Worker进程检查异常: {str(e)[:50]}"}
+            status["database"] = {"running": False, "message": f"数据库连接失败: {str(e)[:50]}"}
         
-        # 检查Redis服务
-        queue_driver = os.environ.get('QUEUE_DRIVER', 'memory').lower()
-        if queue_driver == 'redis':
-            try:
-                import redis
-                redis_host = os.environ.get('REDIS_HOST', 'localhost')
-                redis_port = int(os.environ.get('REDIS_PORT', '6379'))
-                
-                r = redis.Redis(host=redis_host, port=redis_port, socket_timeout=3)
-                r.ping()
-                status["redis"] = {"running": True, "message": f"Redis服务运行正常 ({redis_host}:{redis_port})"}
-                
-            except ImportError:
-                status["redis"] = {"running": False, "message": "Redis库未安装"}
-            except Exception as e:
-                status["redis"] = {"running": False, "message": f"Redis连接失败: {str(e)[:50]}"}
-        else:
-            status["redis"] = {"running": False, "message": f"当前使用{queue_driver}队列，未启用Redis"}
-            
+        # 检查配置管理
+        try:
+            from biz.utils.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            config = config_manager.get_env_config()
+            if config:
+                status["config"] = {"running": True, "message": f"配置加载正常 ({len(config)}项)"}
+            else:
+                status["config"] = {"running": False, "message": "配置为空"}
+        except Exception as e:
+            status["config"] = {"running": False, "message": f"配置检查异常: {str(e)[:50]}"}
+    
     except Exception as e:
-        status["error"] = {"running": False, "message": f"服务状态检查异常: {e}"}
+        # 如果整个检查过程出现异常，记录错误
+        for key in status:
+            if key != "ui":  # UI肯定是运行的，因为代码在执行
+                status[key] = {"running": False, "message": f"检查异常: {str(e)[:30]}"}
     
     return status
+
 
 def display_service_status(status):
     """显示服务状态"""
@@ -1345,8 +1343,10 @@ def display_service_status(status):
     st.markdown("---")
     st.markdown("##### 💡 服务管理提示")
     st.info("""
-    - **API服务**: 处理webhook请求和代码审查
+    - **API服务**: 处理webhook请求和代码审查，集成后台任务处理
     - **UI服务**: 当前仪表板界面 (正在运行)
-    - **Worker进程**: 后台任务处理器
-    - **Redis**: 队列服务 (仅在启用Redis队列时需要)
+    - **数据库**: SQLite数据库连接状态
+    - **配置**: 系统配置文件加载状态
+    
+    **单服务架构**: API、UI和后台任务已合并在一个服务中运行
     """)

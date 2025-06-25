@@ -313,3 +313,40 @@ def _fix_unquoted_json(config_str: str) -> str:
     except Exception as e:
         logger.error(f"JSON自动修复失败: {e}")
         return config_str
+
+
+def main():
+    """SVN 后台任务主函数"""
+    try:
+        logger.info("🚀 启动 SVN 后台检查任务")
+        
+        # 检查 SVN 是否启用
+        if not get_env_bool('SVN_CHECK_ENABLED'):
+            logger.info("ℹ️ SVN 检查已禁用")
+            return
+        
+        # 获取配置
+        repositories_config = get_env_with_default('SVN_REPOSITORIES')
+        check_limit = get_env_int('SVN_CHECK_LIMIT')
+        
+        if not repositories_config:
+            logger.warning("⚠️ 未配置 SVN 仓库，跳过 SVN 检查")
+            return
+        
+        logger.info(f"📂 开始检查 SVN 仓库: {repositories_config[:50]}...")
+        
+        # 执行 SVN 检查
+        handle_multiple_svn_repositories(
+            repositories_config=repositories_config,
+            check_limit=check_limit
+        )
+        
+        logger.info("✅ SVN 检查任务完成")
+        
+    except Exception as e:
+        logger.error(f"❌ SVN 后台任务执行失败: {e}")
+        logger.error(f"详细错误: {traceback.format_exc()}")
+
+
+if __name__ == "__main__":
+    main()

@@ -478,108 +478,41 @@ def reload_config_endpoint():
         }), 500
 
 
-def run_rq_worker():
-    """运行 RQ 队列工作器"""
-    try:
-        from redis import Redis
-        from rq import Worker, Queue
-        
-        # 获取 Redis 配置
-        redis_url = get_env_with_default('REDIS_URL')
-        if redis_url:
-            redis_conn = Redis.from_url(redis_url)
-        else:
-            redis_host = get_env_with_default('REDIS_HOST')
-            redis_port = int(get_env_with_default('REDIS_PORT'))
-            redis_conn = Redis(host=redis_host, port=redis_port)
-        
-        # 创建队列列表
-        queue_names = ['default', 'gitlab', 'github', 'svn']
-        queues = [Queue(name, connection=redis_conn) for name in queue_names]
-        
-        logger.info(f"🚀 启动 RQ Worker，监听队列: {queue_names}")
-        
-        # 创建并启动工作器
-        worker = Worker(queues, connection=redis_conn)
-        worker.work()
-        
-    except ImportError:
-        logger.error("❌ RQ 或 Redis 库未安装，无法启动队列工作器")
-        return False
-    except Exception as e:
-        logger.error(f"❌ RQ Worker 启动失败: {e}")
-        return False
-
-
-def run_svn_worker():
-    """运行 SVN 后台检查任务"""
-    try:
-        from biz.svn.svn_worker import main as svn_main
-        
-        logger.info("🚀 启动 SVN 后台任务处理器")
-        
-        # 在单独的线程中运行 SVN 任务
-        def svn_worker_thread():
-            while True:
+def start_background_tasks():
+    """启动后台任务（单服务架构）"""
+    global background_threads
+    
+    logger.info("🚀 初始化后台任务...")
+    
+    # 启动 SVN 后台任务（如果启用）
+    svn_enabled = get_env_bool('SVN_CHECK_ENABLED')
+    if svn_enabled:
+        try:
+            from biz.svn.svn_worker import main as svn_main
+            
+            def svn_worker_thread():
+                """SVN工作线程"""
                 try:
+                    logger.info("🚀 启动 SVN 后台任务处理器")
+                    # 只执行一次，由调度器控制频率
                     svn_main()
                 except Exception as e:
                     logger.error(f"❌ SVN 任务执行失败: {e}")
-                
-                # 等待一段时间后再次执行
-                interval = int(get_env_with_default('SVN_CHECK_INTERVAL'))
-                time.sleep(interval)
-        
-        thread = threading.Thread(target=svn_worker_thread, daemon=True)
-        thread.start()
-        return thread
-        
-    except ImportError:
-        logger.error("❌ SVN 模块未找到")
-        return None
-    except Exception as e:
-        logger.error(f"❌ SVN 任务启动失败: {e}")
-        return None
-
-
-def start_background_tasks():
-    """启动后台任务"""
-    global background_threads
-    
-    # 检查是否启用后台任务
-    enable_worker = get_env_bool('ENABLE_WORKER')
-    if not enable_worker:
-        logger.info("ℹ️ 后台任务处理器已禁用")
-        return
-    
-    logger.info("🚀 启动后台任务...")
-    
-    # 获取队列驱动配置
-    queue_driver = get_env_with_default('QUEUE_DRIVER')
-    svn_enabled = get_env_bool('SVN_CHECK_ENABLED')
-    
-    # 启动 SVN 后台任务（如果启用）
-    if svn_enabled:
-        svn_thread = run_svn_worker()
-        if svn_thread:
-            background_threads.append(svn_thread)
-    
-    # 根据队列驱动类型启动相应的工作器
-    if queue_driver == 'rq':
-        # RQ 模式 - 在单独线程中运行队列工作器
-        logger.info("📦 使用 RQ 队列模式")
-        def rq_worker_thread():
-            try:
-                run_rq_worker()
-            except Exception as e:
-                logger.error(f"❌ RQ Worker 线程异常: {e}")
-        
-        rq_thread = threading.Thread(target=rq_worker_thread, daemon=True)
-        rq_thread.start()
-        background_threads.append(rq_thread)
+            
+            # 在单独线程中启动SVN任务
+            thread = threading.Thread(target=svn_worker_thread, daemon=True)
+            thread.start()
+            background_threads.append(thread)
+            logger.info("✅ SVN 后台任务已启动")
+            
+        except ImportError as e:
+            logger.error(f"❌ SVN 后台任务启动失败 (缺少依赖): {e}")
+        except Exception as e:
+            logger.error(f"❌ SVN 后台任务启动失败: {e}")
     else:
-        # 进程模式 - 只运行非队列任务
-        logger.info("🔄 使用内存队列模式")
+        logger.info("ℹ️ SVN 检查已禁用")
+    
+    logger.info("✅ 后台任务初始化完成")
 
 def shutdown_background_tasks():
     """关闭后台任务"""

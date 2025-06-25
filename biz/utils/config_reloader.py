@@ -81,8 +81,17 @@ class ConfigReloader:
         # 通知API服务
         results['api'] = self._notify_api_service()
         
-        # 通知Worker进程
-        results['worker'] = self._notify_worker_processes()
+    def _notify_services(self) -> dict:
+        """通知所有服务重新加载配置"""
+        results = {}
+        
+        # 通知API服务
+        results['api'] = self._notify_api_service()
+        
+        # 通知UI服务
+        results['ui'] = self._notify_ui_service()
+        
+        return results
         
         # 通知UI服务 (Streamlit)
         results['ui'] = self._notify_ui_service()
@@ -151,29 +160,7 @@ class ConfigReloader:
             print(f"[ConfigReloader] 通过HTTP通知API服务失败: {e}")
             return False
     
-    def _notify_worker_processes(self) -> bool:
-        """通知Worker进程重新加载配置"""
-        try:
-            # 查找Worker进程
-            worker_processes = self._find_processes_by_name('background_worker.py')
-            
-            for proc in worker_processes:
-                try:
-                    # 在Windows上，信号功能有限，先尝试发送SIGTERM让进程优雅关闭
-                    # 实际生产环境建议使用进程管理工具如supervisor
-                    if hasattr(signal, 'SIGUSR1'):
-                        proc.send_signal(signal.SIGUSR1)
-                        print(f"[ConfigReloader] 已通知Worker进程重载配置: PID {proc.pid}")
-                    else:
-                        print(f"[ConfigReloader] Windows系统不支持SIGUSR1信号，Worker进程需要手动重启")
-                except Exception as e:
-                    print(f"[ConfigReloader] 通知Worker进程失败: {e}")
-                    
-            return len(worker_processes) > 0
-            
-        except Exception as e:
-            print(f"[ConfigReloader] 查找Worker进程失败: {e}")
-            return False
+    # 移除 _notify_worker_processes 方法 - 单服务架构不需要独立 worker 进程
     
     def _notify_ui_service(self) -> bool:
         """通知UI服务配置已更改"""

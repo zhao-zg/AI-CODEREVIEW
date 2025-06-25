@@ -104,10 +104,82 @@ class SVNHandler:
         
         if returncode != 0:
             logger.error(f"SVN更新失败: {stderr}")
-            return False
+            
+            # 如果是E155037错误（需要cleanup），尝试执行cleanup
+            if "E155037" in stderr or "Previous operation has not finished" in stderr:
+                logger.info("检测到SVN工作副本需要清理，正在执行cleanup...")
+                cleanup_success = self._cleanup_working_copy()
+                
+                if cleanup_success:
+                    # cleanup成功后重试更新
+                    logger.info("SVN cleanup成功，重试更新...")
+                    stdout, stderr, returncode = self._run_svn_command(['svn', 'update'], cwd=self.svn_local_path)
+                    
+                    if returncode != 0:
+                        logger.error(f"SVN cleanup后更新仍然失败: {stderr}")
+                        return False
+                else:
+                    logger.error("SVN cleanup失败，无法更新工作副本")
+                    return False
+            else:
+                return False
         
         logger.info("SVN工作副本更新成功")
         return True
+    
+    def _cleanup_working_copy(self) -> bool:
+        """
+        清理SVN工作副本
+        :return: 清理是否成功
+        """
+        try:
+            logger.info(f"开始清理SVN工作副本: {self.svn_local_path}")
+            
+            # 尝试标准cleanup
+            stdout, stderr, returncode = self._run_svn_command(['svn', 'cleanup'], cwd=self.svn_local_path)
+            
+            if returncode == 0:
+                logger.info("SVN cleanup成功")
+                return True
+            
+            logger.warning(f"标准SVN cleanup失败: {stderr}")
+            
+            # 如果标准cleanup失败，尝试强制cleanup（SVN 1.7+）
+            logger.info("尝试强制cleanup...")
+            stdout, stderr, returncode = self._run_svn_command(
+                ['svn', 'cleanup', '--remove-unversioned', '--remove-ignored'], 
+                cwd=self.svn_local_path
+            )
+            
+            if returncode == 0:
+                logger.info("强制SVN cleanup成功")
+                return True
+            
+            logger.error(f"强制SVN cleanup也失败: {stderr}")
+            
+            # 最后的手段：删除.svn/wc.db锁文件（仅限紧急情况）
+            import os
+            lock_file = os.path.join(self.svn_local_path, '.svn', 'wc.db-lock')
+            if os.path.exists(lock_file):
+                logger.info("尝试删除SVN锁文件...")
+                try:
+                    os.remove(lock_file)
+                    logger.info("SVN锁文件删除成功，重试cleanup...")
+                    
+                    stdout, stderr, returncode = self._run_svn_command(['svn', 'cleanup'], cwd=self.svn_local_path)
+                    if returncode == 0:
+                        logger.info("删除锁文件后cleanup成功")
+                        return True
+                except Exception as e:
+                    logger.error(f"删除SVN锁文件失败: {e}")
+            
+            # 如果所有清理方法都失败，建议重新检出
+            logger.error(f"所有SVN cleanup方法都失败，建议重新检出工作副本: {self.svn_local_path}")
+            return False
+            
+        except Exception as e:
+            logger.error(f"SVN cleanup过程中发生异常: {e}")
+            return False
     
     def get_recent_commits(self, hours: int = 24, limit: int = 100) -> List[Dict]:
         """
