@@ -5,6 +5,9 @@
 
 set -e
 
+# 信号处理 - 防止意外退出
+trap 'echo ""; log_warning "检测到中断信号，返回主菜单..."; echo ""' INT
+
 # 颜色定义
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -225,6 +228,13 @@ multi_container_menu() {
     echo "0) 返回主菜单"
     echo ""
     read -p "请选择 [1-2, 0]: " choice
+    
+    # 处理空输入
+    if [ -z "$choice" ]; then
+        log_warning "请输入有效的选项"
+        multi_container_menu
+        return
+    fi
 
     case $choice in
         1)
@@ -254,6 +264,13 @@ single_container_menu() {
     echo "0) 返回主菜单"
     echo ""
     read -p "请选择 [1-2, 0]: " choice
+    
+    # 处理空输入
+    if [ -z "$choice" ]; then
+        log_warning "请输入有效的选项"
+        single_container_menu
+        return
+    fi
 
     case $choice in
         1)
@@ -318,6 +335,13 @@ show_service_logs() {
     echo "0) 返回主菜单"
     echo ""
     read -p "请选择 [1-3, 0]: " choice
+    
+    # 处理空输入
+    if [ -z "$choice" ]; then
+        log_warning "请输入有效的选项"
+        show_service_logs
+        return
+    fi
 
     case $choice in
         1)
@@ -377,13 +401,19 @@ main() {
     echo ""
 
     # 检查环境和下载配置文件
-    download_compose_files
-    check_docker
+    download_compose_files || log_warning "配置文件下载失败，将尝试继续运行"
+    check_docker || log_warning "Docker 环境检查失败，部分功能可能不可用"
     create_directories
 
     while true; do
         show_deployment_menu
         read -p "请选择操作 [0-7]: " choice
+        
+        # 处理空输入
+        if [ -z "$choice" ]; then
+            log_warning "请输入有效的选项"
+            continue
+        fi
 
         case $choice in
             1)
@@ -424,7 +454,8 @@ main() {
                 exit 0
                 ;;
             *)
-                log_warning "无效选择，请重新输入"
+                log_warning "无效选择：'$choice'，请输入 0-7 之间的数字"
+                echo "提示: 输入 0 退出程序"
                 ;;
         esac
 
