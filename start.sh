@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# AI-CodeReview-Gitlab 智能启动脚本
-# 支持多容器和单容器模式选择
+# AI-CodeReview 智能启动脚本
+# 单容器架构 - API、Worker、UI 三合一
 
 set -e
 
@@ -20,7 +20,14 @@ write_log() {
 }
 
 # Docker Compose 兼容函数
-# 优先使用 docker compose，如果不可用则使用 docker-compose
+#     if docker_compose down && docker_compose up -d; then
+        log_success "服务重启成功"
+        write_log "服务重启成功"
+        echo ""
+        log_info "服务地址："
+        log_info "- API: http://localhost:5001"
+        log_info "- UI: http://localhost:5002"
+        check_service_healthker compose，如果不可用则使用 docker-compose
 docker_compose() {
     # 缓存检测结果以避免重复检查
     if [ -z "$DOCKER_COMPOSE_CMD" ]; then
@@ -314,21 +321,19 @@ create_directories() {
 # 显示部署模式选择菜单
 show_deployment_menu() {
     echo ""
-    echo "🚀 AI-CodeReview-Gitlab 部署模式选择"
+    echo "🚀 AI-CodeReview 部署管理"
     echo "=================================================="
-    echo "1) 多容器模式 (推荐生产环境)"
-    echo "   - 基础版：仅启动 API + UI 服务"
-    echo "   - 完整版：启动 API + UI + Worker + Redis"
+    echo "1) 启动服务 (单容器模式)"
+    echo "   - API + Worker + UI 三合一"
+    echo "   - 支持内存队列和 Redis 队列"
     echo ""
-    echo "2) 单容器模式 (适合开发测试)"
-    echo "   - 所有服务在一个容器中运行"
-    echo "   - 可选启用 Redis 支持"
+    echo "2) 停止服务"
     echo ""
-    echo "3) 停止所有服务"
+    echo "3) 查看服务状态"
     echo ""
-    echo "4) 查看服务状态"
+    echo "4) 查看服务日志"
     echo ""
-    echo "5) 查看服务日志"
+    echo "5) 重启服务"
     echo ""
     echo "6) 清理 Docker 资源"
     echo "   - 停止并删除所有相关容器"
@@ -346,50 +351,59 @@ show_deployment_menu() {
     echo "=================================================="
 }
 
-# 多容器模式菜单
-multi_container_menu() {
+# 启动服务菜单
+start_service_menu() {
     while true; do
         echo ""
-        echo "🔧 多容器模式选项："
-        echo "1) 基础模式 (仅 API + UI)"
-        echo "2) 完整模式 (API + UI + Worker + Redis)"
+        echo "🔧 启动服务选项："
+        echo "1) 基础模式 (内存队列)"
+        echo "2) Redis 模式 (Redis 队列)"
         echo "0) 返回主菜单"
         echo ""
         read -p "请选择 [1-2, 0]: " choice
         
         case $choice in
             1)
-                log_info "启动多容器基础模式..."
-                write_log "启动多容器基础模式"
+                log_info "启动基础模式 (内存队列)..."
+                write_log "启动基础模式"
                 if docker_compose up -d; then
-                    log_success "多容器基础模式启动成功"
-                    write_log "多容器基础模式启动成功"
+                    log_success "基础模式启动成功"
+                    write_log "基础模式启动成功"
+                    echo ""
+                    log_info "服务地址："
+                    log_info "- API: http://localhost:5001"
+                    log_info "- UI: http://localhost:5002"
                     return 0
                 else
-                    log_error "多容器基础模式启动失败"
-                    write_log "多容器基础模式启动失败"
+                    log_error "基础模式启动失败"
+                    write_log "基础模式启动失败"
                     echo ""
                     log_info "请尝试以下解决方案："
                     log_info "1. 检查 Docker 服务是否正常运行"
-                    log_info "2. 检查配置文件是否存在且正确"
+                    log_info "2. 检查 docker-compose.yml 文件是否存在且正确"
                     log_info "3. 查看详细日志进行诊断"
                     return 1
                 fi
                 ;;
             2)
-                log_info "启动多容器完整模式..."
-                write_log "启动多容器完整模式"
-                if COMPOSE_PROFILES=worker docker_compose up -d; then
-                    log_success "多容器完整模式启动成功"
-                    write_log "多容器完整模式启动成功"
+                log_info "启动 Redis 模式..."
+                write_log "启动 Redis 模式"
+                if COMPOSE_PROFILES=redis docker_compose up -d; then
+                    log_success "Redis 模式启动成功"
+                    write_log "Redis 模式启动成功"
+                    echo ""
+                    log_info "服务地址："
+                    log_info "- API: http://localhost:5001"
+                    log_info "- UI: http://localhost:5002"
+                    log_info "- Redis: localhost:6379"
                     return 0
                 else
-                    log_error "多容器完整模式启动失败"
-                    write_log "多容器完整模式启动失败"
+                    log_error "Redis 模式启动失败"
+                    write_log "Redis 模式启动失败"
                     echo ""
                     log_info "请尝试以下解决方案："
                     log_info "1. 检查 Docker 服务是否正常运行"
-                    log_info "2. 检查配置文件是否存在且正确"
+                    log_info "2. 检查 docker-compose.yml 文件是否存在且正确"
                     log_info "3. 查看详细日志进行诊断"
                     return 1
                 fi
@@ -407,111 +421,38 @@ multi_container_menu() {
     done
 }
 
-# 单容器模式菜单
-single_container_menu() {
-    while true; do
+# 重启服务
+restart_service() {
+    log_info "重启服务..."
+    write_log "重启服务"
+    
+    if docker_compose down --remove-orphans && docker_compose up -d; then
+        log_success "服务重启成功"
+        write_log "服务重启成功"
         echo ""
-        echo "🔧 单容器模式选项："
-        echo "1) 基础模式 (进程队列)"
-        echo "2) Redis 模式 (包含 Redis 队列)"
-        echo "0) 返回主菜单"
-        echo ""
-        read -p "请选择 [1-2, 0]: " choice
-        
-        case $choice in
-            1)
-                log_info "启动单容器基础模式..."
-                write_log "启动单容器基础模式"
-                if docker_compose -f docker-compose.single.yml up -d; then
-                    log_success "单容器基础模式启动成功"
-                    write_log "单容器基础模式启动成功"
-                    return 0
-                else
-                    log_error "单容器基础模式启动失败"
-                    write_log "单容器基础模式启动失败"
-                    echo ""
-                    log_info "请尝试以下解决方案："
-                    log_info "1. 检查 Docker 服务是否正常运行"
-                    log_info "2. 检查 docker-compose.single.yml 文件是否存在且正确"
-                    log_info "3. 查看详细日志进行诊断"
-                    return 1
-                fi
-                ;;
-            2)
-                log_info "启动单容器 Redis 模式..."
-                write_log "启动单容器 Redis 模式"
-                if COMPOSE_PROFILES=redis docker_compose -f docker-compose.single.yml up -d; then
-                    log_success "单容器 Redis 模式启动成功"
-                    write_log "单容器 Redis 模式启动成功"
-                    return 0
-                else
-                    log_error "单容器 Redis 模式启动失败"
-                    write_log "单容器 Redis 模式启动失败"
-                    echo ""
-                    log_info "请尝试以下解决方案："
-                    log_info "1. 检查 Docker 服务是否正常运行"
-                    log_info "2. 检查 docker-compose.single.yml 文件是否存在且正确"
-                    log_info "3. 查看详细日志进行诊断"
-                    return 1
-                fi
-                ;;
-            0)
-                return 0
-                ;;
-            "")
-                log_warning "请输入有效的选项"
-                ;;
-            *)
-                log_warning "无效选择：'$choice'，请输入 1、2 或 0"
-                ;;
-        esac
-    done
+        log_info "服务地址："
+        log_info "- API: http://localhost:5001"
+        log_info "- UI: http://localhost:5002"
+        check_service_health
+    else
+        log_error "服务重启失败"
+        write_log "服务重启失败"
+    fi
 }
 
 # 停止所有服务
-stop_all_services() {
-    log_info "停止所有服务..."
-    local stopped_any=false
-    local stop_errors=0
+# 停止服务
+stop_service() {
+    log_info "停止服务..."
+    write_log "停止服务"
     
-    # 尝试停止多容器服务
-    if docker_compose ps -q 2>/dev/null | grep -q .; then
-        log_info "停止多容器服务..."
-        if docker_compose down --remove-orphans; then
-            log_success "多容器服务已停止"
-            stopped_any=true
-        else
-            log_warning "停止多容器服务时出现问题"
-            ((stop_errors++))
-        fi
-    fi
-    
-    # 尝试停止单容器服务
-    if docker_compose -f docker-compose.single.yml ps -q 2>/dev/null | grep -q .; then
-        log_info "停止单容器服务..."
-        if docker_compose -f docker-compose.single.yml down --remove-orphans; then
-            log_success "单容器服务已停止"
-            stopped_any=true
-        else
-            log_warning "停止单容器服务时出现问题"
-            ((stop_errors++))
-        fi
-    fi
-    
-    # 清理可能存在的网络冲突（更安全的方式）
-    cleanup_networks_safe
-    
-    if [ "$stopped_any" = true ]; then
-        if [ $stop_errors -eq 0 ]; then
-            log_success "所有服务已停止"
-        else
-            log_warning "服务已停止，但存在 $stop_errors 个警告"
-        fi
+    if docker_compose down --remove-orphans; then
+        log_success "服务停止成功"
+        write_log "服务停止成功"
     else
-        log_info "没有发现运行中的服务"
+        log_error "服务停止失败"
+        write_log "服务停止失败"
     fi
-    
-    return 0
 }
 
 # 安全清理网络函数
@@ -574,16 +515,16 @@ cleanup_docker_resources() {
 # 查看服务状态
 show_service_status() {
     echo ""
-    log_info "=== 多容器服务状态 ==="
-    docker_compose ps 2>/dev/null || echo "无多容器服务运行"
-    
-    echo ""
-    log_info "=== 单容器服务状态 ==="
-    docker_compose -f docker-compose.single.yml ps 2>/dev/null || echo "无单容器服务运行"
+    log_info "=== AI-CodeReview 服务状态 ==="
+    docker_compose ps 2>/dev/null || echo "无服务运行"
     
     echo ""
     log_info "=== Docker 容器状态 ==="
     docker ps --filter "name=ai-codereview" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    
+    echo ""
+    log_info "=== 网络状态 ==="
+    docker network ls --filter "name=ai-codereview" --format "table {{.Name}}\t{{.Driver}}\t{{.Scope}}"
 }
 
 # 查看服务日志
@@ -591,8 +532,8 @@ show_service_logs() {
     while true; do
         echo ""
         echo "📋 选择要查看的日志："
-        echo "1) 多容器服务日志"
-        echo "2) 单容器服务日志"
+        echo "1) 实时日志 (最新100行)"
+        echo "2) 完整日志"
         echo "3) 特定容器日志"
         echo "0) 返回主菜单"
         echo ""
@@ -600,19 +541,19 @@ show_service_logs() {
         
         case $choice in
             1)
-                log_info "显示多容器服务日志..."
+                log_info "显示实时日志..."
                 if docker_compose ps -q 2>/dev/null | grep -q .; then
                     docker_compose logs -f --tail=100
                 else
-                    log_warning "没有运行中的多容器服务"
+                    log_warning "没有运行中的服务"
                 fi
                 ;;
             2)
-                log_info "显示单容器服务日志..."
-                if docker_compose -f docker-compose.single.yml ps -q 2>/dev/null | grep -q .; then
-                    docker_compose -f docker-compose.single.yml logs -f --tail=100
+                log_info "显示完整日志..."
+                if docker_compose ps -q 2>/dev/null | grep -q .; then
+                    docker_compose logs
                 else
-                    log_warning "没有运行中的单容器服务"
+                    log_warning "没有运行中的服务"
                 fi
                 ;;  
             3)
@@ -756,8 +697,8 @@ check_service_health() {
         echo ""
         log_info "🔧 诊断建议:"
         log_info "   1. 检查 Docker 容器状态: docker ps"
-        log_info "   2. 查看服务日志: 选择菜单项 '5) 查看服务日志'"
-        log_info "   3. 检查端口占用: netstat -tuln | grep :500"
+        log_info "   2. 查看服务日志: 选择菜单项 '4) 查看服务日志'"
+        log_info "   3. 检查端口占用: netstat -tuln | grep :80"
     fi
     
     return 0
@@ -769,7 +710,7 @@ preflight_check() {
     local check_passed=true
     
     # 检查必要的配置文件
-    local required_files=("docker-compose.yml" "docker-compose.single.yml")
+    local required_files=("docker-compose.yml")
     for file in "${required_files[@]}"; do
         if [ ! -f "$file" ]; then
             log_warning "缺少配置文件: $file"
@@ -841,8 +782,8 @@ main() {
     init_startup_log
     
     echo ""
-    echo "🎯 AI-CodeReview-Gitlab 智能启动助手"
-    echo "版本: 2.1 | 支持多容器/单容器部署"
+    echo "🎯 AI-CodeReview 智能启动助手"
+    echo "版本: 3.0 | 单容器架构 - API+Worker+UI 三合一"
     echo ""
 
     # 执行启动前检查
@@ -874,27 +815,23 @@ main() {
 
         case $choice in
             1)
-                multi_container_menu
+                start_service_menu
                 local exit_code=$?
                 if [ $exit_code -eq 0 ]; then
                     check_service_health
                 fi
                 ;;
             2)
-                single_container_menu  
-                local exit_code=$?
-                if [ $exit_code -eq 0 ]; then
-                    check_service_health
-                fi
+                stop_service
                 ;;
             3)
-                stop_all_services
-                ;;
-            4)
                 show_service_status
                 ;;
-            5)
+            4)
                 show_service_logs
+                ;;
+            5)
+                restart_service
                 ;;
             6)
                 cleanup_docker_resources
@@ -914,7 +851,7 @@ main() {
                 download_compose_files
                 ;;
             0)
-                log_info "感谢使用 AI-CodeReview-Gitlab!"
+                log_info "感谢使用 AI-CodeReview!"
                 write_log "用户退出程序"
                 exit 0
                 ;;
