@@ -1,4 +1,4 @@
-name: Build and Publish Docker Images
+name: Build and Publish Docker Images (Single Service Architecture)
 
 on:
   push:
@@ -67,12 +67,11 @@ jobs:
           type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Build and push app image to GHCR
+    - name: Build and push Docker image to GHCR
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./Dockerfile
-        target: app
         push: true
         tags: ${{ steps.meta-ghcr.outputs.tags }}
         labels: ${{ steps.meta-ghcr.outputs.labels }}
@@ -80,40 +79,13 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Build and push app image to Docker Hub
+    - name: Build and push Docker image to Docker Hub
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./Dockerfile
-        target: app
         push: true
         tags: ${{ steps.meta-docker.outputs.tags }}
-        labels: ${{ steps.meta-docker.outputs.labels }}
-        platforms: linux/amd64,linux/arm64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Build and push worker image to GHCR
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        target: worker
-        push: true
-        tags: ${{ steps.meta-ghcr.outputs.tags }}-worker
-        labels: ${{ steps.meta-ghcr.outputs.labels }}
-        platforms: linux/amd64,linux/arm64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    - name: Build and push worker image to Docker Hub
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./Dockerfile
-        target: worker
-        push: true
-        tags: ${{ steps.meta-docker.outputs.tags }}-worker
         labels: ${{ steps.meta-docker.outputs.labels }}
         platforms: linux/amd64,linux/arm64
         cache-from: type=gha
