@@ -27,7 +27,6 @@ def ensure_config_files():
     # 必要的配置文件列表
     config_files = {
         '.env.dist': '环境变量模板文件',
-        '.env': '环境变量配置文件',
         'dashboard_config.py': '仪表板配置文件',
         'prompt_templates.yml': '提示模板配置文件',
         'supervisord.all.conf': 'Supervisord统一配置'
