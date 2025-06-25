@@ -24,11 +24,12 @@ from biz.utils.queue import handle_queue
 from biz.utils.reporter import Reporter
 
 from biz.utils.config_checker import check_config
+from biz.utils.default_config import get_env_bool, get_env_with_default, get_env_int
 
 api_app = Flask(__name__)
 
-push_review_enabled = os.environ.get('PUSH_REVIEW_ENABLED', '0') == '1'
-svn_check_enabled = os.environ.get('SVN_CHECK_ENABLED', '0') == '1'
+push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
+svn_check_enabled = get_env_bool('SVN_CHECK_ENABLED')
 
 
 @api_app.route('/')
@@ -39,7 +40,7 @@ def home():
     svn_info = ""
     if svn_check_enabled:
         import json
-        svn_repositories_config = os.environ.get('SVN_REPOSITORIES', '[]')
+        svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
         try:
             repositories = json.loads(svn_repositories_config)
             if repositories:
@@ -123,9 +124,8 @@ def setup_scheduler():
     """
     try:
         scheduler = BackgroundScheduler()
-        
-        # 日报定时任务
-        crontab_expression = os.getenv('REPORT_CRONTAB_EXPRESSION', '0 18 * * 1-5')
+          # 日报定时任务
+        crontab_expression = get_env_with_default('REPORT_CRONTAB_EXPRESSION')
         logger.info(f"📅 Reading cron expression: '{crontab_expression}'")
         cron_parts = crontab_expression.split()
         logger.info(f"📋 Cron parts after split: {cron_parts} (count: {len(cron_parts)})")
@@ -147,12 +147,11 @@ def setup_scheduler():
                 day=cron_day,
                 month=cron_month,
                 day_of_week=cron_day_of_week
-            )
-        )
+            )        )
         
         # SVN定时检查任务
         if svn_check_enabled:
-            svn_crontab = os.getenv('SVN_CHECK_CRONTAB', '*/30 * * * *')  # 默认每30分钟检查一次
+            svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')  # 默认每30分钟检查一次
             svn_cron_parts = svn_crontab.split()
             
             if len(svn_cron_parts) == 5:
@@ -202,13 +201,12 @@ def handle_webhook():
         return jsonify({'message': 'Invalid data format'}), 400
 
 
-def handle_github_webhook(event_type, data):
-    # 获取GitHub配置
-    github_token = os.getenv('GITHUB_ACCESS_TOKEN') or request.headers.get('X-GitHub-Token')
+def handle_github_webhook(event_type, data):    # 获取GitHub配置
+    github_token = get_env_with_default('GITHUB_ACCESS_TOKEN') or request.headers.get('X-GitHub-Token')
     if not github_token:
         return jsonify({'message': 'Missing GitHub access token'}), 400
 
-    github_url = os.getenv('GITHUB_URL') or 'https://github.com'
+    github_url = get_env_with_default('GITHUB_URL') or 'https://github.com'
     github_url_slug = slugify_url(github_url)
 
     # 打印整个payload数据
@@ -249,10 +247,8 @@ def handle_gitlab_webhook(data):
             parsed_url = urlparse(homepage)
             gitlab_url = f"{parsed_url.scheme}://{parsed_url.netloc}/"
         except Exception as e:
-            return jsonify({"error": f"Failed to parse homepage URL: {str(e)}"}), 400
-
-    # 优先从环境变量获取，如果没有，则从请求头获取
-    gitlab_token = os.getenv('GITLAB_ACCESS_TOKEN') or request.headers.get('X-Gitlab-Token')
+            return jsonify({"error": f"Failed to parse homepage URL: {str(e)}"}), 400    # 优先从环境变量获取，如果没有，则从请求头获取
+    gitlab_token = get_env_with_default('GITLAB_ACCESS_TOKEN') or request.headers.get('X-Gitlab-Token')
     # 如果gitlab_token为空，返回错误
     if not gitlab_token:
         return jsonify({'message': 'Missing GitLab access token'}), 400
@@ -317,7 +313,7 @@ def manual_svn_check():
         if hours is not None:
             message += f'，将异步处理最近 {hours} 小时的提交。'
         else:
-            default_hours = os.environ.get('SVN_CHECK_INTERVAL_HOURS', '1')
+            default_hours = get_env_with_default('SVN_CHECK_INTERVAL_HOURS')
             message += f'，将异步处理最近 {default_hours} 小时的提交。'
 
         return jsonify({'message': message}), 200
@@ -335,7 +331,7 @@ def trigger_specific_svn_repo(repo_name: str, hours: int = None):
     import json
     
     # 获取仓库配置
-    svn_repositories_config = os.environ.get('SVN_REPOSITORIES', '[]')
+    svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
     try:
         repositories = json.loads(svn_repositories_config)
     except json.JSONDecodeError as e:
@@ -375,7 +371,7 @@ def trigger_svn_check(hours: int = None):
         return
       # 优先使用多仓库配置
     # 获取全局设置
-    check_limit = int(os.environ.get('SVN_CHECK_LIMIT', '100'))
+    check_limit = get_env_int('SVN_CHECK_LIMIT')
     
     svn_repositories_config = os.environ.get('SVN_REPOSITORIES')
     if svn_repositories_config and svn_repositories_config.strip() != '[]':
@@ -404,7 +400,7 @@ def trigger_svn_check(hours: int = None):
     svn_password = os.environ.get('SVN_PASSWORD')
       # 如果未提供小时数，从环境变量读取默认值
     if hours is None:
-        check_hours = int(os.environ.get('SVN_CHECK_INTERVAL_HOURS', '1'))
+        check_hours = get_env_int('SVN_CHECK_INTERVAL_HOURS')
     else:
         check_hours = hours
     

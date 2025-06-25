@@ -8,11 +8,13 @@ from biz.llm.client.qwen import QwenClient
 from biz.llm.client.zhipuai import ZhipuAIClient
 from biz.utils.log import logger
 
+from biz.utils.default_config import get_env_with_default
+
 
 class Factory:
     @staticmethod
     def getClient(provider: str = None) -> BaseClient:
-        provider = provider or os.getenv("LLM_PROVIDER", "openai")
+        provider = provider or get_env_with_default("LLM_PROVIDER")
         chat_model_providers = {
             'zhipuai': lambda: ZhipuAIClient(),
             'openai': lambda: OpenAIClient(),

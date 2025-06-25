@@ -9,6 +9,7 @@ from jinja2 import Template
 from biz.llm.factory import Factory
 from biz.utils.log import logger
 from biz.utils.token_util import count_tokens, truncate_text_by_tokens
+from biz.utils.default_config import get_env_with_default, get_env_int
 
 
 class BaseReviewer(abc.ABC):
@@ -16,7 +17,7 @@ class BaseReviewer(abc.ABC):
 
     def __init__(self, prompt_key: str):
         self.client = Factory().getClient()
-        self.prompts = self._load_prompts(prompt_key, os.getenv("REVIEW_STYLE", "professional"))
+        self.prompts = self._load_prompts(prompt_key, get_env_with_default("REVIEW_STYLE"))
 
     def _load_prompts(self, prompt_key: str, style="professional") -> Dict[str, Any]:
         """加载提示词配置"""
@@ -65,11 +66,10 @@ class CodeReviewer(BaseReviewer):
         Review判断changes_text超出取前REVIEW_MAX_TOKENS个token，超出则截断changes_text，
         调用review_code方法，返回review_result，如果review_result是markdown格式，则去掉头尾的```
         :param changes_text:
-        :param commits_text:
-        :return:
+        :param commits_text:        :return:
         """
         # 如果超长，取前REVIEW_MAX_TOKENS个token
-        review_max_tokens = int(os.getenv("REVIEW_MAX_TOKENS", 10000))
+        review_max_tokens = get_env_int("REVIEW_MAX_TOKENS")
         # 如果changes为空,打印日志
         if not changes_text:
             logger.info("代码为空, diffs_text = %", str(changes_text))

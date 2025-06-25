@@ -9,12 +9,13 @@ import urllib.parse
 import requests
 
 from biz.utils.log import logger
+from biz.utils.default_config import get_env_bool, get_env_with_default
 
 
 class DingTalkNotifier:
     def __init__(self, webhook_url=None):
-        self.enabled = os.environ.get('DINGTALK_ENABLED', '0') == '1'
-        self.default_webhook_url = webhook_url or os.environ.get('DINGTALK_WEBHOOK_URL')
+        self.enabled = get_env_bool('DINGTALK_ENABLED')
+        self.default_webhook_url = webhook_url or get_env_with_default('DINGTALK_WEBHOOK_URL')
 
     def _get_webhook_url(self, project_name=None, url_slug=None):
         """

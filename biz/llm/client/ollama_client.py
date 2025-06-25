@@ -7,12 +7,13 @@ from ollama import Client
 
 from biz.llm.client.base import BaseClient
 from biz.llm.types import NotGiven, NOT_GIVEN
+from biz.utils.default_config import get_env_with_default
 
 
 class OllamaClient(BaseClient):
     def __init__(self, api_key: str = None):
-        self.default_model = self.default_model = os.getenv("OLLAMA_API_MODEL", "deepseek-r1-8k:14b")
-        self.base_url = os.getenv("OLLAMA_API_BASE_URL", "http://127.0.0.1:11434")
+        self.default_model = get_env_with_default("OLLAMA_API_MODEL")
+        self.base_url = get_env_with_default("OLLAMA_API_BASE_URL")
         self.client = Client(
             host=self.base_url,
         )

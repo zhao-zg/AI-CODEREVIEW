@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from dotenv import load_dotenv
+from biz.utils.default_config import get_env_with_default, get_env_int
 
 # 加载环境变量
 load_dotenv("conf/.env")
@@ -42,9 +43,8 @@ def main():
         print("运行模式: 仅检查变更，不进行代码审查")
     else:
         print("运行模式: 检查变更并进行代码审查")
-    
-    # 获取多仓库配置
-    svn_repositories_config = os.environ.get('SVN_REPOSITORIES', '[]')
+      # 获取多仓库配置
+    svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
     try:
         repositories = json.loads(svn_repositories_config)
     except json.JSONDecodeError as e:
@@ -111,10 +111,9 @@ def main():
     # 检查所有仓库
     if repositories:
         print(f"开始检查所有仓库（共{len(repositories)}个）")
-        print(f"检查时间范围: 最近{args.hours}小时")
-        
+        print(f"检查时间范围: 最近{args.hours}小时")        
         # 获取限制参数
-        check_limit = int(os.environ.get('SVN_CHECK_LIMIT', '100'))
+        check_limit = get_env_int('SVN_CHECK_LIMIT')
         
         try:
             handle_multiple_svn_repositories(svn_repositories_config, args.hours, check_limit)
@@ -124,12 +123,11 @@ def main():
             print(f"多仓库SVN检查失败: {e}")
             sys.exit(1)
         return
-    
-    # 回退到单仓库模式（向后兼容）
-    svn_remote_url = args.svn_url or os.environ.get('SVN_REMOTE_URL')
-    svn_local_path = args.svn_path or os.environ.get('SVN_LOCAL_PATH')
-    svn_username = args.username or os.environ.get('SVN_USERNAME')
-    svn_password = args.password or os.environ.get('SVN_PASSWORD')
+      # 回退到单仓库模式（向后兼容）
+    svn_remote_url = args.svn_url or get_env_with_default('SVN_REMOTE_URL')
+    svn_local_path = args.svn_path or get_env_with_default('SVN_LOCAL_PATH')
+    svn_username = args.username or get_env_with_default('SVN_USERNAME')
+    svn_password = args.password or get_env_with_default('SVN_PASSWORD')
     
     if not svn_remote_url or not svn_local_path:
         print("错误: 未配置SVN仓库")
@@ -141,9 +139,8 @@ def main():
     print(f"本地路径: {svn_local_path}")
     print(f"检查时间范围: 最近{args.hours}小时")
     print(f"用户名: {svn_username or '未设置'}")
-    
-    # 获取限制参数
-    check_limit = int(os.environ.get('SVN_CHECK_LIMIT', '100'))
+      # 获取限制参数
+    check_limit = get_env_int('SVN_CHECK_LIMIT')
     
     try:
         handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, args.hours, check_limit)

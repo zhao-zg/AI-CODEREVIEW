@@ -9,6 +9,38 @@ import os
 import shutil
 from pathlib import Path
 
+def escape_env_value(value: str) -> str:
+    """
+    安全地转义环境变量值
+    处理包含特殊字符的值，如双引号、换行符等
+    """
+    if not value:
+        return ""
+    
+    # 如果值已经被引号包围，先去掉外层引号
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        value = value[1:-1]
+    
+    # 检查是否需要加引号的条件
+    needs_quotes = any([
+        ' ' in value,      # 包含空格
+        '"' in value,      # 包含双引号
+        "'" in value,      # 包含单引号
+        '\n' in value,     # 包含换行
+        '\r' in value,     # 包含回车
+        '\t' in value,     # 包含制表符
+        value.startswith('#'),  # 以#开头
+        '=' in value,      # 包含等号
+        value != value.strip(),  # 前后有空白
+    ])
+    
+    if needs_quotes:
+        # 转义内部的双引号和反斜杠
+        escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
+        return f'"{escaped_value}"'
+    
+    return value
+
 def create_complete_env_file():
     """创建完整的 .env 配置文件"""
     
@@ -114,8 +146,7 @@ def merge_env_configs(existing_content, template_content):
     merged_lines = []
     for line in template_content.split('\n'):
         stripped_line = line.strip()
-        if stripped_line.startswith('#') or not stripped_line:
-            # 保留模板中的注释和空行
+        if stripped_line.startswith('#') or not stripped_line:            # 保留模板中的注释和空行
             merged_lines.append(line)
         elif '=' in stripped_line:
             key, default_value = stripped_line.split('=', 1)
@@ -124,7 +155,8 @@ def merge_env_configs(existing_content, template_content):
                 value = existing_config[key]
             else:
                 value = get_enhanced_default_value(key, default_value)
-            merged_lines.append(f"{key}={value}")
+            escaped_value = escape_env_value(value)
+            merged_lines.append(f"{key}={escaped_value}")
         else:
             merged_lines.append(line)
     
@@ -144,7 +176,8 @@ def generate_default_config(template_content):
             key, template_value = stripped_line.split('=', 1)
             # 使用增强的默认值
             value = get_enhanced_default_value(key, template_value)
-            config_lines.append(f"{key}={value}")
+            escaped_value = escape_env_value(value)
+            config_lines.append(f"{key}={escaped_value}")
         else:
             config_lines.append(line)
     

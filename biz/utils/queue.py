@@ -5,8 +5,9 @@ from redis import Redis
 from rq import Queue
 
 from biz.utils.log import logger
+from biz.utils.default_config import get_env_with_default, get_env_int
 
-queue_driver = os.getenv('QUEUE_DRIVER', 'async')
+queue_driver = get_env_with_default('QUEUE_DRIVER')
 
 if queue_driver == 'rq':
     queues = {}
@@ -21,9 +22,10 @@ def handle_queue(function: callable, *args, **kwargs):
             queue_name = args[3]
 
         if queue_name not in queues:
-            logger.info(f'REDIS_HOST: {os.getenv("REDIS_HOST", "127.0.0.1")}，REDIS_PORT: {os.getenv("REDIS_PORT", 6379)}')
-            queues[queue_name] = Queue(queue_name, connection=Redis(os.getenv('REDIS_HOST', '127.0.0.1'),
-                                                                              os.getenv('REDIS_PORT', 6379)))
+            redis_host = get_env_with_default('REDIS_HOST')
+            redis_port = get_env_int('REDIS_PORT')
+            logger.info(f'REDIS_HOST: {redis_host}，REDIS_PORT: {redis_port}')
+            queues[queue_name] = Queue(queue_name, connection=Redis(redis_host, redis_port))
 
         queues[queue_name].enqueue(function, *args, **kwargs)
     else:

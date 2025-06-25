@@ -7,6 +7,7 @@
 import os
 import json
 import yaml
+import re
 from typing import Dict, Any, Optional
 from pathlib import Path
 
@@ -20,6 +21,63 @@ class ConfigManager:
         self.dashboard_config_file = self.config_dir / "dashboard_config.py"
         self.prompt_config_file = self.config_dir / "prompt_templates.yml"
     
+    @staticmethod
+    def _escape_env_value(value: str) -> str:
+        """
+        安全地转义环境变量值
+        处理包含特殊字符的值，如双引号、换行符等
+        """
+        if not value:
+            return ""
+        
+        # 如果值已经被引号包围，先去掉外层引号
+        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+            value = value[1:-1]
+        
+        # 检查是否需要加引号的条件
+        needs_quotes = any([
+            ' ' in value,      # 包含空格
+            '"' in value,      # 包含双引号
+            "'" in value,      # 包含单引号
+            '\n' in value,     # 包含换行
+            '\r' in value,     # 包含回车
+            '\t' in value,     # 包含制表符
+            value.startswith('#'),  # 以#开头
+            '=' in value,      # 包含等号
+            value != value.strip(),  # 前后有空白
+        ])
+        
+        if needs_quotes:
+            # 转义内部的双引号和反斜杠
+            escaped_value = value.replace('\\', '\\\\').replace('"', '\\"')
+            return f'"{escaped_value}"'
+        
+        return value
+    
+    @staticmethod
+    def _unescape_env_value(value: str) -> str:
+        """
+        安全地解析环境变量值
+        处理被引号包围和转义的值
+        """
+        if not value:
+            return ""
+        
+        value = value.strip()
+        
+        # 如果被双引号包围，去掉引号并处理转义
+        if value.startswith('"') and value.endswith('"') and len(value) >= 2:
+            inner_value = value[1:-1]
+            # 处理转义字符
+            inner_value = inner_value.replace('\\"', '"').replace('\\\\', '\\')
+            return inner_value
+        
+        # 如果被单引号包围，去掉引号（单引号内不处理转义）
+        elif value.startswith("'") and value.endswith("'") and len(value) >= 2:
+            return value[1:-1]
+        
+        return value
+    
     def get_env_config(self) -> Dict[str, str]:
         """获取环境变量配置"""
         config = {}
@@ -30,7 +88,9 @@ class ConfigManager:
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
-                        config[key.strip()] = value.strip()
+                        key = key.strip()
+                        value = self._unescape_env_value(value)
+                        config[key] = value
         
         # 然后从.env获取实际值
         if self.env_file.exists():
@@ -39,7 +99,9 @@ class ConfigManager:
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
-                        config[key.strip()] = value.strip()
+                        key = key.strip()
+                        value = self._unescape_env_value(value)
+                        config[key] = value
         
         return config
     
@@ -59,14 +121,14 @@ class ConfigManager:
             with open(self.env_file, 'w', encoding='utf-8') as f:
                 f.write("# AI代码审查系统配置文件\n")
                 f.write("# 该文件由配置管理界面自动生成\n\n")
-                
-                # 按分类组织配置
+                  # 按分类组织配置
                 categories = self._categorize_config(config)
                 
                 for category, items in categories.items():
                     f.write(f"# {category}\n")
                     for key, value in items.items():
-                        f.write(f"{key}={value}\n")
+                        escaped_value = self._escape_env_value(value)
+                        f.write(f"{key}={escaped_value}\n")
                     f.write("\n")
             
             return True

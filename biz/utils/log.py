@@ -1,6 +1,7 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+from biz.utils.default_config import get_env_with_default, get_env_int
 
 # 自定义 Logger 类，重写 warn 和 error 方法
 class CustomLogger(logging.Logger):
@@ -15,11 +16,11 @@ class CustomLogger(logging.Logger):
         super().error(msg_with_emoji, *args, **kwargs)
 
 
-log_file = os.environ.get("LOG_FILE", "log/app.log")
-log_max_bytes = int(os.environ.get("LOG_MAX_BYTES", 10 * 1024 * 1024))  # 默认10MB
-log_backup_count = int(os.environ.get("LOG_BACKUP_COUNT", 5))  # 默认保留5个备份文件
+log_file = get_env_with_default("LOG_FILE", "log/app.log")
+log_max_bytes = get_env_int("LOG_MAX_BYTES", 10 * 1024 * 1024)  # 默认10MB
+log_backup_count = get_env_int("LOG_BACKUP_COUNT", 5)  # 默认保留5个备份文件
 # 设置日志级别
-log_level = os.environ.get("LOG_LEVEL", "INFO")
+log_level = get_env_with_default("LOG_LEVEL", "INFO")
 LOG_LEVEL = getattr(logging, log_level.upper(), logging.INFO)
 
 file_handler = RotatingFileHandler(

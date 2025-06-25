@@ -10,6 +10,7 @@ from biz.svn.svn_handler import SVNHandler, filter_svn_changes
 from biz.utils.code_reviewer import CodeReviewer
 from biz.utils.im import notifier
 from biz.utils.log import logger
+from biz.utils.default_config import get_env_bool, get_env_with_default, get_env_int
 # === 版本追踪集成 ===
 from biz.utils.version_tracker import VersionTracker
 # === 版本追踪集成 END ===
@@ -24,7 +25,7 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
     try:
         # 解析仓库配置
         if repositories_config is None:
-            repositories_config = os.environ.get('SVN_REPOSITORIES', '[]')
+            repositories_config = get_env_with_default('SVN_REPOSITORIES')
           # 详细的配置调试信息
         logger.debug(f"SVN仓库配置字符串长度: {len(repositories_config)}")
         logger.debug(f"SVN仓库配置前50字符: {repr(repositories_config[:50])}")
@@ -38,11 +39,14 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
         
         # 修复2: 清理多余的空白字符
         repositories_config = repositories_config.strip()
-        
-        # 修复3: 将单引号替换为双引号（这是最常见的问题）
+          # 修复3: 处理引号问题
         if "'" in repositories_config and '"' not in repositories_config:
             logger.warning("⚠️ 检测到配置使用单引号，自动转换为双引号")
             repositories_config = repositories_config.replace("'", '"')
+        elif '"' not in repositories_config and ':' in repositories_config:
+            # 修复4: 处理完全没有引号的情况（如 {name:value} 格式）
+            logger.warning("⚠️ 检测到配置缺少引号，尝试自动添加引号")
+            repositories_config = _fix_unquoted_json(repositories_config)
         
         if repositories_config != original_config:
             logger.info("✅ 已自动修复配置格式问题")
@@ -182,7 +186,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         }]
         
         # === 版本追踪集成 - 检查是否已审查 ===
-        version_tracking_enabled = os.environ.get('VERSION_TRACKING_ENABLED', '1') == '1'
+        version_tracking_enabled = get_env_bool('VERSION_TRACKING_ENABLED')
         if version_tracking_enabled:
             # 检查该revision是否已审查
             existing_review = VersionTracker.is_version_reviewed(project_name, commit_info, changes)
@@ -195,7 +199,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         review_result = "未进行代码审查"
         score = 0
         
-        svn_review_enabled = os.environ.get('SVN_REVIEW_ENABLED', '1') == '1'
+        svn_review_enabled = get_env_bool('SVN_REVIEW_ENABLED')
         
         if svn_review_enabled and changes:
             # 构造变更文本
@@ -279,3 +283,33 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         error_message = f'处理SVN提交 r{commit.get("revision", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
         notifier.send_notification(content=error_message)
         logger.error('处理SVN提交时出现错误: %s', error_message)
+
+
+def _fix_unquoted_json(config_str: str) -> str:
+    """
+    修复无引号的JSON配置
+    将 {name:value,key:value} 格式转换为 {"name":"value","key":"value"} 格式
+    """
+    import re
+    
+    try:
+        # 这是一个简化的修复，适用于基本的键值对
+        # 模式: 匹配键值对格式 key:value
+        
+        # 1. 为所有的键添加双引号 (如果还没有引号的话)
+        # 匹配模式: 逗号或左括号后的单词（键）
+        config_str = re.sub(r'([,\[\{]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', config_str)
+        
+        # 2. 为字符串值添加双引号（排除数字）
+        # 匹配模式: 冒号后的非数字值（不包含引号、逗号、括号的字符串）
+        config_str = re.sub(r':\s*([^",\}\]\d][^",\}\]]*?)(\s*[,\}\]])', r':"\1"\2', config_str)
+        
+        # 3. 处理开头的情况（第一个键）
+        config_str = re.sub(r'^(\s*\[\s*\{\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', config_str)
+        
+        logger.debug(f"JSON修复结果: {config_str[:100]}...")
+        return config_str
+        
+    except Exception as e:
+        logger.error(f"JSON自动修复失败: {e}")
+        return config_str

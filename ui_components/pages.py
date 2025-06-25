@@ -1009,13 +1009,16 @@ def env_management_page():
             if st.button("📥 导出当前配置", key="export_config"):
                 try:
                     current_config = config_manager.get_env_config()
-                    if current_config:
-                        # 创建导出内容
+                    if current_config:                        # 创建导出内容
                         export_content = "# AI代码审查系统配置文件\n"
                         export_content += f"# 导出时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
                         
+                        # 导入ConfigManager来安全处理环境变量
+                        from biz.utils.config_manager import ConfigManager
+                        
                         for key, value in current_config.items():
-                            export_content += f"{key}={value}\n"
+                            escaped_value = ConfigManager._escape_env_value(value)
+                            export_content += f"{key}={escaped_value}\n"
                         
                         st.download_button(
                             label="下载配置文件",

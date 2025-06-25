@@ -3,6 +3,7 @@ import requests
 import os
 import re
 from biz.utils.log import logger
+from biz.utils.default_config import get_env_with_default, get_env_bool
 
 
 class WeComNotifier:
@@ -11,8 +12,8 @@ class WeComNotifier:
         初始化企业微信通知器
         :param webhook_url: 企业微信机器人webhook地址
         """
-        self.default_webhook_url = webhook_url or os.environ.get('WECOM_WEBHOOK_URL', '')
-        self.enabled = os.environ.get('WECOM_ENABLED', '0') == '1'
+        self.default_webhook_url = webhook_url or get_env_with_default('WECOM_WEBHOOK_URL')
+        self.enabled = get_env_bool('WECOM_ENABLED')
 
     def _get_webhook_url(self, project_name=None, url_slug=None):
         """

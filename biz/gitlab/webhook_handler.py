@@ -13,7 +13,8 @@ def filter_changes(changes: list):
     过滤数据，只保留支持的文件类型以及必要的字段信息
     '''
     # 从环境变量中获取支持的文件扩展名
-    supported_extensions = os.getenv('SUPPORTED_EXTENSIONS', '.java,.py,.php').split(',')
+    from biz.utils.default_config import get_env_with_default
+    supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
 
     filter_deleted_files_changes = [change for change in changes if not change.get("deleted_file")]
 

@@ -1,5 +1,6 @@
 import os
 from biz.utils.log import logger
+from biz.utils.default_config import get_env_with_default, get_env_bool
 import requests
 
 
@@ -9,8 +10,8 @@ class ExtraWebhookNotifier:
         初始化ExtraWebhook通知器
         :param webhook_url: 自定义webhook地址
         """
-        self.default_webhook_url = webhook_url or os.environ.get('EXTRA_WEBHOOK_URL', '')
-        self.enabled = os.environ.get('EXTRA_WEBHOOK_ENABLED', '0') == '1'
+        self.default_webhook_url = webhook_url or get_env_with_default('EXTRA_WEBHOOK_URL')
+        self.enabled = get_env_bool('EXTRA_WEBHOOK_ENABLED')
 
     def send_message(self, system_data: dict, webhook_data: dict):
         """

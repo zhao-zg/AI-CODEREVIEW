@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from gitlab import Gitlab
 
+from biz.utils.default_config import get_env_with_default
 from biz.cmd.func.base import LLMReviewFunc
 
 
@@ -34,7 +35,7 @@ class BranchReviewFunc(LLMReviewFunc):
         super().__init__()
         self.gitlab_url = None
         self.project_id = None
-        self.access_token = os.getenv("GITLAB_ACCESS_TOKEN", None)
+        self.access_token = get_env_with_default("GITLAB_ACCESS_TOKEN")
         self.user_prompt = None
 
     def parse_gitlab_url(self, url: str):

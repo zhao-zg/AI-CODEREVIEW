@@ -258,8 +258,7 @@ class SVNHandler:
         
         if returncode != 0:
             logger.error(f"获取文件内容失败 ({target_url}): {stderr}")
-            return ""
-        
+            return ""        
         lines = stdout.split('\n')
         diff_lines = [f"+{line}" for line in lines]
         return '\n'.join(diff_lines)
@@ -268,7 +267,8 @@ class SVNHandler:
         """
         检查文件类型是否受支持
         """
-        supported_extensions = os.getenv('SUPPORTED_EXTENSIONS', '.java,.py,.php,.yml,.vue,.go,.c,.cpp,.h,.js,.css,.md,.sql').split(',')
+        from biz.utils.default_config import get_env_with_default
+        supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
         return any(file_path.endswith(ext) for ext in supported_extensions)
     
     def _count_additions(self, diff_content: str) -> int:
@@ -288,7 +288,8 @@ def filter_svn_changes(changes: List[Dict]) -> List[Dict]:
     """
     过滤SVN变更，只保留支持的文件类型
     """
-    supported_extensions = os.getenv('SUPPORTED_EXTENSIONS', '.java,.py,.php,.yml,.vue,.go,.c,.cpp,.h,.js,.css,.md,.sql').split(',')
+    from biz.utils.default_config import get_env_with_default
+    supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
     
     filtered_changes = []
     for change in changes:

@@ -10,13 +10,14 @@ from biz.utils.code_reviewer import CodeReviewer
 from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.version_tracker import VersionTracker
+from biz.utils.default_config import get_env_bool
 
 
 
 def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gitlab_url_slug: str):
-    push_review_enabled = os.environ.get('PUSH_REVIEW_ENABLED', '0') == '1'
+    push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
     # 检查是否启用版本追踪功能
-    version_tracking_enabled = os.environ.get('VERSION_TRACKING_ENABLED', '1') == '1'
+    version_tracking_enabled = get_env_bool('VERSION_TRACKING_ENABLED')
     
     try:
         handler = PushHandler(webhook_data, gitlab_token, gitlab_url)
@@ -35,8 +36,7 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
         score = 0
         additions = 0
         deletions = 0
-        changes = []
-        
+        changes = []        
         if push_review_enabled:
             # 获取PUSH的changes
             changes = handler.get_push_changes()
@@ -51,7 +51,7 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
                                f'skipping review. Previous score: {existing_review.get("score", "N/A")}')
                     
                     # 可选：将之前的审查结果重新发布
-                    reuse_previous_review = os.environ.get('REUSE_PREVIOUS_REVIEW_RESULT', '1') == '1'
+                    reuse_previous_review = get_env_bool('REUSE_PREVIOUS_REVIEW_RESULT')
                     if reuse_previous_review and existing_review.get('review_result'):
                         previous_result = existing_review['review_result']
                         reuse_note = (f"🔄 **检测到相同版本代码，复用之前的审查结果**\n\n"
@@ -136,11 +136,10 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
     :param gitlab_url_slug:
     :return:
     '''
-    from biz.utils.version_tracker import VersionTracker
-    
-    merge_review_only_protected_branches = os.environ.get('MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED', '0') == '1'
+    from biz.utils.version_tracker import VersionTracker    
+    merge_review_only_protected_branches = get_env_bool('MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED')
     # 检查是否启用版本追踪功能
-    version_tracking_enabled = os.environ.get('VERSION_TRACKING_ENABLED', '1') == '1'
+    version_tracking_enabled = get_env_bool('VERSION_TRACKING_ENABLED')
     try:
         # 解析Webhook数据
         handler = MergeRequestHandler(webhook_data, gitlab_token, gitlab_url)
@@ -182,11 +181,10 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
         if version_tracking_enabled:
             existing_review = VersionTracker.is_version_reviewed(project_name, commits, changes)
             if existing_review:
-                logger.info(f'Version already reviewed for project {project_name}, '
-                           f'skipping review. Previous score: {existing_review.get("score", "N/A")}')
+                logger.info(f'Version already reviewed for project {project_name}, '                           f'skipping review. Previous score: {existing_review.get("score", "N/A")}')
                 
                 # 可选：将之前的审查结果重新发布到当前MR
-                reuse_previous_review = os.environ.get('REUSE_PREVIOUS_REVIEW_RESULT', '1') == '1'
+                reuse_previous_review = get_env_bool('REUSE_PREVIOUS_REVIEW_RESULT')
                 if reuse_previous_review and existing_review.get('review_result'):
                     previous_result = existing_review['review_result']
                     reuse_note = (f"🔄 **检测到相同版本代码，复用之前的审查结果**\n\n"
@@ -195,7 +193,8 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
                                 f"{previous_result}")
                     handler.add_merge_request_notes(reuse_note)
                 
-                return        # review 代码
+                return
+        # review 代码
         commits_text = ';'.join(commit['title'] for commit in commits)
         review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
         
@@ -244,7 +243,7 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
         logger.error('出现未知错误: %s', error_message)
 
 def handle_github_push_event(webhook_data: dict, github_token: str, github_url: str, github_url_slug: str):
-    push_review_enabled = os.environ.get('PUSH_REVIEW_ENABLED', '0') == '1'
+    push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
     try:
         handler = GithubPushHandler(webhook_data, github_token, github_url)
         logger.info('GitHub Push event received')
@@ -302,10 +301,9 @@ def handle_github_pull_request_event(webhook_data: dict, github_token: str, gith
     :param webhook_data:
     :param github_token:
     :param github_url:
-    :param github_url_slug:
-    :return:
+    :param github_url_slug:    :return:
     '''
-    merge_review_only_protected_branches = os.environ.get('MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED', '0') == '1'
+    merge_review_only_protected_branches = get_env_bool('MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED')
     try:
         # 解析Webhook数据
         handler = GithubPullRequestHandler(webhook_data, github_token, github_url)

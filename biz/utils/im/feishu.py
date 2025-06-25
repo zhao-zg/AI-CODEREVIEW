@@ -1,6 +1,7 @@
 import requests
 import os
 from biz.utils.log import logger
+from biz.utils.default_config import get_env_with_default, get_env_bool
 
 
 class FeishuNotifier:
@@ -9,8 +10,8 @@ class FeishuNotifier:
         初始化飞书通知器
         :param webhook_url: 飞书机器人webhook地址
         """
-        self.default_webhook_url = webhook_url or os.environ.get('FEISHU_WEBHOOK_URL', '')
-        self.enabled = os.environ.get('FEISHU_ENABLED', '0') == '1'
+        self.default_webhook_url = webhook_url or get_env_with_default('FEISHU_WEBHOOK_URL')
+        self.enabled = get_env_bool('FEISHU_ENABLED')
 
     def _get_webhook_url(self, project_name=None, url_slug=None):
         """
