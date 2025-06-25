@@ -185,9 +185,8 @@ docker run -d -p 5001:5001 -p 5002:5002 \
    # 本地测试构建
    python scripts/test_docker_local.py
    
-   # 手动构建
-   docker build --target app -t test-app .
-   docker build --target worker -t test-worker .
+   # 手动构建（单服务架构）
+   docker build -t test-ai-codereview .
    ```
 
 3. **常见问题**:
