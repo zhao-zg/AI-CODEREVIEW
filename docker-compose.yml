@@ -28,16 +28,25 @@ services:
       # SVN 工作目录映射
       - ./data/svn:/app/data/svn
     
+    # 环境变量配置
     environment:
       # 基础配置
       - TZ=Asia/Shanghai
       - LOG_LEVEL=INFO
       - PYTHON_ENV=production
       
+      # Python 输出配置（覆盖 Dockerfile 中的默认值，便于运行时调整）
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONIOENCODING=utf-8
+      
+      # Docker 环境标识（覆盖 Dockerfile 默认值）
+      - DOCKER_ENV=true
+      - LOG_FILE=log/app.log
+      
       # 启用所有功能
       - ENABLE_API=true
       - ENABLE_UI=true
-      # 基础配置
       - APP_MODE=single
       
       # 队列配置（使用内存队列，简化部署）

@@ -547,12 +547,20 @@ if __name__ == '__main__':
         
         # 启动Flask API服务
         port = get_env_int('SERVER_PORT')
-        logger.info(f"🌐 启动 Flask API 服务，端口: {port}")
+        logger.info("=" * 60)
+        logger.info("🚀 AI-CodeReview API 服务启动中...")
+        logger.info(f"🌐 服务地址: http://0.0.0.0:{port}")
+        logger.info(f"📊 日志级别: {logger.level}")
+        logger.info(f"🔧 配置检查: {'✅ 通过' if check_config() else '❌ 失败'}")
+        logger.info(f"⏰ 启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info("=" * 60)
         
         # 注册优雅关闭处理
         atexit.register(shutdown_background_tasks)
         
-        api_app.run(host='0.0.0.0', port=port)
+        # 启动 Flask 应用，在 Docker 环境下使用调试模式便于查看日志
+        debug_mode = os.getenv('DOCKER_ENV') == 'true'
+        api_app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False)
         
     except KeyboardInterrupt:
         logger.info("⏹️ 收到停止信号，正在关闭服务...")

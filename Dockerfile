@@ -61,6 +61,12 @@ RUN pip install --no-cache-dir \
     tiktoken==0.9.0 \
     rq==2.1.0
 
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONIOENCODING=utf-8
+ENV DOCKER_ENV=true
+
 RUN mkdir -p log data scripts .streamlit conf_templates
 COPY biz ./biz
 COPY ui_components ./ui_components
@@ -74,7 +80,15 @@ COPY scripts/ ./scripts/
 RUN echo '#!/bin/bash\n\
 # Docker 配置自动初始化\n\
 echo "=== Docker Configuration Initialization ==="\n\
-python /app/scripts/docker_init.py\n\
+\n\
+# 显示环境变量状态（ENV已设置，无需重复export）\n\
+echo "🔧 Python环境: PYTHONUNBUFFERED=${PYTHONUNBUFFERED}"\n\
+echo "🔧 字符编码: PYTHONIOENCODING=${PYTHONIOENCODING}"\n\
+echo "🔧 Docker环境: DOCKER_ENV=${DOCKER_ENV}"\n\
+\n\
+# 运行配置初始化\n\
+echo "🔧 初始化配置..."\n\
+python -u /app/scripts/docker_init.py\n\
 init_result=$?\n\
 \n\
 if [ $init_result -ne 0 ]; then\n\
@@ -83,8 +97,14 @@ if [ $init_result -ne 0 ]; then\n\
 fi\n\
 \n\
 echo "=== Starting AI-CodeReview Service ==="\n\
+echo "🚀 启动服务: API (5001) + UI (5002)"\n\
+echo "📋 日志级别: ${LOG_LEVEL:-INFO}"\n\
+echo "📁 日志文件: ${LOG_FILE:-log/app.log}"\n\
+\n\
 # 启动supervisord（同时运行API、UI和Worker）\n\
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf\n\
+# 使用 -n 参数以非守护进程模式运行，确保日志输出到控制台\n\
+echo "🔄 启动 Supervisor..."\n\
+exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
 # 暴露 Flask 和 Streamlit 的端口

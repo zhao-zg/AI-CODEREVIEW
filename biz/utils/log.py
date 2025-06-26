@@ -35,8 +35,17 @@ file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(fil
 file_handler.setLevel(LOG_LEVEL)
 
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s'))
+# Docker 环境下的控制台日志格式更简洁，便于查看
+if os.getenv('DOCKER_ENV') == 'true':
+    console_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d - %(message)s'))
+else:
+    console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s'))
 console_handler.setLevel(LOG_LEVEL)
+
+# 强制刷新控制台输出（Docker 环境特别重要）
+console_handler.stream.flush = lambda: None
+if hasattr(console_handler.stream, 'flush'):
+    console_handler.stream.flush()
 
 
 # 使用自定义的 Logger 类
