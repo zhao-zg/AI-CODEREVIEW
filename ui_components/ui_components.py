@@ -427,20 +427,27 @@ class UIComponents:
                             st.write(f"• **{field}:** {row[field]}")
     
     def _format_datetime(self, dt_value):
-        """格式化时间显示"""
+        """格式化时间显示为东八区（Asia/Shanghai）"""
+        import pandas as pd
         if pd.isna(dt_value) or dt_value == 'N/A':
             return 'N/A'
-        
         try:
+            # 1. int/float 视为UTC秒级时间戳
             if isinstance(dt_value, (int, float)):
-                dt = pd.to_datetime(dt_value, unit='s')
+                dt = pd.to_datetime(dt_value, unit='s', utc=True)
+            # 2. str 先转datetime
             elif isinstance(dt_value, str):
-                dt = pd.to_datetime(dt_value)
+                dt = pd.to_datetime(dt_value, utc=True)
             else:
                 dt = dt_value
-            
+            # 3. 转东八区
+            if hasattr(dt, 'tz_convert'):
+                dt = dt.tz_convert('Asia/Shanghai')
+            elif hasattr(dt, 'astimezone'):
+                from zoneinfo import ZoneInfo
+                dt = dt.astimezone(ZoneInfo('Asia/Shanghai'))
             return dt.strftime('%Y-%m-%d %H:%M:%S')
-        except:
+        except Exception:
             return str(dt_value)
     
     def show_loading_spinner(self, message: str = "正在加载数据..."):
