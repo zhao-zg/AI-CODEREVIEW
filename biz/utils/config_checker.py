@@ -33,11 +33,14 @@ def check_env_vars():
     missing_vars = [var for var in REQUIRED_ENV_VARS if var not in os.environ]
     if missing_vars:
         logger.warning(f"缺少环境变量: {', '.join(missing_vars)}")
+        return False
     else:
         logger.info("所有必要的环境变量均已设置。")
+        return True
 
 def check_config():
     """主检查入口"""
     logger.info("开始检查配置项...")
-    check_env_vars()
+    env_check_passed = check_env_vars()
     logger.info("配置项检查完成。")
+    return env_check_passed
