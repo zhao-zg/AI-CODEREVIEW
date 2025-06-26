@@ -42,12 +42,6 @@ services:
       # 使用内存队列（无需Redis）
       - QUEUE_DRIVER=memory
       
-      # SVN 配置
-      - SVN_CHECK_ENABLED=false
-      - SVN_CHECK_INTERVAL=300
-      - SVN_CHECK_ENABLED=false
-      - SVN_CHECK_INTERVAL=300
-      
       # Redis 配置（如果使用 RQ 队列）
       - REDIS_URL=redis://redis:6379/0
       - REDIS_HOST=redis

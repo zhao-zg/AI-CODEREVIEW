@@ -26,13 +26,21 @@ def main_dashboard():
         # 功能菜单
         st.markdown("### 🛠️ 系统功能")
         
-        # 页面导航 - 使用更直观的布局
+        # 页面导航 - 仅登录后显示配置管理
+        page_options = ["🏠 首页", "📊 数据分析"]
+        if st.session_state.get("authenticated", False):
+            page_options.append("⚙️ 配置管理")
         page = st.radio(
             "选择功能模块",
-            ["🏠 首页", "📊 数据分析", "⚙️ 配置管理"],
+            page_options,
             key="page_selector",
             help="选择要访问的功能模块"
         )
+        
+        # 管理员登录入口（未登录时显示）
+        if not st.session_state.get("authenticated", False):
+            if st.button("🔑 管理员登录", use_container_width=True):
+                st.session_state["page"] = "/admin"
         
         st.markdown("---")
         
@@ -67,7 +75,10 @@ def main_dashboard():
     
     # 根据选择的页面显示内容
     if page == "⚙️ 配置管理":
-        env_management_page()
+        if st.session_state.get("authenticated", False):
+            env_management_page()
+        else:
+            st.warning("请先登录管理员账号")
     elif page == "📊 数据分析":
         data_analysis_page()
     else:  # 首页
@@ -75,9 +86,14 @@ def main_dashboard():
 
 def main():
     """主函数"""
-    # 检查认证状态
-    if not check_authentication():
+    # 页面跳转控制
+    page = st.session_state.get("page", "main")
+    if page == "/admin":
         login_page()
+        # 登录成功后自动跳转回主页面
+        if st.session_state.get("authenticated", False):
+            st.session_state["page"] = "main"
+            st.rerun()
     else:
         main_dashboard()
 

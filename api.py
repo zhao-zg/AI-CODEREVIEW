@@ -396,88 +396,102 @@ def after_request(response):
     return response
 
 
-def trigger_specific_svn_repo(repo_name: str, hours: int = None):
-    """触发特定SVN仓库的检查"""
-    if not svn_check_enabled:
-        logger.info("SVN检查功能未启用")
-        return
-    
-    import json
-    
-    # 获取仓库配置
-    svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
+def acquire_svn_lock(lockfile_path="log/svn_check.lock"):
+    """尝试获取SVN检查互斥锁，成功返回文件对象，失败返回None"""
+    import os
+    import fcntl
     try:
-        repositories = json.loads(svn_repositories_config)
-    except json.JSONDecodeError as e:
-        logger.error(f"SVN仓库配置JSON解析失败: {e}")
+        os.makedirs(os.path.dirname(lockfile_path), exist_ok=True)
+        lockfile = open(lockfile_path, "w")
+        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return lockfile
+    except Exception:
+        return None
+
+def release_svn_lock(lockfile):
+    """释放SVN检查互斥锁"""
+    import fcntl
+    try:
+        fcntl.flock(lockfile, fcntl.LOCK_UN)
+        lockfile.close()
+    except Exception:
+        pass
+
+def trigger_specific_svn_repo(repo_name: str, hours: int = None):
+    """触发特定SVN仓库的检查（带互斥锁）"""
+    lock = acquire_svn_lock()
+    if not lock:
+        logger.warning("已有SVN检查任务正在执行，跳过本次触发。")
         return
-    
-    # 查找指定的仓库
-    target_repo = None
-    for repo_config in repositories:
-        if repo_config.get('name') == repo_name:
-            target_repo = repo_config
-            break
-    
-    if not target_repo:
-        logger.error(f"未找到名为 '{repo_name}' 的仓库配置")
-        return
-    
-    # 获取仓库配置
-    remote_url = target_repo.get('remote_url')
-    local_path = target_repo.get('local_path')
-    username = target_repo.get('username')
-    password = target_repo.get('password')
-    repo_check_hours = hours or target_repo.get('check_hours', 24)
-    
-    if not remote_url or not local_path:
-        logger.error(f"仓库 {repo_name} 配置不完整")
-        return
-    
-    logger.info(f"开始检查指定仓库: {repo_name}")
-    handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, repo_name)
+    try:
+        if not svn_check_enabled:
+            logger.info("SVN检查功能未启用")
+            return
+        import json
+        svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
+        try:
+            repositories = json.loads(svn_repositories_config)
+        except json.JSONDecodeError as e:
+            logger.error(f"SVN仓库配置JSON解析失败: {e}")
+            return
+        target_repo = None
+        for repo_config in repositories:
+            if repo_config.get('name') == repo_name:
+                target_repo = repo_config
+                break
+        if not target_repo:
+            logger.error(f"未找到名为 '{repo_name}' 的仓库配置")
+            return
+        remote_url = target_repo.get('remote_url')
+        local_path = target_repo.get('local_path')
+        username = target_repo.get('username')
+        password = target_repo.get('password')
+        repo_check_hours = hours or target_repo.get('check_hours', 24)
+        if not remote_url or not local_path:
+            logger.error(f"仓库 {repo_name} 配置不完整")
+            return
+        logger.info(f"开始检查指定仓库: {repo_name}")
+        handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, repo_name)
+    finally:
+        release_svn_lock(lock)
 
 
 def trigger_svn_check(hours: int = None):
-    """触发SVN检查"""
-    if not svn_check_enabled:
-        logger.info("SVN检查功能未启用")
+    """触发SVN检查（带互斥锁）"""
+    lock = acquire_svn_lock()
+    if not lock:
+        logger.warning("已有SVN检查任务正在执行，跳过本次触发。")
         return
-      # 优先使用多仓库配置
-    # 获取全局设置
-    check_limit = get_env_int('SVN_CHECK_LIMIT')    
-    svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
-    if svn_repositories_config and svn_repositories_config.strip() != '[]':
-        logger.info("使用多仓库配置进行SVN检查")
-        # 添加调试信息
-        logger.debug(f"SVN_REPOSITORIES 配置长度: {len(svn_repositories_config)}")
-        logger.debug(f"前50字符: {repr(svn_repositories_config[:50])}")
-        logger.debug(f"后10字符: {repr(svn_repositories_config[-10:])}")
-        
-        # 检测可能的单引号问题
-        if "'" in svn_repositories_config and '"' not in svn_repositories_config:
-            logger.warning("⚠️ 检测到配置中使用了单引号，JSON要求使用双引号")
-        
-        handle_multiple_svn_repositories(svn_repositories_config, hours, check_limit)
-        return
-      # 回退到单仓库配置（向后兼容）
-    svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
-    svn_local_path = get_env_with_default('SVN_LOCAL_PATH')
-    
-    if not svn_remote_url or not svn_local_path:
-        logger.error("SVN_REPOSITORIES 或 SVN_REMOTE_URL+SVN_LOCAL_PATH 环境变量必须设置")
-        return
-    
-    svn_username = get_env_with_default('SVN_USERNAME')
-    svn_password = get_env_with_default('SVN_PASSWORD')
-      # 如果未提供小时数，从环境变量读取默认值
-    if hours is None:
-        check_hours = get_env_int('SVN_CHECK_INTERVAL_HOURS')
-    else:
-        check_hours = hours
-    
-    logger.info(f"使用单仓库配置进行SVN检查，远程URL: {svn_remote_url}, 本地路径: {svn_local_path}, 检查最近 {check_hours} 小时")
-    handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit)
+    try:
+        if not svn_check_enabled:
+            logger.info("SVN检查功能未启用")
+            return
+        check_limit = get_env_int('SVN_CHECK_LIMIT')    
+        svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
+        if svn_repositories_config and svn_repositories_config.strip() != '[]':
+            logger.info("使用多仓库配置进行SVN检查")
+            logger.debug(f"SVN_REPOSITORIES 配置长度: {len(svn_repositories_config)}")
+            logger.debug(f"前50字符: {repr(svn_repositories_config[:50])}")
+            logger.debug(f"后10字符: {repr(svn_repositories_config[-10:])}")
+            if "'" in svn_repositories_config and '"' not in svn_repositories_config:
+                logger.warning("⚠️ 检测到配置中使用了单引号，JSON要求使用双引号")
+            handle_multiple_svn_repositories(svn_repositories_config, hours, check_limit)
+            return
+        svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
+        svn_local_path = get_env_with_default('SVN_LOCAL_PATH')
+        if not svn_remote_url or not svn_local_path:
+            logger.error("SVN_REPOSITORIES 或 SVN_REMOTE_URL+SVN_LOCAL_PATH 环境变量必须设置")
+            return
+        svn_username = get_env_with_default('SVN_USERNAME')
+        svn_password = get_env_with_default('SVN_PASSWORD')
+        if hours is None:
+            check_hours = get_env_int('SVN_CHECK_INTERVAL_HOURS')
+        else:
+            check_hours = hours
+        logger.info(f"使用单仓库配置进行SVN检查，远程URL: {svn_remote_url}, 本地路径: {svn_local_path}, 检查最近 {check_hours} 小时")
+        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit)
+    finally:
+        release_svn_lock(lock)
 
 
 # 添加配置重载的API端点
