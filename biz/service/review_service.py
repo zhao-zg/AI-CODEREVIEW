@@ -188,8 +188,9 @@ class ReviewService:
                 # 基础查询
                 query = """
                     SELECT project_name, author, branch, reviewed_at as updated_at, 
-                           review_result as commit_messages, score, review_type,
-                           file_paths, commit_sha, version_hash
+                           commit_message, review_result, score, review_type,
+                           file_paths, commit_sha, version_hash, commit_date,
+                           created_at, additions_count, deletions_count, file_details
                     FROM version_tracker
                     WHERE 1=1
                 """
@@ -367,11 +368,16 @@ class ReviewService:
                         'author': log['author'],
                         'timestamp': log['updated_at'],
                         'score': log['score'],
-                        'additions': 0,  # 版本跟踪数据中可能没有这些字段
-                        'deletions': 0,
+                        'additions': log.get('additions_count', 0),
+                        'deletions': log.get('deletions_count', 0),
                         'branch_info': log.get('branch', ''),
-                        'commit_messages': log.get('commit_messages', ''),
-                        'review_result': log.get('commit_messages', '')  # 使用commit_messages作为review_result
+                        'commit_messages': log.get('commit_message', ''),
+                        'review_result': log.get('review_result', ''),
+                        'commit_sha': log.get('commit_sha', ''),
+                        'commit_date': log.get('commit_date', ''),
+                        'created_at': log.get('created_at', log.get('updated_at', 0)),
+                        'file_details': log.get('file_details', ''),
+                        'file_paths': log.get('file_paths', '')
                     })
             
             return {

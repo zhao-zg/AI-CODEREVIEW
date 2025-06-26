@@ -68,44 +68,72 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
                     if not changes:
                         logger.info('未检测到PUSH代码的修改,修改文件可能不满足SUPPORTED_EXTENSIONS。')
                         review_result = "关注的文件没有修改"
+                        review_successful = True
                     else:
-                        commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
-                        review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
-                        score = CodeReviewer.parse_review_score(review_text=review_result)
-                        for item in changes:
-                            additions += item['additions']
-                            deletions += item['deletions']
-                        
-                        # 记录版本审查信息
-                        VersionTracker.record_version_review(
-                            project_name=project_name,
-                            commits=commits,
-                            changes=changes,
-                            author=author,
-                            branch=branch,
-                            review_type="gitlab_push",
-                            review_result=review_result,
-                            score=score
-                        )
-                        logger.info(f'Push version review recorded for project {project_name}')
+                        try:
+                            commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
+                            review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
+                            
+                            # 验证审查结果
+                            if review_result and review_result.strip() and review_result != "代码为空":
+                                score = CodeReviewer.parse_review_score(review_text=review_result)
+                                for item in changes:
+                                    additions += item['additions']
+                                    deletions += item['deletions']
+                                
+                                # 记录版本审查信息
+                                VersionTracker.record_version_review(
+                                    project_name=project_name,
+                                    commits=commits,
+                                    changes=changes,
+                                    author=author,
+                                    branch=branch,
+                                    review_type="gitlab_push",
+                                    review_result=review_result,
+                                    score=score
+                                )
+                                logger.info(f'Push version review recorded for project {project_name}')
+                                review_successful = True
+                            else:
+                                logger.warning(f'GitLab Push代码审查失败：审查结果为空或无效')
+                                return  # 审查失败时直接返回
+                                
+                        except Exception as e:
+                            logger.error(f'GitLab Push代码审查过程中发生异常: {e}')
+                            return  # 审查出错时直接返回
                     
-                    # 将review结果提交到Gitlab的 notes
-                    handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+                    # 只有审查成功时才添加notes
+                    if review_successful:
+                        handler.add_push_notes(f'Auto Review Result: \n{review_result}')
             else:
                 # 版本追踪未启用或无变更，按原逻辑处理
                 if not changes:
                     logger.info('未检测到PUSH代码的修改,修改文件可能不满足SUPPORTED_EXTENSIONS。')
                     review_result = "关注的文件没有修改"
+                    review_successful = True
                 else:
-                    commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
-                    review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
-                    score = CodeReviewer.parse_review_score(review_text=review_result)
-                    for item in changes:
-                        additions += item['additions']
-                        deletions += item['deletions']
+                    try:
+                        commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
+                        review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
+                        
+                        # 验证审查结果
+                        if review_result and review_result.strip() and review_result != "代码为空":
+                            score = CodeReviewer.parse_review_score(review_text=review_result)
+                            for item in changes:
+                                additions += item['additions']
+                                deletions += item['deletions']
+                            review_successful = True
+                        else:
+                            logger.warning(f'GitLab Push代码审查失败：审查结果为空或无效')
+                            return  # 审查失败时直接返回
+                            
+                    except Exception as e:
+                        logger.error(f'GitLab Push代码审查过程中发生异常: {e}')
+                        return  # 审查出错时直接返回
                 
-                # 将review结果提交到Gitlab的 notes
-                handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+                # 只有审查成功时才添加notes
+                if review_successful:
+                    handler.add_push_notes(f'Auto Review Result: \n{review_result}')
 
         event_manager['push_reviewed'].send(PushReviewEntity(
             project_name=webhook_data['project']['name'],
@@ -196,13 +224,24 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
                 return
         # review 代码
         commits_text = ';'.join(commit['title'] for commit in commits)
-        review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
         
-        # 解析审查评分
-        review_score = CodeReviewer.parse_review_score(review_text=review_result)
+        try:
+            review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
+            
+            # 验证审查结果
+            if not review_result or not review_result.strip() or review_result == "代码为空":
+                logger.warning(f'GitLab MR代码审查失败：审查结果为空或无效')
+                return  # 审查失败时直接返回
+                
+            # 解析审查评分
+            review_score = CodeReviewer.parse_review_score(review_text=review_result)
 
-        # 将review结果提交到Gitlab的 notes
-        handler.add_merge_request_notes(f'Auto Review Result: \n{review_result}')
+            # 将review结果提交到Gitlab的 notes
+            handler.add_merge_request_notes(f'Auto Review Result: \n{review_result}')
+            
+        except Exception as e:
+            logger.error(f'GitLab MR代码审查过程中发生异常: {e}')
+            return  # 审查出错时直接返回
         
         # 记录版本审查信息（如果启用了版本追踪）
         if version_tracking_enabled:
@@ -256,6 +295,8 @@ def handle_github_push_event(webhook_data: dict, github_token: str, github_url: 
         score = 0
         additions = 0
         deletions = 0
+        review_successful = False
+        
         if push_review_enabled:
             # 获取PUSH的changes
             changes = handler.get_push_changes()
@@ -263,17 +304,32 @@ def handle_github_push_event(webhook_data: dict, github_token: str, github_url: 
             changes = filter_github_changes(changes)
             if not changes:
                 logger.info('未检测到PUSH代码的修改,修改文件可能不满足SUPPORTED_EXTENSIONS。')
-            review_result = "关注的文件没有修改"
+                review_result = "关注的文件没有修改"
+                review_successful = True
 
             if len(changes) > 0:
-                commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
-                review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
-                score = CodeReviewer.parse_review_score(review_text=review_result)
-                for item in changes:
-                    additions += item.get('additions', 0)
-                    deletions += item.get('deletions', 0)
-            # 将review结果提交到GitHub的 notes
-            handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+                try:
+                    commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
+                    review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
+                    
+                    # 验证审查结果
+                    if review_result and review_result.strip() and review_result != "代码为空":
+                        score = CodeReviewer.parse_review_score(review_text=review_result)
+                        for item in changes:
+                            additions += item.get('additions', 0)
+                            deletions += item.get('deletions', 0)
+                        review_successful = True
+                    else:
+                        logger.warning(f'GitHub Push代码审查失败：审查结果为空或无效')
+                        return  # 审查失败时直接返回
+                        
+                except Exception as e:
+                    logger.error(f'GitHub Push代码审查过程中发生异常: {e}')
+                    return  # 审查出错时直接返回
+                    
+            # 只有审查成功时才添加notes
+            if review_successful:
+                handler.add_push_notes(f'Auto Review Result: \n{review_result}')
 
         event_manager['push_reviewed'].send(PushReviewEntity(
             project_name=webhook_data['repository']['name'],
@@ -340,10 +396,21 @@ def handle_github_pull_request_event(webhook_data: dict, github_token: str, gith
 
         # review 代码
         commits_text = ';'.join(commit['title'] for commit in commits)
-        review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
+        
+        try:
+            review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
+            
+            # 验证审查结果
+            if not review_result or not review_result.strip() or review_result == "代码为空":
+                logger.warning(f'GitHub PR代码审查失败：审查结果为空或无效')
+                return  # 审查失败时直接返回
 
-        # 将review结果提交到GitHub的 notes
-        handler.add_pull_request_notes(f'Auto Review Result: \n{review_result}')
+            # 将review结果提交到GitHub的 notes
+            handler.add_pull_request_notes(f'Auto Review Result: \n{review_result}')
+            
+        except Exception as e:
+            logger.error(f'GitHub PR代码审查过程中发生异常: {e}')
+            return  # 审查出错时直接返回
 
         # dispatch pull_request_reviewed event
         event_manager['merge_request_reviewed'].send(

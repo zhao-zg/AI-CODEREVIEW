@@ -70,6 +70,14 @@ OLLAMA_API_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=codellama
 ```
 
+#### Jedi配置
+```
+LLM_PROVIDER=jedi
+JEDI_API_KEY=your-jedi-token
+JEDI_API_BASE_URL=https://jedi-jp-prd-ai-tools.bekko.com:30001/chat_completion_api
+JEDI_API_MODEL=official-deepseek-r1
+```
+
 ### 版本控制配置
 
 #### GitLab配置

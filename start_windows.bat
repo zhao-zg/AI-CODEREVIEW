@@ -1,10 +1,31 @@
 @echo off
 REM AI-CodeReview 启动脚本 (Windows 版本)
-REM 检查并运行 start.sh
+REM 检查环境配置并运行服务
 
-echo 正在检查 Docker 环境...
+echo ======================================
+echo     AI-CodeReview 启动助手 (Windows)
+echo ======================================
+echo.
 
-REM 检查 Docker 是否可用
+REM 1. 环境配置检查
+echo [1/4] 检查环境配置...
+
+REM 优先使用 Python 版本的检查器
+python scripts\env_checker.py 2>nul
+if errorlevel 1 (
+    echo Python 检查器不可用，使用批处理版本...
+    call scripts\env_checker.bat
+    if errorlevel 1 (
+        echo 警告: 环境配置检查存在问题，但将继续启动
+    )
+) else (
+    echo 环境配置检查完成
+)
+echo.
+
+REM 2. 检查 Docker 是否可用
+echo [2/4] 检查 Docker 环境...
+
 docker --version >nul 2>&1
 if errorlevel 1 (
     echo 错误: Docker 未安装或不可用
@@ -13,7 +34,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM 检查 Docker Compose 是否可用
+REM 3. 检查 Docker Compose 是否可用
+echo [3/4] 检查 Docker Compose...
 docker compose version >nul 2>&1
 if errorlevel 1 (
     docker-compose --version >nul 2>&1
@@ -29,7 +51,10 @@ if errorlevel 1 (
 )
 
 echo Docker 环境检查通过
+echo.
 
+REM 4. 运行主启动脚本
+echo [4/4] 启动服务...
 REM 尝试使用 WSL 运行 bash 脚本
 echo 尝试使用 WSL 运行脚本...
 wsl bash start.sh

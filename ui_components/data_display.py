@@ -242,9 +242,16 @@ class DataDisplayManager:
         for idx, (_, row) in enumerate(page_data.iterrows()):
             actual_index = start_idx + idx + 1
             
-            # 显示数据卡片
-            if self.ui.show_data_card(row, actual_index, review_type):
-                self.ui.show_detail_modal(row, review_type)
+            # 显示数据卡片并获取状态
+            card_state = self.ui.show_data_card(row, actual_index, review_type)
+            
+            # 只有当卡片处于展开状态时才显示详情
+            if card_state == "expanded":
+                with st.container():
+                    st.markdown("---")
+                    st.markdown("### 📋 详细信息")
+                    self.ui.show_detail_modal(row, review_type)
+                    st.markdown("---")
 
 
 # 创建全局数据显示管理器实例

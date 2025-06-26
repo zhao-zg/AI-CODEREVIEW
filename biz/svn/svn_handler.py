@@ -81,15 +81,49 @@ class SVNHandler:
             
             logger.info(f"执行SVN命令: {' '.join(command)} in {cwd or 'default cwd'}")
             
-            result = subprocess.run(
-                command,
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8'
-            )
+            # 尝试多种编码方式执行命令
+            encodings_to_try = ['utf-8', 'gbk', 'cp936', 'latin1']
             
-            return result.stdout, result.stderr, result.returncode
+            for encoding in encodings_to_try:
+                try:
+                    result = subprocess.run(
+                        command,
+                        cwd=cwd,
+                        capture_output=True,
+                        text=True,
+                        encoding=encoding,
+                        errors='replace'  # 遇到无法解码的字符时替换为 �
+                    )
+                    
+                    # 如果成功执行，返回结果
+                    return result.stdout, result.stderr, result.returncode
+                    
+                except UnicodeDecodeError:
+                    logger.warning(f"使用 {encoding} 编码执行SVN命令失败，尝试下一种编码...")
+                    continue
+                except Exception as e:
+                    logger.error(f"执行SVN命令时发生异常 (编码: {encoding}): {e}")
+                    continue
+            
+            # 如果所有编码都失败，尝试使用二进制模式
+            logger.warning("所有文本编码都失败，尝试二进制模式...")
+            try:
+                result = subprocess.run(
+                    command,
+                    cwd=cwd,
+                    capture_output=True,
+                    text=False  # 二进制模式
+                )
+                
+                # 尝试解码输出
+                stdout = self._safe_decode(result.stdout)
+                stderr = self._safe_decode(result.stderr)
+                
+                return stdout, stderr, result.returncode
+                
+            except Exception as e:
+                logger.error(f"二进制模式执行SVN命令也失败: {e}")
+                return "", str(e), -1
         
         except Exception as e:
             logger.error(f"执行SVN命令失败: {e}")
@@ -111,15 +145,15 @@ class SVNHandler:
                 cleanup_success = self._cleanup_working_copy()
                 
                 if cleanup_success:
-                    # cleanup成功后重试更新
-                    logger.info("SVN cleanup成功，重试更新...")
+                    # cleanup或重建成功后重试更新
+                    logger.info("SVN cleanup/重建成功，重试更新...")
                     stdout, stderr, returncode = self._run_svn_command(['svn', 'update'], cwd=self.svn_local_path)
                     
                     if returncode != 0:
-                        logger.error(f"SVN cleanup后更新仍然失败: {stderr}")
+                        logger.error(f"SVN cleanup/重建后更新仍然失败: {stderr}")
                         return False
                 else:
-                    logger.error("SVN cleanup失败，无法更新工作副本")
+                    logger.error("SVN cleanup和重建都失败，无法更新工作副本")
                     return False
             else:
                 return False
@@ -143,6 +177,12 @@ class SVNHandler:
                 return True
             
             logger.warning(f"标准SVN cleanup失败: {stderr}")
+            
+            # 检查是否是工作队列错误
+            if 'work queue' in stderr.lower() or 'wc.db' in stderr.lower():
+                logger.info("检测到工作队列错误，尝试专门修复...")
+                if self._fix_work_queue_error():
+                    return True
             
             # 如果标准cleanup失败，尝试强制cleanup（SVN 1.7+）
             logger.info("尝试强制cleanup...")
@@ -173,12 +213,74 @@ class SVNHandler:
                 except Exception as e:
                     logger.error(f"删除SVN锁文件失败: {e}")
             
-            # 如果所有清理方法都失败，建议重新检出
-            logger.error(f"所有SVN cleanup方法都失败，建议重新检出工作副本: {self.svn_local_path}")
-            return False
+            # 如果所有清理方法都失败，尝试重建工作副本
+            logger.error(f"所有SVN cleanup方法都失败，尝试重建工作副本: {self.svn_local_path}")
+            return self._rebuild_working_copy()
             
         except Exception as e:
             logger.error(f"SVN cleanup过程中发生异常: {e}")
+            return False
+    
+    def _rebuild_working_copy(self) -> bool:
+        """
+        重建SVN工作副本（当cleanup失败时的最后手段）
+        :return: 重建是否成功
+        """
+        try:
+            logger.info(f"开始重建SVN工作副本: {self.svn_local_path}")
+            
+            # 创建备份目录名
+            import time
+            backup_name = f"{self.svn_local_path}_backup_{int(time.time())}"
+            
+            # 备份现有工作副本
+            import shutil
+            if os.path.exists(self.svn_local_path):
+                logger.info(f"备份现有工作副本到: {backup_name}")
+                try:
+                    shutil.move(self.svn_local_path, backup_name)
+                except Exception as e:
+                    logger.warning(f"备份工作副本失败: {e}，尝试删除...")
+                    try:
+                        shutil.rmtree(self.svn_local_path, ignore_errors=True)
+                    except Exception as e2:
+                        logger.error(f"删除损坏的工作副本也失败: {e2}")
+                        return False
+            
+            # 重新检出工作副本
+            logger.info(f"重新检出SVN仓库: {self.svn_remote_url} -> {self.svn_local_path}")
+            
+            checkout_cmd = ['svn', 'checkout', self.svn_remote_url, self.svn_local_path]
+            stdout, stderr, returncode = self._run_svn_command(checkout_cmd)
+            
+            if returncode == 0:
+                logger.info("SVN工作副本重建成功")
+                
+                # 如果重建成功，可以删除备份（可选）
+                if os.path.exists(backup_name):
+                    try:
+                        logger.info(f"删除备份目录: {backup_name}")
+                        shutil.rmtree(backup_name, ignore_errors=True)
+                    except Exception as e:
+                        logger.warning(f"删除备份目录失败（可忽略）: {e}")
+                
+                return True
+            else:
+                logger.error(f"SVN重新检出失败: {stderr}")
+                
+                # 如果重建失败，尝试恢复备份
+                if os.path.exists(backup_name):
+                    try:
+                        logger.info("重建失败，尝试恢复备份...")
+                        shutil.move(backup_name, self.svn_local_path)
+                        logger.info("备份恢复成功")
+                    except Exception as e:
+                        logger.error(f"恢复备份也失败: {e}")
+                
+                return False
+                
+        except Exception as e:
+            logger.error(f"重建SVN工作副本过程中发生异常: {e}")
             return False
     
     def get_recent_commits(self, hours: int = 24, limit: int = 100) -> List[Dict]:
@@ -354,7 +456,118 @@ class SVNHandler:
         统计删除行数
         """
         return len(re.findall(r'^-(?!--)', diff_content, re.MULTILINE))
+    
+    def _safe_decode(self, binary_data: bytes) -> str:
+        """
+        安全解码二进制数据，尝试多种编码
+        :param binary_data: 二进制数据
+        :return: 解码后的字符串
+        """
+        if not binary_data:
+            return ""
+        
+        encodings_to_try = ['utf-8', 'gbk', 'cp936', 'latin1', 'utf-16']
+        
+        for encoding in encodings_to_try:
+            try:
+                return binary_data.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        
+        # 如果所有编码都失败，使用 utf-8 并替换错误字符
+        try:
+            return binary_data.decode('utf-8', errors='replace')
+        except Exception:
+            # 最后的手段：转换为字符串表示
+            return str(binary_data)
 
+    def _clean_svn_database(self) -> bool:
+        """
+        清理SVN工作副本数据库（处理work queue错误）
+        :return: 是否成功
+        """
+        try:
+            logger.info("开始清理SVN工作副本数据库...")
+            
+            # 检查.svn目录
+            svn_dir = os.path.join(self.svn_local_path, '.svn')
+            if not os.path.exists(svn_dir):
+                logger.warning("未找到.svn目录")
+                return False
+            
+            # 需要清理的文件列表
+            files_to_clean = [
+                'wc.db-lock',  # 锁文件
+                'wc.db-wal',   # Write-Ahead Log
+                'wc.db-shm'    # Shared Memory
+            ]
+            
+            cleaned_files = []
+            for filename in files_to_clean:
+                file_path = os.path.join(svn_dir, filename)
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                        cleaned_files.append(filename)
+                        logger.info(f"已删除 {filename}")
+                    except Exception as e:
+                        logger.warning(f"删除 {filename} 失败: {e}")
+            
+            if cleaned_files:
+                logger.info(f"已清理SVN数据库文件: {', '.join(cleaned_files)}")
+                
+                # 尝试重新初始化工作副本
+                logger.info("尝试重新初始化工作副本...")
+                stdout, stderr, returncode = self._run_svn_command(['svn', 'cleanup'], cwd=self.svn_local_path)
+                
+                if returncode == 0:
+                    logger.info("SVN数据库清理成功")
+                    return True
+                else:
+                    logger.warning(f"cleanup仍然失败: {stderr}")
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"清理SVN数据库时发生异常: {e}")
+            return False
+
+    def _fix_work_queue_error(self) -> bool:
+        """
+        修复SVN工作队列错误
+        :return: 是否成功
+        """
+        try:
+            logger.info("检测到SVN工作队列错误，开始修复...")
+            
+            # 1. 先尝试清理数据库
+            if self._clean_svn_database():
+                return True
+            
+            # 2. 如果清理失败，尝试强制重置工作副本状态
+            logger.info("尝试强制重置工作副本状态...")
+            
+            # 使用 svn cleanup --remove-unversioned --remove-ignored --include-externals
+            stdout, stderr, returncode = self._run_svn_command([
+                'svn', 'cleanup', 
+                '--remove-unversioned', 
+                '--remove-ignored',
+                '--include-externals'
+            ], cwd=self.svn_local_path)
+            
+            if returncode == 0:
+                logger.info("强制重置工作副本状态成功")
+                return True
+            
+            logger.warning(f"强制重置也失败: {stderr}")
+            
+            # 3. 最后手段：重建整个工作副本
+            logger.info("尝试重建整个工作副本...")
+            return self._rebuild_working_copy()
+            
+        except Exception as e:
+            logger.error(f"修复工作队列错误时发生异常: {e}")
+            return False
 
 def filter_svn_changes(changes: List[Dict]) -> List[Dict]:
     """

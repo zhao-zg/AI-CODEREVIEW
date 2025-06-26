@@ -237,10 +237,19 @@ class UIComponents:
         
         return controls
     
-    def show_data_card(self, row: pd.Series, index: int, review_type: str) -> bool:
-        """显示数据卡片"""
+    def show_data_card(self, row: pd.Series, index: int, review_type: str) -> str:
+        """显示数据卡片 - 可点击展开详情"""
+        
+        # 为每个卡片创建唯一的展开状态键
+        expand_key = f"expand_card_{index}_{review_type}"
+        
+        # 初始化 session state
+        if expand_key not in st.session_state:
+            st.session_state[expand_key] = False
+        
+        # 创建可点击的卡片
         with st.container():
-            # 创建卡片样式
+            # 卡片内容
             card_html = f"""
             <div style="
                 background-color: #ffffff;
@@ -250,6 +259,7 @@ class UIComponents:
                 margin-bottom: 1rem;
                 box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                 transition: box-shadow 0.3s ease;
+                cursor: pointer;
             ">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div style="flex: 1;">
@@ -261,15 +271,21 @@ class UIComponents:
                                 {self.theme.ICONS['author']} {row.get('author', 'N/A')}
                             </span>
                             <span style="margin-right: 1rem;">
-                                {self.theme.ICONS['project']} {row.get('project_name', 'N/A')}
+                                {self.theme.ICONS['project']} {row.get('project', row.get('project_name', 'N/A'))}
                             </span>
                             <span style="margin-right: 1rem;">
                                 {self.theme.ICONS['score']} {row.get('score', 'N/A')}
                             </span>
                             <span>
-                                {self.theme.ICONS['time']} {self._format_datetime(row.get('datetime', row.get('reviewed_at', 'N/A')))}
+                                {self.theme.ICONS['time']} {self._format_datetime(row.get('timestamp', row.get('datetime', row.get('reviewed_at', 'N/A'))))}
                             </span>
                         </div>
+                        <div style="margin-top: 0.5rem; color: #495057; font-size: 0.85rem;">
+                            <strong>提交:</strong> {str(row.get('commit_messages', row.get('commit_message', 'N/A')))[:80]}{'...' if len(str(row.get('commit_messages', row.get('commit_message', '')))) > 80 else ''}
+                        </div>
+                    </div>
+                    <div style="color: #6c757d; font-size: 0.8rem;">
+                        {'📖 点击收起' if st.session_state[expand_key] else '👁️ 点击展开'}
                     </div>
                 </div>
             </div>
@@ -277,12 +293,15 @@ class UIComponents:
             
             st.markdown(card_html, unsafe_allow_html=True)
             
-            # 显示详情按钮
-            return st.button(
-                f"{self.theme.ICONS['detail']} 查看详情",
-                key=f"detail_{index}",
-                help="点击查看详细信息"
-            )
+            # 展开/收起按钮
+            current_state = st.session_state[expand_key]
+            button_text = "📖 收起详情" if current_state else "�️ 展开详情"
+            
+            if st.button(button_text, key=f"btn_{expand_key}", use_container_width=True):
+                st.session_state[expand_key] = not st.session_state[expand_key]
+                st.rerun()
+            
+            return "expanded" if st.session_state[expand_key] else "collapsed"
     
     def show_detail_modal(self, row: pd.Series, review_type: str):
         """显示详情模态框 - 优化版本"""
@@ -309,9 +328,10 @@ class UIComponents:
             st.markdown("#### 📋 基本信息")
             info_data = {
                 "作者": row.get('author', 'N/A'),
-                "项目": row.get('project_name', 'N/A'),
+                "项目": row.get('project', row.get('project_name', 'N/A')),
                 "评分": row.get('score', 'N/A'),
-                "类型": review_type.upper()
+                "类型": review_type.upper(),
+                "提交ID": row.get('commit_sha', 'N/A')
             }
             
             for key, value in info_data.items():
@@ -320,19 +340,30 @@ class UIComponents:
         with detail_col2:
             st.markdown("#### 🕒 时间信息")
             time_data = {
-                "审查时间": self._format_datetime(row.get('datetime', row.get('reviewed_at', 'N/A'))),
-                "创建时间": self._format_datetime(row.get('created_at', 'N/A')),
-                "更新时间": self._format_datetime(row.get('updated_at', 'N/A'))
+                "审查时间": self._format_datetime(row.get('timestamp', row.get('reviewed_at', 'N/A'))),
+                "提交时间": self._format_datetime(row.get('commit_date', 'N/A')),
+                "创建时间": self._format_datetime(row.get('created_at', 'N/A'))
             }
             
             for key, value in time_data.items():
                 st.write(f"**{key}:** {value}")
         
         # 提交信息
-        if row.get('commit_message') or row.get('title'):
+        if row.get('commit_messages') or row.get('commit_message') or row.get('title'):
             st.markdown("#### 💬 提交信息")
-            message = row.get('commit_message', row.get('title', 'N/A'))
+            message = row.get('commit_messages', row.get('commit_message', row.get('title', 'N/A')))
             st.text_area("提交消息", value=str(message), height=100, disabled=True)
+        
+        # 审查结果
+        if row.get('review_result'):
+            st.markdown("#### 📝 审查结果")
+            review_result = str(row.get('review_result', ''))
+            if len(review_result) > 1000:
+                # 长文本使用可展开组件
+                with st.expander("点击查看完整审查结果", expanded=False):
+                    st.markdown(review_result)
+            else:
+                st.text_area("审查详情", value=review_result, height=200, disabled=True)
         
         # 代码变更
         st.markdown("#### 📊 代码变更统计")
@@ -347,7 +378,23 @@ class UIComponents:
             st.metric("🔴 删除行数", deletions)
         
         with change_col3:
-            files_changed = row.get('files_changed', 0)
+            # 尝试从 file_details 或 file_paths 计算文件数
+            files_changed = 0
+            if row.get('file_details'):
+                try:
+                    import json
+                    file_details = json.loads(str(row.get('file_details', '{}')))
+                    files_changed = file_details.get('summary', {}).get('total_files', 0)
+                except:
+                    pass
+            if files_changed == 0 and row.get('file_paths'):
+                try:
+                    import json
+                    file_paths = json.loads(str(row.get('file_paths', '[]')))
+                    files_changed = len(file_paths) if isinstance(file_paths, list) else 0
+                except:
+                    files_changed = row.get('files_changed', 0)
+            
             st.metric("📄 变更文件", files_changed)
         
         # 完整数据

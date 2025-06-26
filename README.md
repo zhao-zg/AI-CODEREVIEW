@@ -9,7 +9,7 @@
 ## 功能
 
 - 🚀 多模型支持
-  - 兼容 DeepSeek、ZhipuAI、OpenAI、通义千问 和 Ollama，想用哪个就用哪个。
+  - 兼容 DeepSeek、ZhipuAI、OpenAI、通义千问、Jedi 和 Ollama，想用哪个就用哪个。
 - � 多版本控制系统支持
   - 支持 GitLab、GitHub webhook 触发式审查，也支持 SVN 定时检测式审查。
 - �📢 消息即时推送

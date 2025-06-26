@@ -684,12 +684,55 @@ check_service_health() {
     return 0
 }
 
+# 环境配置检查函数
+check_environment_config() {
+    log_info "执行环境配置检查..."
+    
+    # 检查 Python 是否可用
+    if ! command -v python3 &> /dev/null && ! command -v python &> /dev/null; then
+        log_warning "Python 未安装，跳过环境配置检查"
+        return 1
+    fi
+    
+    # 选择 Python 命令
+    local python_cmd=""
+    if command -v python3 &> /dev/null; then
+        python_cmd="python3"
+    elif command -v python &> /dev/null; then
+        python_cmd="python"
+    fi
+    
+    # 检查环境检查脚本是否存在
+    local env_checker_script="scripts/env_checker.py"
+    if [ ! -f "$env_checker_script" ]; then
+        log_warning "环境检查脚本不存在: $env_checker_script"
+        return 1
+    fi
+    
+    # 运行环境配置检查
+    log_info "运行环境配置检查脚本..."
+    if $python_cmd "$env_checker_script"; then
+        log_success "环境配置检查完成"
+        return 0
+    else
+        local exit_code=$?
+        log_warning "环境配置检查返回非零退出码: $exit_code"
+        return 1
+    fi
+}
+
 # 预检查必要配置文件
 preflight_check() {
     log_info "执行启动前检查..."
     local check_passed=true
     
-    # 检查必要的配置文件
+    # 1. 环境配置检查
+    log_info "检查环境配置..."
+    if ! check_environment_config; then
+        log_warning "环境配置检查存在问题，但将继续启动"
+    fi
+    
+    # 2. 检查必要的配置文件
     local required_files="docker-compose.yml"
     for file in $required_files; do
         if [ ! -f "$file" ]; then
@@ -700,13 +743,13 @@ preflight_check() {
         fi
     done
     
-    # 检查 Docker 是否可用
+    # 3. 检查 Docker 是否可用
     if ! docker info &> /dev/null; then
         log_error "Docker 不可用，请确保 Docker 服务正在运行"
         check_passed=false
     fi
     
-    # 检查端口是否被占用
+    # 4. 检查端口是否被占用
     check_port_conflicts
     local port_check=$?
     if [ $port_check -ne 0 ]; then

@@ -35,9 +35,40 @@ class VersionTracker:
                         review_result TEXT,
                         score INTEGER,
                         created_at INTEGER,
+                        commit_message TEXT,
+                        commit_date TEXT,
+                        additions_count INTEGER DEFAULT 0,
+                        deletions_count INTEGER DEFAULT 0,
+                        file_details TEXT,
                         UNIQUE(project_name, version_hash)
                     )
                 ''')
+                
+                # 添加缺失的列（如果表已存在但缺少列）
+                try:
+                    cursor.execute('ALTER TABLE version_tracker ADD COLUMN commit_message TEXT')
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
+                
+                try:
+                    cursor.execute('ALTER TABLE version_tracker ADD COLUMN commit_date TEXT')
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
+                
+                try:
+                    cursor.execute('ALTER TABLE version_tracker ADD COLUMN additions_count INTEGER DEFAULT 0')
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
+                
+                try:
+                    cursor.execute('ALTER TABLE version_tracker ADD COLUMN deletions_count INTEGER DEFAULT 0')
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
+                
+                try:
+                    cursor.execute('ALTER TABLE version_tracker ADD COLUMN file_details TEXT')
+                except sqlite3.OperationalError:
+                    pass  # 列已存在
                 
                 # 创建索引以提高查询性能
                 cursor.execute('''

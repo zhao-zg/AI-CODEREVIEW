@@ -12,6 +12,9 @@ from .data_display import display_version_tracking_data, display_legacy_data
 
 def apply_config_changes():
     """应用配置更改，使其立即生效"""
+    # 先加载环境变量
+    load_dotenv('conf/.env')
+    
     success_count = 0
     total_attempts = 0
     
@@ -73,8 +76,12 @@ def apply_config_changes():
         st.error(f"❌ 应用配置更改时发生异常: {e}")
         return False
 
-def test_current_configuration():
+def test_current_configuration(reload_env=True):
     """测试当前配置的有效性"""
+    # 可选择是否重新加载环境变量（测试时可以设为 False）
+    if reload_env:
+        load_dotenv('conf/.env')
+    
     results = {
         "ai_model": {"status": "unknown", "message": ""},
         "database": {"status": "unknown", "message": ""},
@@ -85,20 +92,74 @@ def test_current_configuration():
     
     try:
         # 测试AI模型配置
-        llm_provider = os.environ.get('LLM_PROVIDER', '').lower()
+        llm_provider = os.environ.get('LLM_PROVIDER', '').lower().strip()
         if llm_provider:
-            if llm_provider == 'deepseek' and os.environ.get('DEEPSEEK_API_KEY'):
-                results["ai_model"] = {"status": "success", "message": f"DeepSeek API密钥已配置"}
-            elif llm_provider == 'openai' and os.environ.get('OPENAI_API_KEY'):
-                results["ai_model"] = {"status": "success", "message": f"OpenAI API密钥已配置"}
-            elif llm_provider == 'zhipuai' and os.environ.get('ZHIPUAI_API_KEY'):
-                results["ai_model"] = {"status": "success", "message": f"智谱AI API密钥已配置"}
-            elif llm_provider == 'qwen' and os.environ.get('QWEN_API_KEY'):
-                results["ai_model"] = {"status": "success", "message": f"Qwen API密钥已配置"}
-            elif llm_provider == 'ollama' and os.environ.get('OLLAMA_API_BASE_URL'):
-                results["ai_model"] = {"status": "success", "message": f"Ollama API地址已配置"}
+            ai_config_valid = False
+            provider_message = ""
+            
+            if llm_provider == 'deepseek':
+                api_key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
+                if api_key:
+                    ai_config_valid = True
+                    provider_message = "DeepSeek API密钥已配置"
+                else:
+                    provider_message = "DeepSeek已选择但API密钥未配置"
+                    
+            elif llm_provider == 'openai':
+                api_key = os.environ.get('OPENAI_API_KEY', '').strip()
+                if api_key:
+                    ai_config_valid = True
+                    provider_message = "OpenAI API密钥已配置"
+                else:
+                    provider_message = "OpenAI已选择但API密钥未配置"
+                    
+            elif llm_provider == 'zhipuai':
+                api_key = os.environ.get('ZHIPUAI_API_KEY', '').strip()
+                if api_key:
+                    ai_config_valid = True
+                    provider_message = "智谱AI API密钥已配置"
+                else:
+                    provider_message = "智谱AI已选择但API密钥未配置"
+                    
+            elif llm_provider == 'qwen':
+                api_key = os.environ.get('QWEN_API_KEY', '').strip()
+                if api_key:
+                    ai_config_valid = True
+                    provider_message = "Qwen API密钥已配置"
+                else:
+                    provider_message = "Qwen已选择但API密钥未配置"
+                    
+            elif llm_provider == 'ollama':
+                api_base = os.environ.get('OLLAMA_API_BASE_URL', '').strip()
+                model = os.environ.get('OLLAMA_API_MODEL', '').strip()
+                if api_base and model:
+                    ai_config_valid = True
+                    provider_message = f"Ollama API地址已配置，模型: {model}"
+                elif api_base:
+                    provider_message = "Ollama API地址已配置但未指定模型"
+                else:
+                    provider_message = "Ollama已选择但API地址未配置"
+                    
+            elif llm_provider == 'jedi':
+                api_key = os.environ.get('JEDI_API_KEY', '').strip()
+                api_base = os.environ.get('JEDI_API_BASE_URL', '').strip()
+                model = os.environ.get('JEDI_API_MODEL', '').strip()
+                if api_key and api_base and model:
+                    ai_config_valid = True
+                    provider_message = f"Jedi API已配置，模型: {model}"
+                elif api_key and api_base:
+                    provider_message = "Jedi API密钥和地址已配置但未指定模型"
+                elif api_key:
+                    provider_message = "Jedi API密钥已配置但缺少API地址"
+                else:
+                    provider_message = "Jedi已选择但API密钥未配置"
             else:
-                results["ai_model"] = {"status": "error", "message": f"已选择{llm_provider}但未正确配置API密钥"}
+                provider_message = f"不支持的AI模型提供商: {llm_provider}"
+            
+            if ai_config_valid:
+                results["ai_model"] = {"status": "success", "message": provider_message}
+            else:
+                results["ai_model"] = {"status": "error", "message": provider_message}
         else:
             results["ai_model"] = {"status": "warning", "message": "未选择AI模型提供商"}
         
@@ -551,8 +612,7 @@ def _display_detailed_analysis(review_stats, platforms):
     
     with col_refresh:
         st.markdown("<br>", unsafe_allow_html=True)  # 对齐按钮
-        refresh_btn = st.button("🔄 刷新数据", key="refresh_data_btn")
-        if refresh_btn:
+        if st.button("🔄 刷新数据", key="refresh_data_btn", help="刷新页面数据"):
             st.rerun()
     
     # 高级筛选选项
@@ -694,8 +754,8 @@ def env_management_page():
             with col1:
                 llm_provider = st.selectbox(
                     "AI模型供应商", 
-                    ["deepseek", "openai", "zhipuai", "qwen", "ollama"],
-                    index=["deepseek", "openai", "zhipuai", "qwen", "ollama"].index(env_config.get("LLM_PROVIDER", "deepseek"))
+                    ["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"],
+                    index=["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"].index(env_config.get("LLM_PROVIDER", "deepseek"))
                 )
                 review_style = st.selectbox(
                     "审查风格", 
@@ -766,11 +826,16 @@ def env_management_page():
                     openai_key = st.text_input("OpenAI API Key", value=env_config.get("OPENAI_API_KEY", ""), type="password")
                     openai_base = st.text_input("OpenAI API Base", value=env_config.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1"))
                     openai_model = st.text_input("OpenAI Model", value=env_config.get("OPENAI_API_MODEL", "gpt-4o-mini"))
-                
-                with col_ai2:
+                    
                     st.markdown("**智谱AI 配置**")
                     zhipuai_key = st.text_input("智谱AI API Key", value=env_config.get("ZHIPUAI_API_KEY", ""), type="password")
                     zhipuai_model = st.text_input("智谱AI Model", value=env_config.get("ZHIPUAI_API_MODEL", "GLM-4-Flash"))
+                
+                with col_ai2:
+                    st.markdown("**Jedi 配置**")
+                    jedi_key = st.text_input("Jedi API Key", value=env_config.get("JEDI_API_KEY", ""), type="password")
+                    jedi_base = st.text_input("Jedi API Base", value=env_config.get("JEDI_API_BASE_URL", "https://jedi-jp-prd-ai-tools.bekko.com:30001/chat_completion_api"))
+                    jedi_model = st.text_input("Jedi Model", value=env_config.get("JEDI_API_MODEL", "official-deepseek-r1"))
                     
                     st.markdown("**Qwen 配置**")
                     qwen_key = st.text_input("Qwen API Key", value=env_config.get("QWEN_API_KEY", ""), type="password")
@@ -1014,6 +1079,11 @@ def env_management_page():
                     "QWEN_API_BASE_URL": qwen_base,
                     "QWEN_API_MODEL": qwen_model,
                     
+                    # Jedi配置
+                    "JEDI_API_KEY": jedi_key,
+                    "JEDI_API_BASE_URL": jedi_base,
+                    "JEDI_API_MODEL": jedi_model,
+                    
                     # Ollama配置
                     "OLLAMA_API_BASE_URL": ollama_base,
                     "OLLAMA_API_MODEL": ollama_model
@@ -1051,37 +1121,34 @@ def env_management_page():
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            try:
-                test_btn = st.button("🧪 测试当前配置", key="env_mgmt_test_config_btn")
-                if test_btn:
-                    with st.spinner("正在测试配置..."):
+            if st.button("🧪 测试当前配置", key="env_mgmt_test_config_btn", help="测试当前配置的有效性"):
+                with st.spinner("正在测试配置..."):
+                    try:
                         test_results = test_current_configuration()
                         display_test_results(test_results)
-            except Exception as e:
-                st.error(f"按钮错误: {e}")
+                    except Exception as e:
+                        st.error(f"配置测试失败: {e}")
         
         with col2:
-            try:
-                reload_btn = st.button("🔄 立即重载配置", key="env_mgmt_reload_config_btn")
-                if reload_btn:
-                    with st.spinner("正在重载配置..."):
+            if st.button("🔄 立即重载配置", key="env_mgmt_reload_config_btn", help="立即重载当前配置到系统"):
+                with st.spinner("正在重载配置..."):
+                    try:
                         reload_success = apply_config_changes()
                         if reload_success:
                             st.success("✅ 配置重载成功！")
                         else:
                             st.warning("⚠️ 配置重载部分成功，建议检查服务状态")
-            except Exception as e:
-                st.error(f"按钮错误: {e}")
+                    except Exception as e:
+                        st.error(f"配置重载失败: {e}")
         
         with col3:
-            try:
-                status_btn = st.button("📊 检查服务状态", key="env_mgmt_check_status_btn")
-                if status_btn:
-                    with st.spinner("正在检查服务状态..."):
+            if st.button("📊 检查服务状态", key="env_mgmt_check_status_btn", help="检查API和后台服务的运行状态"):
+                with st.spinner("正在检查服务状态..."):
+                    try:
                         service_status = check_service_status()
                         display_service_status(service_status)
-            except Exception as e:
-                st.error(f"按钮错误: {e}")
+                    except Exception as e:
+                        st.error(f"状态检查失败: {e}")
     
     with tab2:
         st.markdown("### 📋 配置总览")
@@ -1097,6 +1164,7 @@ def env_management_page():
                                    "OPENAI_API_KEY", "OPENAI_API_BASE_URL", "OPENAI_API_MODEL",
                                    "ZHIPUAI_API_KEY", "ZHIPUAI_API_MODEL", 
                                    "QWEN_API_KEY", "QWEN_API_BASE_URL", "QWEN_API_MODEL",
+                                   "JEDI_API_KEY", "JEDI_API_BASE_URL", "JEDI_API_MODEL",
                                    "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL",
                                    "REVIEW_STYLE", "REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS"],
                     "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
@@ -1213,7 +1281,7 @@ def env_management_page():
                 for key, value in template_config.items():
                     st.text(f"{key}: {value}")
                 
-                if st.button(f"应用{selected_template}模板", key="apply_template"):
+                if st.button(f"应用{selected_template}模板", key="apply_template", help=f"将当前配置替换为{selected_template}模板配置"):
                     try:
                         current_config = config_manager.get_env_config()
                         current_config.update(template_config)
@@ -1230,7 +1298,7 @@ def env_management_page():
             st.markdown("#### 🔄 配置操作")
             
             # 重置配置
-            if st.button("🔄 重置为默认配置", key="reset_config"):
+            if st.button("🔄 重置为默认配置", key="reset_config", help="将所有配置重置为系统默认值"):
                 try:
                     if config_manager.reset_env_config():
                         st.success("✅ 配置已重置为默认值！")
@@ -1242,7 +1310,7 @@ def env_management_page():
             
             st.markdown("---")
               # 导出配置
-            if st.button("📥 导出当前配置", key="export_config"):
+            if st.button("📥 导出当前配置", key="export_config", help="将当前配置导出为环境变量文件"):
                 try:
                     current_config = config_manager.get_env_config()
                     if current_config:

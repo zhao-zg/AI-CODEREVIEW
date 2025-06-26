@@ -24,7 +24,7 @@ class ConfigReloader:
         self.env_file = self.config_dir / ".env"
         self.dashboard_config_file = self.config_dir / "dashboard_config.py"
         self.last_reload_time = time.time()
-        self.reload_cooldown = 2  # 2秒冷却时间，防止频繁重载
+        self.reload_cooldown = 3  # 调整为3秒冷却时间，避免过于频繁的提示
         
     def reload_environment_variables(self) -> bool:
         """重新加载环境变量"""
@@ -62,7 +62,7 @@ class ConfigReloader:
             "GITLAB_URL", "GITLAB_ACCESS_TOKEN", "GITHUB_ACCESS_TOKEN",
             
             # 系统配置
-            "SERVER_PORT", "LOG_LEVEL", "QUEUE_DRIVER", "WORKER_QUEUE",
+            "SERVER_PORT", "LOG_LEVEL", "QUEUE_DRIVER",
             "REDIS_HOST", "REDIS_PORT",
             
             # 消息推送配置
@@ -202,9 +202,10 @@ class ConfigReloader:
         
         # 检查冷却时间
         if current_time - self.last_reload_time < self.reload_cooldown:
+            remaining_time = self.reload_cooldown - (current_time - self.last_reload_time)
             return {
                 "success": False,
-                "message": "重载过于频繁，请稍后再试",
+                "message": f"重载过于频繁，请等待 {remaining_time:.1f} 秒后再试",
                 "details": {}
             }
         

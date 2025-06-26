@@ -10,7 +10,36 @@ from biz.svn.svn_handler import SVNHandler, filter_svn_changes
 from biz.utils.code_reviewer import CodeReviewer
 from biz.utils.im import notifier
 from biz.utils.log import logger
-from biz.utils.default_config import get_env_bool, get_env_with_default, get_env_int
+from biz.utils.config_manager import ConfigManager
+
+def get_config_bool(key: str, default: bool = False) -> bool:
+    """从 ConfigManager 获取布尔值配置"""
+    try:
+        config_manager = ConfigManager()
+        env_config = config_manager.get_env_config()
+        value = env_config.get(key, '0' if not default else '1')
+        return value.lower() in ('1', 'true', 'yes', 'on')
+    except:
+        return default
+
+def get_config_str(key: str, default: str = '') -> str:
+    """从 ConfigManager 获取字符串配置"""
+    try:
+        config_manager = ConfigManager()
+        env_config = config_manager.get_env_config()
+        return env_config.get(key, default)
+    except:
+        return default
+
+def get_config_int(key: str, default: int = 0) -> int:
+    """从 ConfigManager 获取整数配置"""
+    try:
+        config_manager = ConfigManager()
+        env_config = config_manager.get_env_config()
+        value = env_config.get(key, str(default))
+        return int(value)
+    except:
+        return default
 # === 版本追踪集成 ===
 from biz.utils.version_tracker import VersionTracker
 # === 版本追踪集成 END ===
@@ -25,7 +54,7 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
     try:
         # 解析仓库配置
         if repositories_config is None:
-            repositories_config = get_env_with_default('SVN_REPOSITORIES')
+            repositories_config = get_config_str('SVN_REPOSITORIES')
           # 详细的配置调试信息
         logger.debug(f"SVN仓库配置字符串长度: {len(repositories_config)}")
         logger.debug(f"SVN仓库配置前50字符: {repr(repositories_config[:50])}")
@@ -186,7 +215,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         }]
         
         # === 版本追踪集成 - 检查是否已审查 ===
-        version_tracking_enabled = get_env_bool('VERSION_TRACKING_ENABLED')
+        version_tracking_enabled = get_config_bool('VERSION_TRACKING_ENABLED')
         if version_tracking_enabled:
             # 检查该revision是否已审查
             existing_review = VersionTracker.is_version_reviewed(project_name, commit_info, changes)
@@ -196,24 +225,51 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         # === 版本追踪集成 END ===
         
         # 进行代码审查
-        review_result = "未进行代码审查"
+        review_result = ""
         score = 0
+        review_successful = False
         
-        svn_review_enabled = get_env_bool('SVN_REVIEW_ENABLED')
+        svn_review_enabled = get_config_bool('SVN_REVIEW_ENABLED')
         
         if svn_review_enabled and changes:
-            # 构造变更文本
-            changes_text = ""
-            for change in changes:
-                changes_text += f"\n--- 文件: {change['new_path']} ---\n"
-                changes_text += change['diff']
-                changes_text += "\n"
-            
-            # 进行代码审查
-            commits_text = f"SVN提交 r{revision}: {message}"
-            review_result = CodeReviewer().review_and_strip_code(changes_text, commits_text)
-            score = CodeReviewer.parse_review_score(review_text=review_result)
-            logger.info(f'代码审查完成，评分: {score}')
+            try:
+                # 构造变更文本
+                changes_text = ""
+                for change in changes:
+                    changes_text += f"\n--- 文件: {change['new_path']} ---\n"
+                    changes_text += change['diff']
+                    changes_text += "\n"
+                
+                # 进行代码审查
+                commits_text = f"SVN提交 r{revision}: {message}"
+                review_result = CodeReviewer().review_and_strip_code(changes_text, commits_text)
+                
+                # 验证审查结果是否有效
+                if review_result and review_result.strip() and review_result != "代码为空":
+                    score = CodeReviewer.parse_review_score(review_text=review_result)
+                    review_successful = True
+                    logger.info(f'代码审查完成，评分: {score}')
+                else:
+                    logger.warning(f'代码审查失败：审查结果为空或无效，不写入数据库')
+                    return  # 审查失败时直接返回，不进行后续处理
+                    
+            except Exception as e:
+                logger.error(f'代码审查过程中发生异常: {e}，不写入数据库')
+                return  # 审查出错时直接返回，不进行后续处理
+                
+        elif svn_review_enabled:
+            logger.info(f'SVN提交 r{revision} 没有包含需要审查的文件，跳过审查')
+            review_result = "无需要审查的文件"
+            review_successful = True  # 没有可审查文件也算成功
+        else:
+            logger.info(f'SVN代码审查未启用，跳过审查')
+            review_result = "SVN代码审查未启用"
+            review_successful = True  # 未启用审查也算成功
+        
+        # 只有审查成功时才进行后续处理
+        if not review_successful:
+            logger.warning(f'SVN提交 r{revision} 审查未成功，不进行事件触发和通知')
+            return
           
         # 获取项目名称
         project_name = repo_name or os.path.basename(svn_path.rstrip('/\\'))
@@ -241,7 +297,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         ))
         
         # 发送通知
-        if svn_review_enabled and review_result != "未进行代码审查":
+        if svn_review_enabled and review_successful and review_result not in ["SVN代码审查未启用", "无需要审查的文件"]:
             notification_content = f"""
 ## SVN代码审查结果
 
@@ -321,13 +377,13 @@ def main():
         logger.info("🚀 启动 SVN 后台检查任务")
         
         # 检查 SVN 是否启用
-        if not get_env_bool('SVN_CHECK_ENABLED'):
+        if not get_config_bool('SVN_CHECK_ENABLED'):
             logger.info("ℹ️ SVN 检查已禁用")
             return
         
         # 获取配置
-        repositories_config = get_env_with_default('SVN_REPOSITORIES')
-        check_limit = get_env_int('SVN_CHECK_LIMIT')
+        repositories_config = get_config_str('SVN_REPOSITORIES')
+        check_limit = get_config_int('SVN_CHECK_LIMIT')
         
         if not repositories_config:
             logger.warning("⚠️ 未配置 SVN 仓库，跳过 SVN 检查")

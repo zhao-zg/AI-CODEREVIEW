@@ -194,7 +194,6 @@ class ConfigManager:
             
             # 系统配置
             "LOG_LEVEL": "系统配置",
-            "WORKER_QUEUE": "系统配置",
             "API_PORT": "系统配置"        }
         
         # 分类配置项
@@ -490,7 +489,6 @@ class ConfigManager:
             # 系统配置
             "LOG_LEVEL": "日志级别: DEBUG, INFO, WARNING, ERROR",
             "API_PORT": "API服务端口，默认5001",
-            "WORKER_QUEUE": "工作队列名称",
             "DATABASE_PATH": "数据库文件路径"
         }
         
