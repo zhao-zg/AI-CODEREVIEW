@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 
 from biz.gitlab.webhook_handler import slugify_url
 from biz.queue.worker import handle_merge_request_event, handle_push_event, handle_github_pull_request_event, \
@@ -30,6 +30,10 @@ from biz.utils.config_checker import check_config
 from biz.utils.default_config import get_env_bool, get_env_with_default, get_env_int
 
 api_app = Flask(__name__)
+
+# 配置 Flask 应用以支持中文输出
+api_app.config['JSON_AS_ASCII'] = False  # 确保 JSON 响应支持中文
+api_app.config['JSONIFY_PRETTYPRINT_REGULAR'] = True  # 美化 JSON 输出
 
 # 全局配置变量
 push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
@@ -366,13 +370,30 @@ def manual_svn_check():
         if hours is not None:
             message += f'，将异步处理最近 {hours} 小时的提交。'
         else:
-            default_hours = get_env_with_default('SVN_CHECK_INTERVAL_HOURS')
-            message += f'，将异步处理最近 {default_hours} 小时的提交。'
+            # 使用默认的24小时
+            message += f'，将异步处理最近 24 小时的提交。'
 
-        return jsonify({'message': message}), 200
+        # 使用自定义响应确保中文正确输出
+        response_data = {'message': message}
+        import json
+        json_str = json.dumps(response_data, ensure_ascii=False, indent=2)
+        return Response(json_str, content_type='application/json; charset=utf-8'), 200
     except Exception as e:
         logger.error(f"手动触发SVN检查失败: {e}")
-        return jsonify({'message': f'手动触发SVN检查失败: {e}'}), 500
+        error_message = f'手动触发SVN检查失败: {str(e)}'
+        response_data = {'message': error_message}
+        import json
+        json_str = json.dumps(response_data, ensure_ascii=False, indent=2)
+        return Response(json_str, content_type='application/json; charset=utf-8'), 500
+
+
+# 添加响应后处理，确保中文编码正确
+@api_app.after_request  
+def after_request(response):
+    """设置响应头以确保中文正确显示"""
+    if response.content_type.startswith('application/json'):
+        response.headers['Content-Type'] = 'application/json; charset=utf-8'
+    return response
 
 
 def trigger_specific_svn_repo(repo_name: str, hours: int = None):
@@ -569,3 +590,15 @@ if __name__ == '__main__':
         logger.error(f"❌ 服务启动失败: {e}")
         shutdown_background_tasks()
         raise
+
+# 测试中文输出的端点（临时调试用）
+@api_app.route('/test/chinese', methods=['GET'])
+def test_chinese_output():
+    """测试中文输出"""
+    return jsonify({
+        'message': 'SVN检查已启动，将异步处理最近 24 小时的提交。',
+        'config_check': {
+            'JSON_AS_ASCII': api_app.config.get('JSON_AS_ASCII'),
+            'charset': 'utf-8'
+        }
+    })

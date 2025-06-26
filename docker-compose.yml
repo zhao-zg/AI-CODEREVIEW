@@ -53,7 +53,7 @@ services:
       - QUEUE_DRIVER=memory
       
       # SVN 配置
-      - SVN_CHECK_ENABLED=false
+      - SVN_CHECK_ENABLED=true
       - SVN_CHECK_INTERVAL=300
     
     # 网络配置
