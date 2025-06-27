@@ -29,8 +29,8 @@ RUN pip install --no-cache-dir \
     python-dotenv==1.0.0 \
     Jinja2==3.1.4 \
     requests==2.32.3 \
-    PyYAML==6.0.1
-
+    PyYAML==6.0.1\
+    portalocker==3.5.2
 # 安装可能有编译需求的包
 RUN pip install --no-cache-dir \
     psutil==5.9.5 \
@@ -60,7 +60,6 @@ RUN pip install --no-cache-dir \
     tabulate==0.9.0 \
     tiktoken==0.9.0 \
     rq==2.1.0
-
 # 设置环境变量
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
