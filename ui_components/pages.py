@@ -391,8 +391,8 @@ def data_analysis_page():
     # 页面标题
     st.markdown("""
     <div class="config-card">
-        <h2 style="margin: 0; color: #2c3e50;">📊 代码审查数据分析</h2>
-        <p style="margin: 0.5rem 0 0 0; color: #7f8c8d;">分析代码审查数据，洞察代码质量趋势</p>
+        <h2 style="margin: 0; text-align: center;">📊 代码审查数据分析</h2>
+        <p style="margin: 0.5rem 0 0 0; text-align: center; font-size: 1.1rem;">分析代码审查数据，洞察代码质量趋势</p>
     </div>
     """, unsafe_allow_html=True)
       # 获取平台开关配置
@@ -491,70 +491,6 @@ def _display_data_overview(review_stats, platforms):
             value="暂无",
             help="最近7天的审查记录数"
         )
-    
-    # 平台详细统计
-    if total_reviews > 0:
-        st.markdown("#### 🎯 平台分布")
-        platform_cols = st.columns(3)
-        
-        # GitLab统计
-        with platform_cols[0]:
-            gitlab_total = review_stats.get('mr_count', 0) + review_stats.get('push_count', 0)
-            if platforms.get('gitlab', False):
-                status_icon = "✅" if gitlab_total > 0 else "⚠️"
-                st.markdown(f"""
-                <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
-                    <h4>{status_icon} GitLab</h4>
-                    <p>MR审查: <strong>{review_stats.get('mr_count', 0)}</strong></p>
-                    <p>Push审查: <strong>{review_stats.get('push_count', 0)}</strong></p>
-                    <p>总计: <strong>{gitlab_total}</strong></p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #6c757d;">
-                    <h4>❌ GitLab</h4>
-                    <p style="color: #6c757d;">平台已禁用</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # SVN统计
-        with platform_cols[1]:
-            svn_count = review_stats.get('svn_count', 0)
-            if platforms.get('svn', False):
-                status_icon = "✅" if svn_count > 0 else "⚠️"
-                st.markdown(f"""
-                <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #28a745;">
-                    <h4>{status_icon} SVN</h4>
-                    <p>提交审查: <strong>{svn_count}</strong></p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="padding: 1rem; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #6c757d;">
-                    <h4>❌ SVN</h4>
-                    <p style="color: #6c757d;">平台已禁用</p>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # GitHub统计
-        with platform_cols[2]:
-            github_count = review_stats.get('github_count', 0)
-            if platforms.get('github', False):
-                status_icon = "✅" if github_count > 0 else "⚠️"
-                st.markdown(f"""
-                <div style="padding: 1rem; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #6f42c1;">
-                    <h4>{status_icon} GitHub</h4>
-                    <p>PR审查: <strong>{github_count}</strong></p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown(f"""
-                <div style="padding: 1rem; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #6c757d;">
-                    <h4>❌ GitHub</h4>
-                    <p style="color: #6c757d;">平台已禁用</p>
-                </div>
-                """, unsafe_allow_html=True)
 
 def _display_detailed_analysis(review_stats, platforms):
     """显示详细数据分析"""

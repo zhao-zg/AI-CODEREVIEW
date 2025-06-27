@@ -250,13 +250,15 @@ class AnalyticsEngine:
     def _show_project_analysis(self, df: pd.DataFrame):
         """显示项目分析"""
         st.markdown("#### 📁 项目分布分析")
-        
+        project_name = 'project';
         if 'project_name' in df.columns:
+            project_name = 'project_name'
+        if project_name in df.columns:
             project_col1, project_col2 = st.columns(2)
             
             with project_col1:
                 # 项目数据分布饼图
-                project_counts = df['project_name'].value_counts().head(10)
+                project_counts = df[project_name].value_counts().head(10)
                 if not project_counts.empty:
                     fig_projects = px.pie(
                         values=project_counts.values,
@@ -271,14 +273,14 @@ class AnalyticsEngine:
                 # 项目活跃度时间线
                 if 'datetime' in df.columns and df['datetime'].notna().any():
                     project_timeline = df[df['datetime'].notna()].groupby([
-                        df['datetime'].dt.date, 'project_name'
+                        df['datetime'].dt.date, project_name
                     ]).size().reset_index(name='count')
                     
                     if len(project_timeline) > 0:
                         # 只显示top 5项目的时间线
                         top_projects = project_counts.head(5).index.tolist()
                         project_timeline_filtered = project_timeline[
-                            project_timeline['project_name'].isin(top_projects)
+                            project_timeline[project_name].isin(top_projects)
                         ]
                         
                         if not project_timeline_filtered.empty:
@@ -286,7 +288,7 @@ class AnalyticsEngine:
                                 project_timeline_filtered,
                                 x='datetime',
                                 y='count',
-                                color='project_name',
+                                color=project_name,
                                 title="项目活跃度时间线 (Top 5)",
                                 color_discrete_sequence=self.config.COLOR_SCALES['comparison']
                             )

@@ -200,7 +200,6 @@ class UIComponents:
     
     def create_data_table_controls(self) -> Dict[str, Any]:
         """创建数据表控制面板"""
-        st.markdown("### 📋 数据表控制")
         
         control_col1, control_col2, control_col3, control_col4 = st.columns(4)
         controls = {}
@@ -305,21 +304,6 @@ class UIComponents:
     
     def show_detail_modal(self, row: pd.Series, review_type: str):
         """显示详情模态框 - 优化版本"""
-        st.markdown("---")
-        
-        # 标题
-        st.markdown(f"""
-        <div style="
-            background: linear-gradient(90deg, {self.theme.COLORS['primary']} 0%, {self.theme.COLORS['secondary']} 100%);
-            color: white;
-            padding: 1rem;
-            border-radius: 10px;
-            text-align: center;
-            margin-bottom: 1.5rem;
-        ">
-            <h3 style="margin: 0;">{self.theme.ICONS['detail']} 审查详情</h3>
-        </div>
-        """, unsafe_allow_html=True)
         
         # 基本信息
         detail_col1, detail_col2 = st.columns(2)

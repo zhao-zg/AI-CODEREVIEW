@@ -33,12 +33,6 @@ class DataDisplayManager:
         """显示版本追踪数据 - 重构优化版本"""
         
         try:
-            # 显示页面头部
-            self.ui.show_page_header(
-                title=f"{review_type.upper()} 数据分析",
-                subtitle="深度分析代码审查数据，洞察开发团队效能",
-                icon=self.ui.theme.ICONS.get(review_type, '📊')
-            )
             
             # 获取数据服务
             from biz.service.review_service import ReviewService
@@ -54,9 +48,6 @@ class DataDisplayManager:
             if df is None or df.empty:
                 self.ui.show_no_data_help(review_type)
                 return
-            
-            # 显示数据概览
-            self._show_data_overview(df, review_type)
             
             # 创建主要功能标签页
             main_tabs = st.tabs(["📊 统计分析", "📋 详细数据", "📈 图表分析", "📥 数据导出"])
@@ -128,44 +119,6 @@ class DataDisplayManager:
             self.ui.show_error_message(f"获取数据失败: {str(e)}")
             return None
     
-    def _show_data_overview(self, df: pd.DataFrame, review_type: str):
-        """显示数据概览"""
-        st.markdown("---")
-        
-        # 获取数据摘要
-        summary = self.processor.get_data_summary(df)
-        
-        # 显示概览卡片
-        overview_col1, overview_col2, overview_col3, overview_col4 = st.columns(4)
-        
-        with overview_col1:
-            st.metric(
-                "📊 数据总量",
-                f"{summary['total_records']:,}",
-                help="当前筛选条件下的记录总数"
-            )
-        
-        with overview_col2:
-            st.metric(
-                "⭐ 数据质量",
-                f"{summary['avg_score']:.1f}",
-                help="平均评分，反映数据质量"
-            )
-        
-        with overview_col3:
-            st.metric(
-                "👥 参与度",
-                f"{summary['unique_authors']}人",
-                help="参与的作者数量"
-            )
-        
-        with overview_col4:
-            st.metric(
-                "📁 覆盖面",
-                f"{summary['unique_projects']}项目",
-                help="涉及的项目数量"
-            )
-    
     def _show_enhanced_data_table(self, df: pd.DataFrame, review_type: str):
         """显示增强的数据表"""
         st.markdown("### 📋 数据详情")
@@ -208,6 +161,7 @@ class DataDisplayManager:
         end_idx = min(start_idx + page_size, total_rows)
         page_data = display_df.iloc[start_idx:end_idx]
         
+        st.markdown("---")
         # 显示数据卡片
         self._display_data_cards(page_data, review_type, start_idx)
     
@@ -249,7 +203,6 @@ class DataDisplayManager:
             if card_state == "expanded":
                 with st.container():
                     st.markdown("---")
-                    st.markdown("### 📋 详细信息")
                     self.ui.show_detail_modal(row, review_type)
                     st.markdown("---")
 
