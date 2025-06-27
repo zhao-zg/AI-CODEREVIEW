@@ -89,7 +89,7 @@ class JediClient(BaseClient):
                 max_output_tokens = system_max_tokens
                 thinking = True
                 complexity_level = "complex"
-                base_timeout = 120
+                base_timeout = 150
                 max_retries = 5
                 
             logger.info(f"请求复杂度: {complexity_level}, 内容长度: {total_content_length}, 最大tokens: {max_tokens}, 系统限制: {system_max_tokens}, 基础超时: {base_timeout}秒")
@@ -104,7 +104,7 @@ class JediClient(BaseClient):
                     "presence_penalty": 0,
                     "max_tokens": max_tokens,
                     "max_output_tokens": max_output_tokens,
-                    "top_p": 0.9,
+                    "top_p": 1,
                     "seed": 0,
                     "thinking": thinking,
                     "number_of_images": 0
@@ -144,7 +144,7 @@ class JediClient(BaseClient):
                     
                     if response.status_code == 200:
                         result = response.json()
-                        
+                        logger.info(result)
                         # 根据实际响应格式解析结果
                         if isinstance(result, dict):
                             # 假设响应格式包含 content 或 message 字段

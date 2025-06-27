@@ -349,6 +349,24 @@ class UIComponents:
             else:
                 st.text_area("审查详情", value=review_result, height=200, disabled=True)
         
+        # 重新评审按钮（仅管理员可见）
+        from ui_components.auth import check_authentication
+        is_admin = check_authentication()
+        unique_id = row.get('commit_sha') or row.get('version_hash') or row.get('id') or row.get('created_at')
+        if unique_id and is_admin:
+            if st.button("🔄 重新AI评审", key=f"retry_review_{unique_id}"):
+                import requests
+                api_url = "http://localhost:5001/review/retry"
+                payload = {"type": review_type, "id": unique_id}
+                try:
+                    resp = requests.post(api_url, json=payload, timeout=30)
+                    if resp.status_code == 200 and resp.json().get("success"):
+                        st.success("已提交重新评审请求，稍后刷新可查看最新结果。")
+                    else:
+                        st.error(f"重新评审失败: {resp.text}")
+                except Exception as e:
+                    st.error(f"请求失败: {e}")
+        
         # 代码变更
         st.markdown("#### 📊 代码变更统计")
         change_col1, change_col2, change_col3 = st.columns(3)

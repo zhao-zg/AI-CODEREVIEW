@@ -397,22 +397,26 @@ def after_request(response):
 
 
 def acquire_svn_lock(lockfile_path="log/svn_check.lock"):
-    """尝试获取SVN检查互斥锁，成功返回文件对象，失败返回None"""
+    """尝试获取SVN检查互斥锁，成功返回文件对象，失败返回None（跨平台实现）"""
     import os
-    import fcntl
+    import portalocker
     try:
         os.makedirs(os.path.dirname(lockfile_path), exist_ok=True)
         lockfile = open(lockfile_path, "w")
-        fcntl.flock(lockfile, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return lockfile
+        try:
+            portalocker.lock(lockfile, portalocker.LOCK_EX | portalocker.LOCK_NB)
+            return lockfile
+        except portalocker.exceptions.LockException:
+            lockfile.close()
+            return None
     except Exception:
         return None
 
 def release_svn_lock(lockfile):
-    """释放SVN检查互斥锁"""
-    import fcntl
+    """释放SVN检查互斥锁（跨平台实现）"""
+    import portalocker
     try:
-        fcntl.flock(lockfile, fcntl.LOCK_UN)
+        portalocker.unlock(lockfile)
         lockfile.close()
     except Exception:
         pass
@@ -566,6 +570,25 @@ def shutdown_background_tasks():
             thread.join(timeout=5)
     
     logger.info("✅ 后台任务已关闭")
+    
+@api_app.route('/review/retry', methods=['POST'])
+def retry_review():
+    """
+    管理员触发的重新AI评审接口
+    传入参数：type（mr/push/svn/github）、唯一标识（如id/commit_sha/version_hash）
+    """
+    data = request.get_json()
+    review_type = data.get('type')
+    identifier = data.get('id') or data.get('commit_sha') or data.get('version_hash')
+    if not review_type or not identifier:
+        return jsonify({"success": False, "message": "缺少type或唯一标识参数"}), 400
+    try:
+        from biz.service.review_service import ReviewService
+        result = ReviewService.retry_review(review_type, identifier)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"重新评审失败: {e}")
+        return jsonify({"success": False, "message": f"重新评审失败: {e}"}), 500
 
 
 if __name__ == '__main__':
@@ -596,7 +619,6 @@ if __name__ == '__main__':
         # 启动 Flask 应用，在 Docker 环境下使用调试模式便于查看日志
         debug_mode = os.getenv('DOCKER_ENV') == 'true'
         api_app.run(host='0.0.0.0', port=port, debug=debug_mode, use_reloader=False)
-        
     except KeyboardInterrupt:
         logger.info("⏹️ 收到停止信号，正在关闭服务...")
         shutdown_background_tasks()
@@ -605,14 +627,4 @@ if __name__ == '__main__':
         shutdown_background_tasks()
         raise
 
-# 测试中文输出的端点（临时调试用）
-@api_app.route('/test/chinese', methods=['GET'])
-def test_chinese_output():
-    """测试中文输出"""
-    return jsonify({
-        'message': 'SVN检查已启动，将异步处理最近 24 小时的提交。',
-        'config_check': {
-            'JSON_AS_ASCII': api_app.config.get('JSON_AS_ASCII'),
-            'charset': 'utf-8'
-        }
-    })
+

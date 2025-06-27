@@ -80,6 +80,24 @@ class ReviewService:
             print(f"Error inserting review log: {e}")
 
     @staticmethod
+    def insert_mr_review_log_with_details(entity: MergeRequestReviewEntity, file_details=None):
+        """插入合并请求审核日志，支持结构化diff存储"""
+        try:
+            with sqlite3.connect(ReviewService.DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                                INSERT INTO mr_review_log (project_name,author, source_branch, target_branch, updated_at, commit_messages, score, url,review_result, additions, deletions, file_details)
+                                VALUES (?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''',
+                               (entity.project_name, entity.author, entity.source_branch,
+                                entity.target_branch,
+                                entity.updated_at, entity.commit_messages, entity.score,
+                                entity.url, entity.review_result, entity.additions, entity.deletions, file_details))
+                conn.commit()
+        except sqlite3.DatabaseError as e:
+            print(f"Error inserting review log: {e}")
+
+    @staticmethod
     def get_mr_review_logs(authors: list = None, project_names: list = None, updated_at_gte: int = None,
                            updated_at_lte: int = None) -> pd.DataFrame:
         """获取符合条件的合并请求审核日志"""
@@ -129,6 +147,23 @@ class ReviewService:
                                (entity.project_name, entity.author, entity.branch,
                                 entity.updated_at, entity.commit_messages, entity.score,
                                 entity.review_result, entity.additions, entity.deletions))
+                conn.commit()
+        except sqlite3.DatabaseError as e:
+            print(f"Error inserting review log: {e}")
+
+    @staticmethod
+    def insert_push_review_log_with_details(entity: PushReviewEntity, file_details=None):
+        """插入推送审核日志，支持结构化diff存储"""
+        try:
+            with sqlite3.connect(ReviewService.DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                                INSERT INTO push_review_log (project_name,author, branch, updated_at, commit_messages, score,review_result, additions, deletions, file_details)
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''',
+                               (entity.project_name, entity.author, entity.branch,
+                                entity.updated_at, entity.commit_messages, entity.score,
+                                entity.review_result, entity.additions, entity.deletions, file_details))
                 conn.commit()
         except sqlite3.DatabaseError as e:
             print(f"Error inserting review log: {e}")
@@ -394,5 +429,94 @@ class ReviewService:
                 'data': []
             }
 
+    @staticmethod
+    def retry_review(review_type, identifier):
+        """
+        管理员触发的重新AI评审逻辑，支持mr/push/svn/github等类型
+        :param review_type: 审查类型
+        :param identifier: 唯一标识（如id/commit_sha/version_hash）
+        :return: 新的审查结果
+        """
+        from biz.utils.code_reviewer import CodeReviewer
+        import json
+        import time
+        conn = sqlite3.connect(ReviewService.DB_FILE)
+        try:
+            cursor = conn.cursor()
+            if review_type == 'mr':
+                cursor.execute("SELECT id, commit_messages, file_details FROM mr_review_log WHERE id=?", (identifier,))
+                row = cursor.fetchone()
+                if not row:
+                    return {"success": False, "message": "未找到MR审查记录"}
+                id_, commit_messages, file_details = row
+                if not file_details:
+                    return {"success": False, "message": "该MR记录未存储结构化diff，无法重新AI审查"}
+                diff_struct = json.loads(file_details)
+                review_result = CodeReviewer().review_and_strip_code(json.dumps(diff_struct, ensure_ascii=False), commit_messages)
+                score = CodeReviewer.parse_review_score(review_result)
+                reviewed_at = int(time.time())
+                cursor.execute("UPDATE mr_review_log SET review_result=?, score=?, updated_at=? WHERE id=?", (review_result, score, reviewed_at, id_))
+                conn.commit()
+                return {"success": True, "message": "MR重新AI审查完成", "review_result": review_result, "score": score}
+            elif review_type == 'push':
+                cursor.execute("SELECT id, commit_messages, file_details FROM push_review_log WHERE id=?", (identifier,))
+                row = cursor.fetchone()
+                if not row:
+                    return {"success": False, "message": "未找到Push审查记录"}
+                id_, commit_messages, file_details = row
+                if not file_details:
+                    return {"success": False, "message": "该Push记录未存储结构化diff，无法重新AI审查"}
+                diff_struct = json.loads(file_details)
+                review_result = CodeReviewer().review_and_strip_code(json.dumps(diff_struct, ensure_ascii=False), commit_messages)
+                score = CodeReviewer.parse_review_score(review_result)
+                reviewed_at = int(time.time())
+                cursor.execute("UPDATE push_review_log SET review_result=?, score=?, updated_at=? WHERE id=?", (review_result, score, reviewed_at, id_))
+                conn.commit()
+                return {"success": True, "message": "Push重新AI审查完成", "review_result": review_result, "score": score}
+            elif review_type in ['svn', 'github']:
+                cursor.execute("SELECT * FROM version_tracker WHERE version_hash=? OR commit_sha=? OR rowid=?", (identifier, identifier, identifier))
+                row = cursor.fetchone()
+                if not row:
+                    return {"success": False, "message": "未找到版本追踪审查记录"}
+                project_name = row[1]
+                author = row[2]
+                branch = row[3]
+                commit_message = row[4]
+                review_type_db = row[7]
+                file_details = row[14]
+                file_paths = row[9]
+                try:
+                    diff_struct = json.loads(file_details) if file_details else {}
+                except Exception:
+                    diff_struct = {}
+                commits_text = commit_message
+                review_result = CodeReviewer().review_and_strip_code(json.dumps(diff_struct, ensure_ascii=False), commits_text)
+                score = CodeReviewer.parse_review_score(review_result)
+                reviewed_at = int(time.time())
+                cursor.execute("UPDATE version_tracker SET review_result=?, score=?, reviewed_at=? WHERE version_hash=?", (review_result, score, reviewed_at, row[10]))
+                conn.commit()
+                return {"success": True, "message": "重新AI审查完成", "review_result": review_result, "score": score}
+            else:
+                return {"success": False, "message": f"暂不支持的类型: {review_type}"}
+        finally:
+            conn.close()
+
+    @staticmethod
+    def upgrade_db_add_file_details():
+        """升级数据库，为mr_review_log和push_review_log表增加file_details字段"""
+        try:
+            with sqlite3.connect(ReviewService.DB_FILE) as conn:
+                cursor = conn.cursor()
+                for table in ["mr_review_log", "push_review_log"]:
+                    cursor.execute(f"PRAGMA table_info({table})")
+                    columns = [col[1] for col in cursor.fetchall()]
+                    if "file_details" not in columns:
+                        cursor.execute(f"ALTER TABLE {table} ADD COLUMN file_details TEXT")
+                conn.commit()
+        except Exception as e:
+            print(f"升级数据库添加file_details字段失败: {e}")
+
 # Initialize database
 ReviewService.init_db()
+# 启动时自动升级
+ReviewService.upgrade_db_add_file_details()

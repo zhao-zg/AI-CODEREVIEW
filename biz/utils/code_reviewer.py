@@ -179,9 +179,11 @@ class CodeReviewer(BaseReviewer):
         tokens_count = count_tokens(changes_text)
         if tokens_count > review_max_tokens:
             changes_text = truncate_text_by_tokens(changes_text, review_max_tokens)
+        logger.debug(f"Reviewing code with {tokens_count} tokens, truncated to {len(changes_text)} characters if necessary.")
+        logger.debug(f"commits_text with {commits_text} ")
 
+        # 调用review_code方法
         review_result = self.review_code(changes_text, commits_text).strip()
-        
         # 检查是否是API错误消息
         if is_api_error_message(review_result):
             logger.error(f"检测到API错误，跳过写入审查结果: {review_result[:100]}...")

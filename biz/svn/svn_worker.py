@@ -176,7 +176,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
 
 def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, repo_name: str = None):
     """
-    处理单个SVN提交
+    处理单个SVN提交，使用结构化diff JSON输入AI审查
     :param svn_handler: SVN处理器
     :param commit: 提交信息
     :param svn_path: SVN路径
@@ -186,26 +186,25 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         revision = commit['revision']
         author = commit['author']
         message = commit['message']
-        
         logger.info(f'处理SVN提交: r{revision} by {author}')
-        
+
         # 获取提交的变更
         changes = svn_handler.get_commit_changes(commit)
         logger.info(f'变更文件数: {len(changes)}')
-        
+
         # 过滤变更
         changes = filter_svn_changes(changes)
-        
+
         if not changes:
             logger.info(f'提交 r{revision} 没有包含需要审查的文件类型')
             return
-              # 统计新增和删除的代码行数
+        # 统计新增和删除的代码行数
         additions = sum(change.get('additions', 0) for change in changes)
         deletions = sum(change.get('deletions', 0) for change in changes)
-        
+
         # 获取项目名称
         project_name = repo_name or os.path.basename(svn_path.rstrip('/\\'))
-        
+
         # 构造提交信息
         commit_info = [{
             'revision': revision,
@@ -213,7 +212,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             'author': author,
             'date': commit['date']
         }]
-        
+
         # === 版本追踪集成 - 检查是否已审查 ===
         version_tracking_enabled = get_config_bool('VERSION_TRACKING_ENABLED')
         if version_tracking_enabled:
@@ -223,57 +222,59 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 logger.info(f'SVN版本 r{revision} 已审查，跳过重复审查。')
                 return
         # === 版本追踪集成 END ===
-        
-        # 进行代码审查
+
         review_result = ""
         score = 0
         review_successful = False
-        
         svn_review_enabled = get_config_bool('SVN_REVIEW_ENABLED')
-        
+
         if svn_review_enabled and changes:
             try:
-                # 构造变更文本
-                changes_text = ""
+                # 构造结构化diff JSON
+                files_json = []
                 for change in changes:
-                    changes_text += f"\n--- 文件: {change['new_path']} ---\n"
-                    changes_text += change['diff']
-                    changes_text += "\n"
+                    # 补充status/action字段
+                    status = change.get('action', '')
+                    files_json.append({
+                        'file_path': change.get('full_path') or change.get('new_path'),
+                        'status': status,  # A/M/D等
+                        'diff_content': change.get('diff', ''),
+                        'additions': change.get('additions', 0),
+                        'deletions': change.get('deletions', 0)
+                    })
                 
-                # 进行代码审查
+                diff_struct = {
+                    'files': files_json,
+                    'commits': commit_info
+                }
+                # 传递结构化diff给AI
+                diff_struct_json = json.dumps(diff_struct, ensure_ascii=False, indent=2)
                 commits_text = f"SVN提交 r{revision}: {message}"
-                review_result = CodeReviewer().review_and_strip_code(changes_text, commits_text)
-                
-                # 验证审查结果是否有效
+                review_result = CodeReviewer().review_and_strip_code(diff_struct_json, commits_text)
                 if review_result and review_result.strip() and review_result != "代码为空":
+                    
                     score = CodeReviewer.parse_review_score(review_text=review_result)
                     review_successful = True
                     logger.info(f'代码审查完成，评分: {score}')
                 else:
                     logger.warning(f'代码审查失败：审查结果为空或无效，不写入数据库')
-                    return  # 审查失败时直接返回，不进行后续处理
-                    
+                    return
             except Exception as e:
                 logger.error(f'代码审查过程中发生异常: {e}，不写入数据库')
-                return  # 审查出错时直接返回，不进行后续处理
-                
+                return
         elif svn_review_enabled:
             logger.info(f'SVN提交 r{revision} 没有包含需要审查的文件，跳过审查')
             review_result = "无需要审查的文件"
-            review_successful = True  # 没有可审查文件也算成功
+            review_successful = True
         else:
             logger.info(f'SVN代码审查未启用，跳过审查')
             review_result = "SVN代码审查未启用"
-            review_successful = True  # 未启用审查也算成功
-        
-        # 只有审查成功时才进行后续处理
+            review_successful = True
+
         if not review_successful:
             logger.warning(f'SVN提交 r{revision} 审查未成功，不进行事件触发和通知')
             return
-          
-        # 获取项目名称
-        project_name = repo_name or os.path.basename(svn_path.rstrip('/\\'))
-        
+
         # 构造提交信息
         commit_info = [{
             'revision': revision,
@@ -281,7 +282,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             'author': author,
             'date': commit['date']
         }]
-        
+
         # 触发事件
         event_manager['svn_reviewed'].send(SvnReviewEntity(
             project_name=project_name,
@@ -295,7 +296,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             additions=additions,
             deletions=deletions,
         ))
-        
+
         # 发送通知
         if svn_review_enabled and review_successful and review_result not in ["SVN代码审查未启用", "无需要审查的文件"]:
             notification_content = f"""
@@ -317,7 +318,6 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 msg_type="markdown", 
                 title=f"SVN代码审查 - {project_name} r{revision}"
             )
-          # 代码审查完成后，记录版本
         if version_tracking_enabled:
             VersionTracker.record_version_review(
                 project_name=project_name,
@@ -334,7 +334,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 deletions_count=deletions
             )
             logger.info(f'SVN版本 r{revision} 审查结果已记录到版本追踪（包含详细信息）。')
-        
+
     except Exception as e:
         error_message = f'处理SVN提交 r{commit.get("revision", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
         notifier.send_notification(content=error_message)

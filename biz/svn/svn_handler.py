@@ -140,7 +140,7 @@ class SVNHandler:
             logger.error(f"SVN更新失败: {stderr}")
             
             # 如果是E155037错误（需要cleanup），尝试执行cleanup
-            if "E155037" in stderr or "Previous operation has not finished" in stderr:
+            if "svn cleanup" in stderr or "Previous operation has not finished" in stderr:
                 logger.info("检测到SVN工作副本需要清理，正在执行cleanup...")
                 cleanup_success = self._cleanup_working_copy()
                 
@@ -205,13 +205,26 @@ class SVNHandler:
                 try:
                     os.remove(lock_file)
                     logger.info("SVN锁文件删除成功，重试cleanup...")
-                    
                     stdout, stderr, returncode = self._run_svn_command(['svn', 'cleanup'], cwd=self.svn_local_path)
                     if returncode == 0:
                         logger.info("删除锁文件后cleanup成功")
                         return True
                 except Exception as e:
                     logger.error(f"删除SVN锁文件失败: {e}")
+
+            # 新增：检测并删除 .svn/write-lock 文件
+            write_lock_file = os.path.join(self.svn_local_path, '.svn', 'write-lock')
+            if os.path.exists(write_lock_file):
+                logger.info("尝试删除SVN write-lock文件...")
+                try:
+                    os.remove(write_lock_file)
+                    logger.info("SVN write-lock文件删除成功，重试cleanup...")
+                    stdout, stderr, returncode = self._run_svn_command(['svn', 'cleanup'], cwd=self.svn_local_path)
+                    if returncode == 0:
+                        logger.info("删除write-lock后cleanup成功")
+                        return True
+                except Exception as e:
+                    logger.error(f"删除SVN write-lock文件失败: {e}")
             
             # 如果所有清理方法都失败，尝试重建工作副本
             logger.error(f"所有SVN cleanup方法都失败，尝试重建工作副本: {self.svn_local_path}")

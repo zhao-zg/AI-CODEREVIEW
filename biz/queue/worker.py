@@ -1,6 +1,7 @@
 import os
 import traceback
 from datetime import datetime
+import json
 
 from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity
 from biz.event.event_manager import event_manager
@@ -11,6 +12,7 @@ from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.version_tracker import VersionTracker
 from biz.utils.default_config import get_env_bool
+from biz.service.review_service import ReviewService
 
 
 
@@ -135,6 +137,24 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
                 if review_successful:
                     handler.add_push_notes(f'Auto Review Result: \n{review_result}')
 
+        # 发送事件和入库时，存储结构化diff
+        ReviewService.insert_push_review_log_with_details(
+            PushReviewEntity(
+                project_name=webhook_data['project']['name'],
+                author=webhook_data['user_username'],
+                branch=webhook_data['project']['default_branch'],
+                updated_at=int(datetime.now().timestamp()),  # 当前时间
+                commits=commits,
+                score=score,
+                review_result=review_result,
+                url_slug=gitlab_url_slug,
+                webhook_data=webhook_data,
+                additions=additions,
+                deletions=deletions,
+            ),
+            file_details=json.dumps(changes, ensure_ascii=False)
+        )
+
         event_manager['push_reviewed'].send(PushReviewEntity(
             project_name=webhook_data['project']['name'],
             author=webhook_data['user_username'],
@@ -257,6 +277,26 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
             )
             logger.info(f'Version review recorded for project {project_name}')
 
+        # 发送事件和入库时，存储结构化diff
+        ReviewService.insert_mr_review_log_with_details(
+            MergeRequestReviewEntity(
+                project_name=webhook_data['project']['name'],
+                author=webhook_data['user']['username'],
+                source_branch=webhook_data['object_attributes']['source_branch'],
+                target_branch=webhook_data['object_attributes']['target_branch'],
+                updated_at=int(datetime.now().timestamp()),
+                commits=commits,
+                score=review_score,
+                url=webhook_data['object_attributes']['url'],
+                review_result=review_result,
+                url_slug=gitlab_url_slug,
+                webhook_data=webhook_data,
+                additions=additions,
+                deletions=deletions,
+            ),
+            file_details=json.dumps(changes, ensure_ascii=False)
+        )
+
         # dispatch merge_request_reviewed event
         event_manager['merge_request_reviewed'].send(
             MergeRequestReviewEntity(
@@ -330,6 +370,24 @@ def handle_github_push_event(webhook_data: dict, github_token: str, github_url: 
             # 只有审查成功时才添加notes
             if review_successful:
                 handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+
+        # 发送事件和入库时，存储结构化diff
+        ReviewService.insert_push_review_log_with_details(
+            PushReviewEntity(
+                project_name=webhook_data['repository']['name'],
+                author=webhook_data['sender']['login'],
+                branch=webhook_data['ref'].replace('refs/heads/', ''),
+                updated_at=int(datetime.now().timestamp()),  # 当前时间
+                commits=commits,
+                score=score,
+                review_result=review_result,
+                url_slug=github_url_slug,
+                webhook_data=webhook_data,
+                additions=additions,
+                deletions=deletions,
+            ),
+            file_details=json.dumps(changes, ensure_ascii=False)
+        )
 
         event_manager['push_reviewed'].send(PushReviewEntity(
             project_name=webhook_data['repository']['name'],
