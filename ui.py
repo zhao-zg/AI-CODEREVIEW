@@ -6,7 +6,7 @@ AI-CodeReview 代码审查仪表板
 import streamlit as st
 from ui_components.config import setup_page_config, apply_custom_css
 from ui_components.auth import check_authentication, login_page, user_menu
-from ui_components.pages import home_page, data_analysis_page, env_management_page
+from ui_components.pages import data_analysis_page, env_management_page
 from biz.utils.config_manager import ConfigManager
 
 # 设置页面配置（必须在最开始）
@@ -16,7 +16,7 @@ setup_page_config()
 apply_custom_css()
 
 def main_dashboard():
-    """主仪表板"""
+    """主仪表板（无首页）"""
     
     # 在页面顶部右侧显示用户菜单
     user_menu()
@@ -27,7 +27,7 @@ def main_dashboard():
         st.markdown("### 🛠️ 系统功能")
         
         # 页面导航 - 仅登录后显示配置管理
-        page_options = ["🏠 首页", "📊 数据分析"]
+        page_options = ["📊 数据分析"]
         if st.session_state.get("authenticated", False):
             page_options.append("⚙️ 配置管理")
         page = st.radio(
@@ -63,8 +63,6 @@ def main_dashboard():
         st.markdown("---")
         with st.expander("📖 使用帮助"):
             st.markdown("""
-            **🏠 首页**: 系统概览和快速开始指南
-            
             **📊 数据分析**: 查看代码审查统计和详细记录
             
             **⚙️ 配置管理**: 管理AI模型、平台开关等系统配置
@@ -79,10 +77,8 @@ def main_dashboard():
             env_management_page()
         else:
             st.warning("请先登录管理员账号")
-    elif page == "📊 数据分析":
+    else:  # 数据分析页面
         data_analysis_page()
-    else:  # 首页
-        home_page()
 
 def main():
     """主函数"""

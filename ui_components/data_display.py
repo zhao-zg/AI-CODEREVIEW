@@ -50,13 +50,12 @@ class DataDisplayManager:
                 return
             
             # 创建主要功能标签页
-            main_tabs = st.tabs(["📊 统计分析", "📋 详细数据", "📈 图表分析", "📥 数据导出"])
-            
+            main_tabs = st.tabs(["📋 详细数据", "📊 统计分析", "📈 图表分析", "📥 数据导出"])
             with main_tabs[0]:
-                self.analytics.show_statistics_panel(df, review_type)
-            
-            with main_tabs[1]:
                 self._show_enhanced_data_table(df, review_type)
+
+            with main_tabs[1]:
+                self.analytics.show_statistics_panel(df, review_type)
             
             with main_tabs[2]:
                 self.analytics.show_charts_analysis(df, review_type)
