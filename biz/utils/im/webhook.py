@@ -39,4 +39,4 @@ class ExtraWebhookNotifier:
                 return
 
         except Exception as e:
-            logger.error(f"ExtraWebhook消息发送失败! ", e)
+            logger.error(f"ExtraWebhook消息发送失败! 错误信息: {str(e)}")

@@ -29,22 +29,24 @@ AI代码审查仪表板是一个基于Streamlit构建的现代化Web界面，用
 
 #### Windows用户
 ```bash
-# 方式1: 使用批处理文件
+# 方式1: 使用批处理文件（推荐）
 run_ui.bat
 
 # 方式2: 直接运行
-streamlit run ui.py --server.port 8501
+python ui.py
 ```
 
 #### Linux/Mac用户
 ```bash
-# 方式1: 使用Shell脚本
+# 方式1: 使用Shell脚本（推荐）
 chmod +x run_ui.sh
 ./run_ui.sh
 
 # 方式2: 直接运行
-streamlit run ui.py --server.port 8501
+python ui.py
 ```
+
+> 💡 **配置说明**: UI服务会自动从 `conf/.env` 文件读取 `UI_PORT` 配置（默认5002）并绑定到 `0.0.0.0`。
 
 ### 2. 访问界面
 
@@ -127,10 +129,11 @@ streamlit run ui.py --server.port 8501
    - 系统需要安装中文字体包
    - Windows用户通常不会遇到此问题
 
-3. **无法访问8501端口**
+3. **无法访问UI端口**
    - 检查防火墙设置
    - 确认端口未被占用
-   - 尝试使用其他端口：`streamlit run ui.py --server.port 8502`
+   - 修改 `conf/.env` 中的 `UI_PORT` 配置：`UI_PORT=8502`
+   - 重新启动：`python ui.py`
 
 4. **数据不显示**
    - 检查数据库连接
@@ -145,7 +148,8 @@ streamlit run ui.py --server.port 8501
    - 定期清理历史数据
 
 2. **网络访问**
-   - 局域网访问: `streamlit run ui.py --server.address 0.0.0.0`
+   - UI默认绑定到 `0.0.0.0`，支持局域网访问
+   - 端口通过 `conf/.env` 中的 `UI_PORT` 配置
    - 注意安全性，建议使用VPN或防火墙保护
 
 ## 更新日志

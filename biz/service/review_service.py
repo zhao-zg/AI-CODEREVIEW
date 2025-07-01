@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 
 from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity
+from biz.utils.log import logger
 
 
 class ReviewService:
@@ -433,71 +434,214 @@ class ReviewService:
     def retry_review(review_type, identifier):
         """
         管理员触发的重新AI评审逻辑，支持mr/push/svn/github等类型
+        异步执行，完成后推送通知
         :param review_type: 审查类型
         :param identifier: 唯一标识（如id/commit_sha/version_hash）
-        :return: 新的审查结果
+        :return: 提交结果确认
         """
+        from biz.utils.queue import handle_queue
+        
+        # 使用队列异步执行重新审查
+        handle_queue(ReviewService._async_retry_review, review_type, identifier)
+        
+        return {
+            "success": True, 
+            "message": f"重新AI评审任务已提交，将在后台异步执行并推送通知",
+            "review_type": review_type,
+            "identifier": identifier
+        }
+
+    @staticmethod
+    def _async_retry_review(review_type, identifier):
+        """
+        异步执行重新AI评审的内部方法
+        """
+        # 确保在后台进程中加载环境配置
+        try:
+            from dotenv import load_dotenv
+            load_dotenv("conf/.env")
+        except ImportError:
+            logger.warning("dotenv 模块未安装，使用系统环境变量")
+        except Exception as e:
+            logger.warning(f"加载 .env 文件失败: {e}")
+        
         from biz.utils.code_reviewer import CodeReviewer
+        from biz.event.event_manager import on_merge_request_reviewed, on_push_reviewed, on_svn_reviewed
+        from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity, SvnReviewEntity
         import json
         import time
-        conn = sqlite3.connect(ReviewService.DB_FILE)
+        
         try:
+            conn = sqlite3.connect(ReviewService.DB_FILE)
             cursor = conn.cursor()
+            
             if review_type == 'mr':
-                cursor.execute("SELECT id, commit_messages, file_details FROM mr_review_log WHERE id=?", (identifier,))
+                cursor.execute("SELECT * FROM mr_review_log WHERE id=?", (identifier,))
                 row = cursor.fetchone()
                 if not row:
-                    return {"success": False, "message": "未找到MR审查记录"}
-                id_, commit_messages, file_details = row
+                    logger.error(f"未找到MR审查记录: {identifier}")
+                    return
+                
+                # 解构数据库字段 (13个字段)
+                (id_, project_name, author, source_branch, target_branch, updated_at, 
+                 commit_messages, score, url, review_result, additions, deletions, file_details) = row
+                
                 if not file_details:
-                    return {"success": False, "message": "该MR记录未存储结构化diff，无法重新AI审查"}
+                    logger.error(f"MR记录 {identifier} 未存储结构化diff，无法重新AI审查")
+                    return
+                
+                # 执行AI审查
                 diff_struct = json.loads(file_details)
-                review_result = CodeReviewer().review_and_strip_code(json.dumps(diff_struct, ensure_ascii=False), commit_messages)
-                score = CodeReviewer.parse_review_score(review_result)
+                new_review_result = CodeReviewer().review_and_strip_code(
+                    json.dumps(diff_struct, ensure_ascii=False), commit_messages
+                )
+                new_score = CodeReviewer.parse_review_score(new_review_result)
                 reviewed_at = int(time.time())
-                cursor.execute("UPDATE mr_review_log SET review_result=?, score=?, updated_at=? WHERE id=?", (review_result, score, reviewed_at, id_))
+                
+                # 更新数据库
+                cursor.execute(
+                    "UPDATE mr_review_log SET review_result=?, score=?, updated_at=? WHERE id=?", 
+                    (new_review_result, new_score, reviewed_at, id_)
+                )
                 conn.commit()
-                return {"success": True, "message": "MR重新AI审查完成", "review_result": review_result, "score": score}
+                
+                # 触发推送通知
+                try:
+                    mr_entity = MergeRequestReviewEntity(
+                        project_name=project_name,
+                        author=author,
+                        source_branch=source_branch,
+                        target_branch=target_branch,
+                        updated_at=reviewed_at,
+                        commits=[{"message": commit_messages}],
+                        score=float(new_score),
+                        url=url or "http://localhost/mr/unknown",
+                        review_result=new_review_result,
+                        url_slug="retry_review",
+                        webhook_data={},
+                        additions=additions or 0,
+                        deletions=deletions or 0,
+                        mr_id=int(id_)
+                    )
+                    on_merge_request_reviewed(mr_entity)
+                    logger.info(f"MR {identifier} 重新AI评审完成并已推送通知")
+                except Exception as e:
+                    logger.error(f"MR {identifier} 推送通知失败: {e}")
+                
             elif review_type == 'push':
-                cursor.execute("SELECT id, commit_messages, file_details FROM push_review_log WHERE id=?", (identifier,))
+                cursor.execute("SELECT * FROM push_review_log WHERE id=?", (identifier,))
                 row = cursor.fetchone()
                 if not row:
-                    return {"success": False, "message": "未找到Push审查记录"}
-                id_, commit_messages, file_details = row
+                    logger.error(f"未找到Push审查记录: {identifier}")
+                    return
+                
+                # 解构数据库字段 (11个字段)
+                (id_, project_name, author, branch, updated_at, commit_messages, 
+                 score, review_result, additions, deletions, file_details) = row
+                
                 if not file_details:
-                    return {"success": False, "message": "该Push记录未存储结构化diff，无法重新AI审查"}
+                    logger.error(f"Push记录 {identifier} 未存储结构化diff，无法重新AI审查")
+                    return
+                
+                # 执行AI审查
                 diff_struct = json.loads(file_details)
-                review_result = CodeReviewer().review_and_strip_code(json.dumps(diff_struct, ensure_ascii=False), commit_messages)
-                score = CodeReviewer.parse_review_score(review_result)
+                new_review_result = CodeReviewer().review_and_strip_code(
+                    json.dumps(diff_struct, ensure_ascii=False), commit_messages
+                )
+                new_score = CodeReviewer.parse_review_score(new_review_result)
                 reviewed_at = int(time.time())
-                cursor.execute("UPDATE push_review_log SET review_result=?, score=?, updated_at=? WHERE id=?", (review_result, score, reviewed_at, id_))
+                
+                # 更新数据库
+                cursor.execute(
+                    "UPDATE push_review_log SET review_result=?, score=?, updated_at=? WHERE id=?", 
+                    (new_review_result, new_score, reviewed_at, id_)
+                )
                 conn.commit()
-                return {"success": True, "message": "Push重新AI审查完成", "review_result": review_result, "score": score}
+                
+                # 触发推送通知
+                try:
+                    commits_list = json.loads(commit_messages) if commit_messages.startswith('[') else [{"message": commit_messages}]
+                    
+                    push_entity = PushReviewEntity(
+                        project_name=project_name,
+                        author=author,
+                        branch=branch,
+                        updated_at=reviewed_at,
+                        commits=commits_list,
+                        score=float(new_score),
+                        review_result=new_review_result,
+                        url_slug="retry_review",
+                        webhook_data={"ref": f"refs/heads/{branch}"},
+                        additions=additions or 0,
+                        deletions=deletions or 0
+                    )
+                    on_push_reviewed(push_entity)
+                    logger.info(f"Push {identifier} 重新AI评审完成并已推送通知")
+                except Exception as e:
+                    logger.error(f"Push {identifier} 推送通知失败: {e}")
+                
             elif review_type in ['svn', 'github']:
-                cursor.execute("SELECT * FROM version_tracker WHERE version_hash=? OR commit_sha=? OR rowid=?", (identifier, identifier, identifier))
+                cursor.execute("SELECT * FROM version_tracker WHERE version_hash=? OR commit_sha=? OR rowid=?", 
+                              (identifier, identifier, identifier))
                 row = cursor.fetchone()
                 if not row:
-                    return {"success": False, "message": "未找到版本追踪审查记录"}
-                project_name = row[1]
-                author = row[2]
-                branch = row[3]
-                commit_message = row[4]
-                review_type_db = row[7]
-                file_details = row[14]
-                file_paths = row[9]
+                    logger.error(f"未找到版本追踪审查记录: {identifier}")
+                    return
+                
+                # 解构数据库字段 (18个字段)
+                (id_, project_name, version_hash, commit_sha, author, branch, file_paths, changes_hash,
+                 review_type_db, reviewed_at, review_result, score, created_at, commit_message, 
+                 commit_date, additions_count, deletions_count, file_details) = row
+                
+                # 执行AI审查
                 try:
                     diff_struct = json.loads(file_details) if file_details else {}
                 except Exception:
                     diff_struct = {}
-                commits_text = commit_message
-                review_result = CodeReviewer().review_and_strip_code(json.dumps(diff_struct, ensure_ascii=False), commits_text)
-                score = CodeReviewer.parse_review_score(review_result)
-                reviewed_at = int(time.time())
-                cursor.execute("UPDATE version_tracker SET review_result=?, score=?, reviewed_at=? WHERE version_hash=?", (review_result, score, reviewed_at, row[10]))
+                
+                new_review_result = CodeReviewer().review_and_strip_code(
+                    json.dumps(diff_struct, ensure_ascii=False), commit_message
+                )
+                new_score = CodeReviewer.parse_review_score(new_review_result)
+                new_reviewed_at = int(time.time())
+                
+                # 更新数据库
+                cursor.execute(
+                    "UPDATE version_tracker SET review_result=?, score=?, reviewed_at=? WHERE version_hash=?", 
+                    (new_review_result, new_score, new_reviewed_at, version_hash)
+                )
                 conn.commit()
-                return {"success": True, "message": "重新AI审查完成", "review_result": review_result, "score": score}
+                
+                # 触发推送通知 (主要针对SVN)
+                if review_type_db == 'svn':
+                    try:
+                        # 从文件路径中提取SVN版本号
+                        svn_revision = commit_sha if commit_sha and commit_sha.isdigit() else "unknown"
+                        
+                        svn_entity = SvnReviewEntity(
+                            project_name=project_name,
+                            author=author,
+                            revision=svn_revision,
+                            updated_at=new_reviewed_at,
+                            commits=[{"message": commit_message}],
+                            score=float(new_score),
+                            review_result=new_review_result,
+                            svn_path=file_paths or f"/{project_name}",
+                            additions=additions_count or 0,
+                            deletions=deletions_count or 0
+                        )
+                        on_svn_reviewed(svn_entity)
+                        logger.info(f"SVN {identifier} 重新AI评审完成并已推送通知")
+                    except Exception as e:
+                        logger.error(f"SVN {identifier} 推送通知失败: {e}")
+                else:
+                    logger.info(f"{review_type} {identifier} 重新AI评审完成 (无推送通知)")
+                
             else:
-                return {"success": False, "message": f"暂不支持的类型: {review_type}"}
+                logger.error(f"暂不支持的重新审查类型: {review_type}")
+                
+        except Exception as e:
+            logger.error(f"重新AI评审执行失败 {review_type} {identifier}: {e}")
         finally:
             conn.close()
 

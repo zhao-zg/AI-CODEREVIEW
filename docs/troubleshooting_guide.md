@@ -70,7 +70,7 @@ python scripts/streamlit_compatibility_check.py
    Ctrl+C
    
    # 重新启动
-   streamlit run ui.py --server.port=8501
+   python ui.py
    ```
 
 2. **界面配置**: 只需刷新页面
@@ -189,7 +189,7 @@ pip install streamlit --upgrade
 streamlit --version
 
 # 测试功能
-streamlit run ui.py --server.port=8501
+python ui.py
 ```
 
 ## 📱 浏览器兼容性
@@ -223,10 +223,13 @@ docker-compose up --build
 ### 端口冲突
 ```bash
 # 检查端口占用
-netstat -an | findstr :8501
+netstat -an | findstr :5002
 
-# 使用不同端口
-streamlit run ui.py --server.port=8502
+# 修改配置文件 conf/.env 中的 UI_PORT
+UI_PORT=8502
+
+# 重新启动
+python ui.py
 ```
 
 ## 📞 获取帮助

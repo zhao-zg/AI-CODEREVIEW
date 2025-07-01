@@ -137,9 +137,9 @@ class ConfigReloader:
         try:
             import requests
             
-            # 获取API服务端口
-            api_port = os.environ.get('SERVER_PORT', '5001')
-            api_url = f"http://localhost:{api_port}/reload-config"
+            # 获取API服务地址
+            api_url_base = os.environ.get('API_URL', 'http://localhost:5001')
+            api_url = f"{api_url_base}/reload-config"
             
             # 发送POST请求
             response = requests.post(api_url, timeout=5)

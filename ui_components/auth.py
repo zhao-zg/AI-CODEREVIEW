@@ -101,6 +101,148 @@ def clear_login_state():
     except Exception:
         pass
 
+def quick_login_button():
+    """一键登录按钮"""
+    if not st.session_state.get("authenticated", False):
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🔐 管理员登录", use_container_width=True, key="quick_login_btn"):
+                # 使用默认管理员账户直接登录
+                try:
+                    from biz.utils.config_manager import ConfigManager
+                    config_manager = ConfigManager()
+                    env_config = config_manager.get_env_config()
+                    
+                    # 从环境配置中获取Dashboard账户信息
+                    dashboard_username = env_config.get('DASHBOARD_USER', 'admin')
+                    
+                    # 直接设置登录状态
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"] = dashboard_username
+                    
+                    # 保存登录状态
+                    save_login_state(dashboard_username)
+                    
+                    # 设置URL参数以支持session持久化
+                    st.query_params["auto_login"] = "true"
+                    st.query_params["user"] = dashboard_username
+                    
+                    st.success("✅ 管理员登录成功！")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"登录失败: {e}")
+
+def login_sidebar():
+    """侧边栏登录组件"""
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 🔐 管理员登录")
+        
+        with st.form("sidebar_login_form"):
+            username = st.text_input("👤 用户名", key="sidebar_username")
+            password = st.text_input("🔒 密码", type="password", key="sidebar_password")
+            submitted = st.form_submit_button("🚪 登录", use_container_width=True)
+        
+        if submitted:
+            if authenticate(username, password):
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = username
+                
+                # 保存登录状态
+                save_login_state(username)
+                
+                # 设置URL参数以支持session持久化
+                st.query_params["auto_login"] = "true"
+                st.query_params["user"] = username
+                
+                st.success("✅ 登录成功！")
+                st.rerun()
+            else:
+                st.error("❌ 用户名或密码错误！")
+
+def login_modal():
+    """弹窗登录组件"""
+    # 检查是否需要显示登录弹窗
+    if not st.session_state.get("authenticated", False):
+        # 在主页面添加登录按钮
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col3:
+            if st.button("🔐 管理员登录", key="show_login_modal"):
+                st.session_state["show_login_modal"] = True
+    
+    # 显示登录弹窗
+    if st.session_state.get("show_login_modal", False):
+        with st.container():
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                st.markdown("### 🔐 管理员登录")
+                
+                with st.form("modal_login_form"):
+                    username = st.text_input("👤 用户名", key="modal_username")
+                    password = st.text_input("🔒 密码", type="password", key="modal_password")
+                    
+                    col_submit, col_cancel = st.columns(2)
+                    with col_submit:
+                        submitted = st.form_submit_button("🚪 登录", use_container_width=True)
+                    with col_cancel:
+                        cancelled = st.form_submit_button("❌ 取消", use_container_width=True)
+                
+                if submitted:
+                    if authenticate(username, password):
+                        st.session_state["authenticated"] = True
+                        st.session_state["username"] = username
+                        st.session_state["show_login_modal"] = False
+                        
+                        # 保存登录状态
+                        save_login_state(username)
+                        
+                        # 设置URL参数以支持session持久化
+                        st.query_params["auto_login"] = "true"
+                        st.query_params["user"] = username
+                        
+                        st.success("✅ 登录成功！")
+                        st.rerun()
+                    else:
+                        st.error("❌ 用户名或密码错误！")
+                
+                if cancelled:
+                    st.session_state["show_login_modal"] = False
+                    st.rerun()
+            
+            st.markdown("---")
+
+def login_expander():
+    """展开式登录组件"""
+    if not st.session_state.get("authenticated", False):
+        with st.expander("🔐 管理员登录", expanded=False):
+            with st.form("expander_login_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    username = st.text_input("👤 用户名", key="expander_username")
+                with col2:
+                    password = st.text_input("🔒 密码", type="password", key="expander_password")
+                
+                submitted = st.form_submit_button("🚪 登录", use_container_width=True)
+            
+            if submitted:
+                if authenticate(username, password):
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"] = username
+                    
+                    # 保存登录状态
+                    save_login_state(username)
+                    
+                    # 设置URL参数以支持session持久化
+                    st.query_params["auto_login"] = "true"
+                    st.query_params["user"] = username
+                    
+                    st.success("✅ 登录成功！")
+                    st.rerun()
+                else:
+                    st.error("❌ 用户名或密码错误！")
+
 def login_page():
     """登录页面"""
     st.markdown("""
@@ -200,3 +342,35 @@ def check_authentication():
             st.rerun()
     
     return st.session_state["authenticated"]
+
+def quick_login_button():
+    """一键登录按钮"""
+    if not st.session_state.get("authenticated", False):
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🔐 管理员登录", use_container_width=True, key="quick_login_btn"):
+                # 使用默认管理员账户直接登录
+                try:
+                    config_manager = ConfigManager()
+                    env_config = config_manager.get_env_config()
+                    
+                    # 从环境配置中获取Dashboard账户信息
+                    dashboard_username = env_config.get('DASHBOARD_USER', 'admin')
+                    dashboard_password = env_config.get('DASHBOARD_PASSWORD', 'admin')
+                    
+                    # 直接设置登录状态
+                    st.session_state["authenticated"] = True
+                    st.session_state["username"] = dashboard_username
+                    
+                    # 保存登录状态
+                    save_login_state(dashboard_username)
+                    
+                    # 设置URL参数以支持session持久化
+                    st.query_params["auto_login"] = "true"
+                    st.query_params["user"] = dashboard_username
+                    
+                    st.success("✅ 管理员登录成功！")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"登录失败: {e}")

@@ -293,6 +293,7 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
                 webhook_data=webhook_data,
                 additions=additions,
                 deletions=deletions,
+                mr_id=webhook_data['object_attributes']['iid']  # 传递GitLab的MR ID
             ),
             file_details=json.dumps(changes, ensure_ascii=False)
         )
@@ -313,6 +314,7 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
                 webhook_data=webhook_data,
                 additions=additions,
                 deletions=deletions,
+                mr_id=webhook_data['object_attributes']['iid']  # 传递GitLab的MR ID
             )
         )
 
@@ -486,6 +488,7 @@ def handle_github_pull_request_event(webhook_data: dict, github_token: str, gith
                 webhook_data=webhook_data,
                 additions=additions,
                 deletions=deletions,
+                mr_id=webhook_data['pull_request']['number']  # 传递GitHub PR号
             ))
 
     except Exception as e:

@@ -85,9 +85,21 @@ class DataProcessor:
     
     def _clean_data_fields(self, df: pd.DataFrame) -> pd.DataFrame:
         """清理数据字段"""
-        # 清理评分字段
-        if 'score' in df.columns:
+        # 清理评分字段 - 优先从review_result中提取，而非直接使用数据库的score字段
+        if 'score' in df.columns and 'review_result' in df.columns:
+            # 如果score为0或缺失，尝试从review_result中提取
+            extracted_scores = df.apply(lambda row: self._extract_score_from_review(row), axis=1)
+            # 只有当提取到有效评分时才更新
+            valid_extracted = extracted_scores[extracted_scores > 0]
+            if not valid_extracted.empty:
+                df.loc[valid_extracted.index, 'score'] = valid_extracted
+            
             df['score'] = pd.to_numeric(df['score'], errors='coerce').fillna(0)
+        elif 'score' in df.columns:
+            df['score'] = pd.to_numeric(df['score'], errors='coerce').fillna(0)
+        elif 'review_result' in df.columns:
+            # 如果没有score列，从review_result中提取
+            df['score'] = df['review_result'].apply(self._extract_score_from_review)
         
         # 清理作者字段
         if 'author' in df.columns:
@@ -162,3 +174,38 @@ class DataProcessor:
             summary['date_range'] = None
             
         return summary
+    
+    def _extract_score_from_review(self, row):
+        """从审查结果中提取AI评分"""
+        import re
+        
+        # 如果已有有效评分且大于0，直接返回
+        if 'score' in row and pd.notna(row['score']) and row['score'] > 0:
+            return row['score']
+        
+        # 从review_result中提取评分
+        review_result = row.get('review_result', '')
+        if not review_result or pd.isna(review_result):
+            return 0
+        
+        # 使用正则表达式提取评分
+        score_patterns = [
+            r"总分[:：]\s*(\d+)分?",  # 总分：85分 或 总分: 85
+            r"评分[:：]\s*(\d+)分?",  # 评分：85分
+            r"得分[:：]\s*(\d+)分?",  # 得分：85分
+            r"分数[:：]\s*(\d+)分?",  # 分数：85分
+            r"(\d+)\s*分",          # 85分
+        ]
+        
+        for pattern in score_patterns:
+            match = re.search(pattern, str(review_result))
+            if match:
+                try:
+                    score = int(match.group(1))
+                    # 确保评分在合理范围内
+                    if 0 <= score <= 100:
+                        return score
+                except (ValueError, IndexError):
+                    continue
+        
+        return 0

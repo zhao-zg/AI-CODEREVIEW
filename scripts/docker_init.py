@@ -136,7 +136,7 @@ stdout_logfile=/app/log/api.out.log
 environment=PYTHONPATH="/app"
 
 [program:ui]
-command=streamlit run /app/ui.py --server.port=5002 --server.address=0.0.0.0 --server.headless true
+command=python /app/ui.py
 directory=/app
 autostart=true
 autorestart=true

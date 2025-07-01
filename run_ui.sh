@@ -1,4 +1,5 @@
 #!/bin/bash
 echo "Starting AI-CodeReview UI..."
+echo "UI will automatically read configuration from .env file"
 cd "$(dirname "$0")"
-python -m streamlit run ui.py --server.headless false --server.port 8501 --server.fileWatcherType none --server.runOnSave false
+python ui.py

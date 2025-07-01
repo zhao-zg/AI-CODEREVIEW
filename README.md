@@ -141,7 +141,7 @@ docker-compose -f docker-compose.single.yml up -d
 **验证部署**：
 
 - **API服务**：访问 http://localhost:5001
-- **UI界面**：访问 http://localhost:5002
+- **UI界面**：访问 http://localhost:5002 （端口可在 conf/.env 中 UI_PORT 配置项修改）
 - **健康检查**：
   ```bash
   # 检查容器状态
@@ -186,10 +186,10 @@ python api.py
 - 启动Dashboard服务：
 
 ```bash
-# 方法1: 使用streamlit命令
-streamlit run ui.py --server.port=5002 --server.address=0.0.0.0
+# 方法1: 直接运行（推荐，自动读取配置）
+python ui.py
 
-# 方法2: 使用启动脚本（推荐）
+# 方法2: 使用启动脚本
 # Windows用户
 run_ui.bat
 
@@ -197,7 +197,7 @@ run_ui.bat
 ./run_ui.sh
 ```
 
-> 💡 **提示**: 启动脚本会自动检查并安装所需依赖，推荐使用。详细的UI功能说明请参考 [UI使用指南](docs/ui_guide.md)。
+> 💡 **提示**: UI服务会自动从 `conf/.env` 文件读取 `UI_PORT` 配置并启动。详细的UI功能说明请参考 [UI使用指南](docs/ui_guide.md)。
 
 ### ⚙️ Web界面配置管理
 

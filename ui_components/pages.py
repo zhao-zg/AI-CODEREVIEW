@@ -38,8 +38,9 @@ def apply_config_changes():
         
         # 方法2: 尝试通过 API 端点重载配置
         try:
-            api_port = os.environ.get('API_PORT', '5001')
-            api_url = f"http://localhost:{api_port}/reload-config"
+            # 使用API_URL配置
+            api_url_base = os.environ.get('API_URL', 'http://localhost:5001')
+            api_url = f"{api_url_base}/reload-config"
             
             response = requests.post(api_url, timeout=5)
             if response.status_code == 200:
@@ -562,11 +563,14 @@ def env_management_page():
                     ["professional", "sarcastic", "gentle", "humorous"],
                     index=["professional", "sarcastic", "gentle", "humorous"].index(env_config.get("REVIEW_STYLE", "professional"))
                 )
-            
-            with col2:
-                server_port = st.text_input("服务端口", value=env_config.get("SERVER_PORT", "5001"))
                 timezone = st.text_input("时区", value=env_config.get("TZ", "Asia/Shanghai"))
-            
+            with col2:
+                api_port = st.text_input("API端口", value=env_config.get("API_PORT", "5001"))
+                api_url = st.text_input("API地址", value=env_config.get("API_URL", "http://localhost:5001"), 
+                                        help="API服务地址，用于内部API调用，如: http://yourserver.com:5001")
+                ui_port = st.text_input("UI端口", value=env_config.get("UI_PORT", "5002"))
+                ui_url = st.text_input("UI地址", value=env_config.get("UI_URL", "http://localhost:5001"), 
+                                         help="用于推送消息中的详情页面链接，如: http://yourserver.com:5001")
             # 第二部分：平台开关配置（少量配置项）
             st.markdown("#### 🔀 平台开关配置")
             col_platform1, col_platform2, col_platform3 = st.columns(3)
@@ -723,7 +727,7 @@ def env_management_page():
                                                height=120,
                                                help="支持多行输入，保存时会自动清理格式。JSON数组格式，包含name、remote_url、local_path、username、password、check_hours字段")
             
-            # 第八部分：消息推送配置（多配置项，折叠显示）
+            # 第八部分：消息推送配置（多配置项，默认展开便于用户配置）
             with st.expander("🔔 消息推送配置", expanded=False):
                 col9, col10, col11 = st.columns(3)
                 
@@ -751,6 +755,25 @@ def env_management_page():
                 
                 with col_webhook2:
                     extra_webhook_url = st.text_input("额外Webhook URL", value=env_config.get("EXTRA_WEBHOOK_URL", ""), type="password")
+                
+                st.markdown("**推送消息模式配置**")
+                col_mode1, col_mode2 = st.columns(2)
+                
+                with col_mode1:
+                    current_mode = env_config.get("NOTIFICATION_MODE", "detailed")
+                    notification_mode = st.selectbox(
+                        "消息推送模式",
+                        options=["detailed", "simplified"],
+                        index=0 if current_mode == "detailed" else 1,
+                        help="detailed=详细推送(包含完整审查结果)，simplified=简化推送(仅关键信息)"
+                    )
+                
+                with col_mode2:
+                    mode_description = {
+                        "detailed": "📄 **详细模式**：包含完整的AI审查结果、提交列表等详细信息",
+                        "simplified": "📋 **简化模式**：仅显示关键信息和简要评论，消息更简洁"
+                    }
+                    st.info(mode_description.get(notification_mode, ""))
             
             # 保存按钮
             if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
@@ -805,7 +828,10 @@ def env_management_page():
                     "VERSION_TRACKING_RETENTION_DAYS": str(retention_days),
                     
                     # 系统配置
-                    "SERVER_PORT": server_port,
+                    "API_PORT": api_port,
+                    "API_URL": api_url,
+                    "UI_PORT": ui_port,
+                    "UI_URL": ui_url,
                     "TZ": timezone,
                     "LOG_LEVEL": log_level,
                     "QUEUE_DRIVER": queue_driver,
@@ -842,6 +868,10 @@ def env_management_page():
                     # 额外Webhook配置
                     "EXTRA_WEBHOOK_ENABLED": "1" if extra_webhook_enabled else "0",
                     "EXTRA_WEBHOOK_URL": extra_webhook_url,
+                    
+                    # 推送消息模式配置
+                    "NOTIFICATION_MODE": notification_mode,
+                    
                     # Dashboard配置
                     "DASHBOARD_USER": dashboard_user,
                     "DASHBOARD_PASSWORD": dashboard_password
@@ -969,13 +999,13 @@ def env_management_page():
                                    "REVIEW_STYLE", "REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS"],
                     "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
                     "📋 版本追踪配置": ["VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
-                    "🏠 系统配置": ["SERVER_PORT", "TZ", "LOG_LEVEL", "LOG_FILE", "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER"],
+                    "🏠 系统配置": ["API_PORT", "API_URL", "UI_PORT", "UI_URL", "TZ", "LOG_LEVEL", "LOG_FILE", "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER"],
                     "⚡ Redis配置": ["REDIS_HOST", "REDIS_PORT"],
                     "📊 报告配置": ["REPORT_CRONTAB_EXPRESSION"],
                     "🔗 GitLab配置": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED", "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED"],
                     "🐙 GitHub配置": ["GITHUB_ACCESS_TOKEN"],
                     "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES"],
-                    "🔔 消息推送": ["DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL", "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL"],
+                    "🔔 消息推送": ["NOTIFICATION_MODE", "DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL", "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL"],
                     "🔗 额外Webhook": ["EXTRA_WEBHOOK_ENABLED", "EXTRA_WEBHOOK_URL"],
                     "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"]
                 }

@@ -1,7 +1,7 @@
 class MergeRequestReviewEntity:
     def __init__(self, project_name: str, author: str, source_branch: str, target_branch: str, updated_at: int,
                  commits: list, score: float, url: str, review_result: str, url_slug: str, webhook_data: dict,
-                 additions: int, deletions: int):
+                 additions: int, deletions: int, mr_id: int = None):
         self.project_name = project_name
         self.author = author
         self.source_branch = source_branch
@@ -15,6 +15,7 @@ class MergeRequestReviewEntity:
         self.webhook_data = webhook_data
         self.additions = additions
         self.deletions = deletions
+        self.mr_id = mr_id  # MR在数据库中的ID
 
     @property
     def commit_messages(self):

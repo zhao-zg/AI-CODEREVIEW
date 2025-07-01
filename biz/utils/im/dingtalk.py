@@ -34,14 +34,14 @@ class DingTalkNotifier:
 
         # 构造目标键
         target_key_project = f"DINGTALK_WEBHOOK_URL_{project_name.upper()}"
-        target_key_url_slug = f"DINGTALK_WEBHOOK_URL_{url_slug.upper()}"
+        target_key_url_slug = f"DINGTALK_WEBHOOK_URL_{url_slug.upper()}" if url_slug else None
 
         # 遍历环境变量
         for env_key, env_value in os.environ.items():
             env_key_upper = env_key.upper()
             if env_key_upper == target_key_project:
                 return env_value  # 找到项目名称对应的 Webhook URL，直接返回
-            if env_key_upper == target_key_url_slug:
+            if target_key_url_slug and env_key_upper == target_key_url_slug:
                 return env_value  # 找到 GitLab URL 对应的 Webhook URL，直接返回
 
         # 如果未找到匹配的环境变量，降级使用全局的 Webhook URL
@@ -90,4 +90,4 @@ class DingTalkNotifier:
             else:
                 logger.error(f"钉钉消息发送失败! webhook_url:{post_url},errmsg:{response_data.get('errmsg')}")
         except Exception as e:
-            logger.error(f"钉钉消息发送失败! ", e)
+            logger.error(f"钉钉消息发送失败! 错误信息: {str(e)}")

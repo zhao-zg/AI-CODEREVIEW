@@ -126,4 +126,4 @@ class FeishuNotifier:
                 logger.info(f"飞书消息发送成功! webhook_url:{post_url}")
 
         except Exception as e:
-            logger.error(f"飞书消息发送失败! ", e)
+            logger.error(f"飞书消息发送失败! 错误信息: {str(e)}")
