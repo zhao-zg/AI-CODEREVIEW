@@ -120,7 +120,7 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
                     continue
                 
                 logger.info(f"开始检查仓库: {repo_name}")
-                handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, trigger_type)
+                handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, trigger_type, repo_config)
                 
             except Exception as e:
                 error_message = f'处理仓库 {repo_config.get("name", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
@@ -133,7 +133,7 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
         logger.error('多仓库SVN变更检测出现未知错误: %s', error_message)
 
 
-def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: str = None, svn_password: str = None, check_hours: int = 24, check_limit: int = 100, repo_name: str = None, trigger_type: str = "scheduled"):
+def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: str = None, svn_password: str = None, check_hours: int = 24, check_limit: int = 100, repo_name: str = None, trigger_type: str = "scheduled", repo_config: dict = None):
     """
     处理SVN变更事件
     :param svn_remote_url: SVN远程仓库URL
@@ -165,7 +165,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         
         # 处理每个提交
         for commit in recent_commits:
-            process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type)
+            process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
             
     except Exception as e:
         display_name = repo_name or os.path.basename(svn_local_path)
@@ -174,7 +174,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         logger.error('SVN变更检测出现未知错误: %s', error_message)
 
 
-def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, repo_name: str = None, trigger_type: str = "scheduled"):
+def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, repo_name: str = None, trigger_type: str = "scheduled", repo_config: dict = None):
     """
     处理单个SVN提交，使用结构化diff JSON输入AI审查
     :param svn_handler: SVN处理器
@@ -187,6 +187,12 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         author = commit['author']
         message = commit['message']
         logger.info(f'处理SVN提交: r{revision} by {author}')
+
+        # === Merge提交检查 ===
+        if repo_config and should_skip_merge_commit(repo_config, message):
+            logger.info(f'跳过merge提交 r{revision}: {message[:100]}...')
+            return
+        # === Merge提交检查 END ===
 
         # 获取提交的变更
         changes = svn_handler.get_commit_changes(commit)
@@ -324,6 +330,76 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         error_message = f'处理SVN提交 r{commit.get("revision", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
         notifier.send_notification(content=error_message)
         logger.error('处理SVN提交时出现错误: %s', error_message)
+
+
+def is_merge_commit(message: str) -> bool:
+    """
+    判断提交信息是否为merge提交
+    常见的merge提交信息模式：
+    - "Merged ..."
+    - "Merge branch ..."
+    - "Merge pull request ..." 
+    - "Auto-merged ..."
+    - 包含 "merge" 关键词的其他模式
+    """
+    if not message:
+        return False
+    
+    message_lower = message.lower().strip()
+    
+    # 常见的merge提交模式
+    merge_patterns = [
+        'merged ',
+        'merge branch',
+        'merge pull request',
+        'merge pr ',
+        'auto-merged',
+        'auto merge',
+        'merging ',
+        'merge from ',
+        'merge to ',
+        'merge into ',
+        'merge of ',
+        'merge:',
+        'merge - ',
+        # SVN特有的merge模式
+        'merged via svn merge',
+        'merge r',
+        'merge rev'
+    ]
+    
+    # 检查是否匹配任何merge模式
+    for pattern in merge_patterns:
+        if pattern in message_lower:
+            return True
+    
+    # 如果消息完全就是"merge"
+    if message_lower == 'merge':
+        return True
+    
+    return False
+
+
+def should_skip_merge_commit(repo_config: dict, commit_message: str) -> bool:
+    """
+    根据仓库配置判断是否应该跳过merge提交
+    :param repo_config: 仓库配置字典
+    :param commit_message: 提交消息
+    :return: True表示应该跳过，False表示应该处理
+    """
+    # 检查是否为merge提交
+    if not is_merge_commit(commit_message):
+        return False  # 不是merge提交，不跳过
+    
+    # 获取仓库的merge配置，默认为True（审查merge提交）
+    enable_merge_review = repo_config.get('enable_merge_review', True)
+    
+    # 如果禁用了merge审查，则跳过
+    if not enable_merge_review:
+        logger.info(f'Merge提交已禁用审查，跳过: {commit_message[:100]}...')
+        return True
+    
+    return False  # 启用了merge审查，不跳过
 
 
 def _fix_unquoted_json(config_str: str) -> str:

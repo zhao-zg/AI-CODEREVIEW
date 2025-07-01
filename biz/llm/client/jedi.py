@@ -70,23 +70,20 @@ class JediClient(BaseClient):
             system_max_tokens = get_env_int("REVIEW_MAX_TOKENS", 10000)
             
             # 根据内容长度判断复杂度并调整参数，但不能超过系统限制
-            if total_content_length < 500:  # 简单请求
+            if total_content_length < 400:  # 简单请求
                 max_tokens = min(4000, system_max_tokens)
-                max_output_tokens = min(4000, system_max_tokens)
                 thinking = False
                 complexity_level = "simple"
                 base_timeout = 60
                 max_retries = 3
-            elif total_content_length < 2000:  # 中等复杂度
-                max_tokens = min(8000, system_max_tokens)
-                max_output_tokens = min(8000, system_max_tokens)
+            elif total_content_length < 1000:  # 中等复杂度
+                max_tokens = min(10000, system_max_tokens)
                 thinking = False
                 complexity_level = "medium"
                 base_timeout = 120
                 max_retries = 3
             else:  # 复杂请求
                 max_tokens = system_max_tokens
-                max_output_tokens = system_max_tokens
                 thinking = True
                 complexity_level = "complex"
                 base_timeout = 300
@@ -103,7 +100,6 @@ class JediClient(BaseClient):
                     "frequency_penalty": 0,
                     "presence_penalty": 0,
                     "max_tokens": max_tokens,
-                    "max_output_tokens": max_output_tokens,
                     "top_p": 1,
                     "seed": 0,
                     "thinking": thinking,

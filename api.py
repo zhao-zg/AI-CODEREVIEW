@@ -456,7 +456,7 @@ def trigger_specific_svn_repo(repo_name: str, hours: int = None):
             logger.error(f"仓库 {repo_name} 配置不完整")
             return
         logger.info(f"开始检查指定仓库: {repo_name}")
-        handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, "manual")
+        handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, "manual", target_repo)
     finally:
         release_svn_lock(lock)
 
@@ -494,7 +494,7 @@ def trigger_svn_check(hours: int = None):
         else:
             check_hours = hours
         logger.info(f"使用单仓库配置进行SVN检查，远程URL: {svn_remote_url}, 本地路径: {svn_local_path}, 检查最近 {check_hours} 小时")
-        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit, None, "scheduled")
+        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit, None, "scheduled", None)
     finally:
         release_svn_lock(lock)
 

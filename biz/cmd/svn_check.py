@@ -100,7 +100,7 @@ def main():
         print(f"检查时间范围: 最近{repo_hours}小时")
         
         try:
-            handle_svn_changes(remote_url, local_path, username, password, repo_hours, 100, args.repo, "manual")
+            handle_svn_changes(remote_url, local_path, username, password, repo_hours, 100, args.repo, "manual", target_repo)
             print("SVN检查完成")
         except Exception as e:
             logger.error(f"SVN检查失败: {e}")
@@ -143,7 +143,7 @@ def main():
     check_limit = get_env_int('SVN_CHECK_LIMIT')
     
     try:
-        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, args.hours, check_limit, None, "manual")
+        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, args.hours, check_limit, None, "manual", None)
         print("SVN检查完成")
     except Exception as e:
         logger.error(f"SVN检查失败: {e}")

@@ -691,42 +691,134 @@ def env_management_page():
                     redis_host = env_config.get("REDIS_HOST", "127.0.0.1")
                     redis_port = int(env_config.get("REDIS_PORT", "6379") or "6379")
             
-            # 第七部分：平台详细配置（多配置项，折叠显示）
-            with st.expander("🔗 平台详细配置", expanded=False):
-                # GitLab配置
-                st.markdown("**GitLab配置**")
-                col5, col6 = st.columns(2)
-                
-                with col5:
-                    gitlab_url = st.text_input("GitLab URL (可选)", value=env_config.get("GITLAB_URL", ""))
-                    gitlab_token = st.text_input("GitLab Access Token (可选)", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password")
-                
-                with col6:
-                    push_review_enabled = st.checkbox("启用Push审查功能", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
-                    merge_protected_only = st.checkbox("仅审查受保护分支", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "0") == "1")
-                
-                # GitHub配置
-                st.markdown("**GitHub配置**")
-                github_token = st.text_input("GitHub Access Token (可选)", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password")
-                # SVN配置
-                st.markdown("**SVN配置**")
-                col7, col8 = st.columns(2)
+            # 第七部分：SVN配置（扩展可视化配置）
+            with st.expander("📂 SVN仓库配置", expanded=True):
+                col7, col8 = st.columns([2, 1])
                 
                 with col7:
-                    svn_check_cron = st.text_input("SVN检查时间(Cron)", value=env_config.get("SVN_CHECK_CRONTAB", "*/30 * * * *"))
-                    svn_check_limit = st.number_input("每次检查最大提交数", 
-                                                    min_value=1, max_value=1000, 
-                                                    value=int(env_config.get("SVN_CHECK_LIMIT", "100") or "100"))
+                    st.markdown("### SVN仓库列表配置")
+                    
+                    # 解析现有的SVN配置
+                    try:
+                        current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
+                        if current_svn_config.strip():
+                            repositories = json.loads(current_svn_config)
+                        else:
+                            repositories = []
+                    except:
+                        repositories = []
+                        st.warning("⚠️ 当前SVN配置解析失败，将使用空配置")
+                    
+                    # 动态仓库配置界面
+                    if 'svn_repos_session' not in st.session_state:
+                        st.session_state.svn_repos_session = repositories.copy() if repositories else []
+                    
+                    # 添加新仓库按钮
+                    if st.button("➕ 添加新仓库"):
+                        new_repo = {
+                            "name": f"repo_{len(st.session_state.svn_repos_session) + 1}",
+                            "remote_url": "",
+                            "local_path": "",
+                            "username": "",
+                            "password": "",
+                            "check_hours": 24,
+                            "enable_merge_review": True
+                        }
+                        st.session_state.svn_repos_session.append(new_repo)
+                        st.rerun()
+                    
+                    # 显示每个仓库的配置
+                    for i, repo in enumerate(st.session_state.svn_repos_session):
+                        with st.container():
+                            st.markdown(f"#### 仓库 {i + 1}: {repo.get('name', 'unnamed')}")
+                            
+                            # 创建三列布局
+                            repo_col1, repo_col2, repo_col3 = st.columns([1, 1, 1])
+                            
+                            with repo_col1:
+                                repo['name'] = st.text_input(f"仓库名称", value=repo.get('name', ''), key=f"repo_name_{i}")
+                                repo['remote_url'] = st.text_input(f"远程URL", value=repo.get('remote_url', ''), key=f"repo_url_{i}")
+                                repo['local_path'] = st.text_input(f"本地路径", value=repo.get('local_path', ''), key=f"repo_path_{i}")
+                            
+                            with repo_col2:
+                                repo['username'] = st.text_input(f"用户名", value=repo.get('username', ''), key=f"repo_user_{i}")
+                                repo['password'] = st.text_input(f"密码", value=repo.get('password', ''), type="password", key=f"repo_pass_{i}")
+                                repo['check_hours'] = st.number_input(f"检查时间(小时)", min_value=1, max_value=168, value=int(repo.get('check_hours', 24)), key=f"repo_hours_{i}")
+                            
+                            with repo_col3:
+                                repo['enable_merge_review'] = st.checkbox(
+                                    f"启用Merge审查", 
+                                    value=repo.get('enable_merge_review', True), 
+                                    key=f"repo_merge_{i}",
+                                    help="启用后将审查merge提交，禁用后将跳过所有merge提交的审查"
+                                )
+                                
+                                # 删除仓库按钮
+                                if st.button(f"🗑️ 删除仓库", key=f"delete_repo_{i}"):
+                                    st.session_state.svn_repos_session.pop(i)
+                                    st.rerun()
+                            
+                            st.divider()
+                    
+                    # 生成最终的JSON配置
+                    svn_repositories_final = json.dumps(st.session_state.svn_repos_session, separators=(',', ':'), ensure_ascii=False)
+                    
+                    # 显示生成的JSON（折叠状态）
+                    with st.expander("🔍 查看生成的JSON配置", expanded=False):
+                        st.code(json.dumps(st.session_state.svn_repos_session, indent=2, ensure_ascii=False), language="json")
                 
                 with col8:
                     st.info("💡 SVN功能的启用/禁用在上面的'平台开关配置'中设置")
-                # SVN仓库配置
-                st.markdown("**SVN仓库配置**")
-                svn_repositories = st.text_area("SVN仓库配置(JSON格式)", 
-                                               value=env_config.get("SVN_REPOSITORIES", '[{"name":"example_project","remote_url":"https://example.com/svn/repo/trunk","local_path":"data/svn/project","username":"","password":"","check_hours":1}]'),
-                                               height=120,
-                                               help="支持多行输入，保存时会自动清理格式。JSON数组格式，包含name、remote_url、local_path、username、password、check_hours字段")
-            
+                    st.markdown("### Merge审查说明")
+                    st.markdown("""
+                    **Merge审查功能：**
+                    - ✅ **启用**：系统会审查所有提交，包括merge提交
+                    - ❌ **禁用**：系统会跳过merge提交，只审查普通提交
+                    
+                    **Merge提交识别：**
+                    - "Merged ..."
+                    - "Merge branch ..."
+                    - "Auto-merged ..."
+                    - 其他包含"merge"关键词的提交
+                    
+                    **建议配置：**
+                    - 开发分支：建议启用，全面审查
+                    - 主分支：可根据需要禁用，减少噪音
+                    """)
+                    
+                    # 统计信息
+                    if st.session_state.svn_repos_session:
+                        total_repos = len(st.session_state.svn_repos_session)
+                        merge_enabled_repos = sum(1 for repo in st.session_state.svn_repos_session if repo.get('enable_merge_review', True))
+                        
+                        st.markdown("### 配置统计")
+                        st.metric("总仓库数", total_repos)
+                        st.metric("启用Merge审查", f"{merge_enabled_repos}/{total_repos}")
+                        st.metric("禁用Merge审查", f"{total_repos - merge_enabled_repos}/{total_repos}")
+                
+                # 传统文本配置（作为备选）
+                with st.expander("📝 高级JSON配置（可选）", expanded=False):
+                    st.warning("⚠️ 高级用户专用：直接编辑JSON配置。修改后请点击'应用JSON配置'按钮同步到上方的可视化界面。")
+                    manual_svn_repositories = st.text_area("SVN仓库配置(JSON格式)", 
+                                                   value=json.dumps(st.session_state.svn_repos_session, indent=2, ensure_ascii=False),
+                                                   height=150,
+                                                   help="支持多行输入，保存时会自动清理格式。JSON数组格式，包含name、remote_url、local_path、username、password、check_hours、enable_merge_review字段")
+                    
+                    if st.button("🔄 应用JSON配置"):
+                        try:
+                            parsed_repos = json.loads(manual_svn_repositories)
+                            # 确保每个仓库都有enable_merge_review字段
+                            for repo in parsed_repos:
+                                if 'enable_merge_review' not in repo:
+                                    repo['enable_merge_review'] = True
+                            st.session_state.svn_repos_session = parsed_repos
+                            st.success("✅ JSON配置已应用到可视化界面")
+                            st.rerun()
+                        except json.JSONDecodeError as e:
+                            st.error(f"❌ JSON格式错误: {e}")
+                        except Exception as e:
+                            st.error(f"❌ 配置应用失败: {e}")
+
             # 第八部分：消息推送配置（多配置项，默认展开便于用户配置）
             with st.expander("🔔 消息推送配置", expanded=False):
                 col9, col10, col11 = st.columns(3)
@@ -775,40 +867,36 @@ def env_management_page():
                     }
                     st.info(mode_description.get(notification_mode, ""))
             
+            # 第九部分：GitLab配置
+            with st.expander("🔗 GitLab配置", expanded=False):
+                col_gitlab1, col_gitlab2 = st.columns(2)
+                
+                with col_gitlab1:
+                    gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""))
+                    gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password")
+                
+                with col_gitlab2:
+                    push_review_enabled = st.checkbox("启用Push审查", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
+                    merge_protected_only = st.checkbox("仅审查受保护分支的MR", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "1") == "1")
+            
+            # 第十部分：GitHub配置
+            with st.expander("🐙 GitHub配置", expanded=False):
+                github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password")
+            
+            # 第十一部分：SVN高级配置
+            with st.expander("⚙️ SVN高级配置", expanded=False):
+                col_svn_adv1, col_svn_adv2 = st.columns(2)
+                
+                with col_svn_adv1:
+                    svn_check_cron = st.text_input("SVN检查定时任务(Cron)", value=env_config.get("SVN_CHECK_CRONTAB", "0 */1 * * *"))
+                
+                with col_svn_adv2:
+                    svn_check_limit = st.number_input("SVN检查提交数量限制", min_value=1, max_value=1000, value=int(env_config.get("SVN_CHECK_LIMIT", "100")))
+            
             # 保存按钮
             if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
-                # 处理SVN仓库配置JSON格式 - 智能清理和验证
-                try:
-                    # 第一步：基础清理 - 移除首尾空白
-                    svn_repositories_cleaned = svn_repositories.strip()
-                    
-                    # 第二步：智能处理换行和空格
-                    if svn_repositories_cleaned:
-                        # 保留JSON结构的换行，但清理多余的空白
-                        import re
-                        # 移除行首行尾空白，但保留结构化的空格
-                        lines = [line.strip() for line in svn_repositories_cleaned.split('\n') if line.strip()]
-                        svn_repositories_cleaned = ''.join(lines)
-                        
-                        # 进一步清理：移除不必要的空格（但保留字符串内的空格）
-                        # 这个正则表达式会移除JSON结构符号周围的多余空格
-                        svn_repositories_cleaned = re.sub(r'\s*([{}[\]:,])\s*', r'\1', svn_repositories_cleaned)
-                        
-                    # 第三步：验证JSON格式
-                    if svn_repositories_cleaned:
-                        parsed_json = json.loads(svn_repositories_cleaned)
-                        # 重新格式化为紧凑的JSON（可选，确保一致性）
-                        svn_repositories_final = json.dumps(parsed_json, separators=(',', ':'), ensure_ascii=False)
-                    else:
-                        svn_repositories_final = ""
-                        
-                except json.JSONDecodeError as e:
-                    st.error(f"❌ SVN仓库配置JSON格式错误: {e}")
-                    st.error("💡 提示：请检查JSON格式，确保括号、引号、逗号等符号正确匹配")
-                    st.stop()
-                except Exception as e:
-                    st.error(f"❌ SVN仓库配置处理失败: {e}")
-                    st.stop()
+                # 使用已经处理好的SVN仓库配置
+                svn_repositories_final = json.dumps(st.session_state.svn_repos_session, separators=(',', ':'), ensure_ascii=False)
                 
                 new_config = {
                     # AI模型配置
