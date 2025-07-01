@@ -82,15 +82,15 @@ class JediClient(BaseClient):
                 max_output_tokens = min(8000, system_max_tokens)
                 thinking = False
                 complexity_level = "medium"
-                base_timeout = 90
-                max_retries = 4
+                base_timeout = 120
+                max_retries = 3
             else:  # 复杂请求
                 max_tokens = system_max_tokens
                 max_output_tokens = system_max_tokens
                 thinking = True
                 complexity_level = "complex"
-                base_timeout = 150
-                max_retries = 5
+                base_timeout = 300
+                max_retries = 3
                 
             logger.info(f"请求复杂度: {complexity_level}, 内容长度: {total_content_length}, 最大tokens: {max_tokens}, 系统限制: {system_max_tokens}, 基础超时: {base_timeout}秒")
             
