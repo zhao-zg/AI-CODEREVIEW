@@ -432,6 +432,7 @@ def trigger_specific_svn_repo(repo_name: str, hours: int = None):
             logger.info("SVN检查功能未启用")
             return
         import json
+        check_limit = get_env_int('SVN_CHECK_LIMIT')
         svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
         try:
             repositories = json.loads(svn_repositories_config)
@@ -455,7 +456,7 @@ def trigger_specific_svn_repo(repo_name: str, hours: int = None):
             logger.error(f"仓库 {repo_name} 配置不完整")
             return
         logger.info(f"开始检查指定仓库: {repo_name}")
-        handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, repo_name)
+        handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, "manual")
     finally:
         release_svn_lock(lock)
 
@@ -479,7 +480,7 @@ def trigger_svn_check(hours: int = None):
             logger.debug(f"后10字符: {repr(svn_repositories_config[-10:])}")
             if "'" in svn_repositories_config and '"' not in svn_repositories_config:
                 logger.warning("⚠️ 检测到配置中使用了单引号，JSON要求使用双引号")
-            handle_multiple_svn_repositories(svn_repositories_config, hours, check_limit)
+            handle_multiple_svn_repositories(svn_repositories_config, hours, check_limit, "scheduled")
             return
         svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
         svn_local_path = get_env_with_default('SVN_LOCAL_PATH')
@@ -493,7 +494,7 @@ def trigger_svn_check(hours: int = None):
         else:
             check_hours = hours
         logger.info(f"使用单仓库配置进行SVN检查，远程URL: {svn_remote_url}, 本地路径: {svn_local_path}, 检查最近 {check_hours} 小时")
-        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit)
+        handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit, None, "scheduled")
     finally:
         release_svn_lock(lock)
 

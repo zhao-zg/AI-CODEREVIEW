@@ -45,7 +45,7 @@ from biz.utils.version_tracker import VersionTracker
 # === 版本追踪集成 END ===
 
 
-def handle_multiple_svn_repositories(repositories_config: str = None, check_hours: int = None, check_limit: int = 100):
+def handle_multiple_svn_repositories(repositories_config: str = None, check_hours: int = None, check_limit: int = 100, trigger_type: str = "scheduled"):
     """
     处理多个SVN仓库的变更
     :param repositories_config: SVN仓库配置JSON字符串，如果为None则从环境变量读取
@@ -120,7 +120,7 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
                     continue
                 
                 logger.info(f"开始检查仓库: {repo_name}")
-                handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name)
+                handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, trigger_type)
                 
             except Exception as e:
                 error_message = f'处理仓库 {repo_config.get("name", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
@@ -133,7 +133,7 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
         logger.error('多仓库SVN变更检测出现未知错误: %s', error_message)
 
 
-def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: str = None, svn_password: str = None, check_hours: int = 24, check_limit: int = 100, repo_name: str = None):
+def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: str = None, svn_password: str = None, check_hours: int = 24, check_limit: int = 100, repo_name: str = None, trigger_type: str = "scheduled"):
     """
     处理SVN变更事件
     :param svn_remote_url: SVN远程仓库URL
@@ -165,7 +165,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         
         # 处理每个提交
         for commit in recent_commits:
-            process_svn_commit(svn_handler, commit, svn_local_path, display_name)
+            process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type)
             
     except Exception as e:
         display_name = repo_name or os.path.basename(svn_local_path)
@@ -174,7 +174,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         logger.error('SVN变更检测出现未知错误: %s', error_message)
 
 
-def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, repo_name: str = None):
+def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, repo_name: str = None, trigger_type: str = "scheduled"):
     """
     处理单个SVN提交，使用结构化diff JSON输入AI审查
     :param svn_handler: SVN处理器
@@ -295,29 +295,14 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             svn_path=svn_path,
             additions=additions,
             deletions=deletions,
+            trigger_type=trigger_type
         ))
 
-        # 发送通知
-        if svn_review_enabled and review_successful and review_result not in ["SVN代码审查未启用", "无需要审查的文件"]:
-            notification_content = f"""
-## SVN代码审查结果
-
-**项目**: {project_name}
-**版本**: r{revision}
-**作者**: {author}
-**提交信息**: {message}
-**新增行数**: {additions}
-**删除行数**: {deletions}
-**评分**: {score}分
-
-### 审查结果:
-{review_result}
-"""
-            notifier.send_notification(
-                content=notification_content, 
-                msg_type="markdown", 
-                title=f"SVN代码审查 - {project_name} r{revision}"
-            )
+        # 注意：通知已经通过事件管理器发送，不需要重复发送
+        # 原来的直接通知代码已移除，避免重复推送
+        
+        # === 版本追踪集成 ===
+        version_tracking_enabled = get_config_bool('VERSION_TRACKING_ENABLED', True)
         if version_tracking_enabled:
             VersionTracker.record_version_review(
                 project_name=project_name,

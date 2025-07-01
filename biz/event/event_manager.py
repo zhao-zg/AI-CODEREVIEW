@@ -195,6 +195,7 @@ def _generate_mr_notification_content(mr_review_entity: MergeRequestReviewEntity
     # 基础信息
     score = _get_ai_score(mr_review_entity.review_result)
     server_url = get_env_with_default('UI_URL', 'http://localhost:5001')
+    trigger_label = _get_trigger_type_label(mr_review_entity.trigger_type)
     
     # 获取MR ID和显示ID
     mr_id = mr_review_entity.mr_id
@@ -213,7 +214,7 @@ def _generate_mr_notification_content(mr_review_entity: MergeRequestReviewEntity
 
 **{mr_review_entity.source_branch}** → **{mr_review_entity.target_branch}**
 
-👤 **{mr_review_entity.author}** | {score_emoji} **{score}分** 
+👤 **{mr_review_entity.author}** | {score_emoji} **{score}分** | {trigger_label}
 
 💡 **AI简评**: {ai_review}
 
@@ -225,6 +226,7 @@ def _generate_mr_notification_content(mr_review_entity: MergeRequestReviewEntity
 **分支**: {mr_review_entity.source_branch} → {mr_review_entity.target_branch}
 **提交者**: {mr_review_entity.author}
 **AI评分**: {score}分
+**触发方式**: {trigger_label}
 
 **审查详情**:
 {mr_review_entity.review_result or '暂无详细审查结果'}
@@ -238,6 +240,7 @@ def _generate_push_notification_content(entity: PushReviewEntity, mode: str):
     # 基础信息
     score = _get_ai_score(entity.review_result)
     server_url = get_env_with_default('UI_URL', 'http://localhost:5001')
+    trigger_label = _get_trigger_type_label(entity.trigger_type)
     
     # 获取最新提交信息
     latest_commit = entity.commits[0] if entity.commits else {}
@@ -260,7 +263,7 @@ def _generate_push_notification_content(entity: PushReviewEntity, mode: str):
 
 📝 **{short_message}**
 
-👤 **{author}** | {score_emoji} **{score}分** | 📊 **{commits_count}个提交**
+👤 **{author}** | {score_emoji} **{score}分** | 📊 **{commits_count}个提交** | {trigger_label}
 
 💡 **AI简评**: {ai_review}
 
@@ -280,6 +283,7 @@ def _generate_push_notification_content(entity: PushReviewEntity, mode: str):
 **提交者**: {author}
 **AI评分**: {score}分
 **提交总数**: {len(entity.commits)}
+**触发方式**: {trigger_label}
 
 **提交列表**:
 {commits_info}
@@ -296,6 +300,7 @@ def _generate_svn_notification_content(entity: SvnReviewEntity, mode: str):
     # 基础信息
     score = _get_ai_score(entity.review_result)
     server_url = get_env_with_default('UI_URL', 'http://localhost:5001')
+    trigger_label = _get_trigger_type_label(entity.trigger_type)
     
     # 获取最新提交信息
     latest_commit = entity.commits[0] if entity.commits else {}
@@ -317,7 +322,7 @@ def _generate_svn_notification_content(entity: SvnReviewEntity, mode: str):
 
 📝 **{short_message}**
 
-👤 **{author}** | {score_emoji} **{score}分**
+👤 **{author}** | {score_emoji} **{score}分** | {trigger_label}
 
 💡 **AI简评**: {ai_review}
 
@@ -330,12 +335,35 @@ def _generate_svn_notification_content(entity: SvnReviewEntity, mode: str):
 **提交者**: {author}
 **AI评分**: {score}分
 **版本号**: r{revision}
+**触发方式**: {trigger_label}
 
 **审查详情**:
 {entity.review_result or '暂无详细审查结果'}
 
 ---
 [审查详情页面]({detail_url})"""
+
+
+def _get_trigger_type_label(trigger_type: str) -> str:
+    """获取触发类型的中文标签"""
+    trigger_labels = {
+        "webhook": "🔄 实时触发",
+        "manual": "👤 手动触发", 
+        "scheduled": "⏰ 定时审查",
+        "rerun": "🔄 重新审查"
+    }
+    return trigger_labels.get(trigger_type, "❓ 未知触发")
+
+
+def _get_trigger_type_emoji(trigger_type: str) -> str:
+    """获取触发类型的emoji"""
+    trigger_emojis = {
+        "webhook": "🔄",
+        "manual": "👤",
+        "scheduled": "⏰", 
+        "rerun": "🔄"
+    }
+    return trigger_emojis.get(trigger_type, "❓")
 
 
 # 定义事件处理函数
@@ -393,5 +421,4 @@ def on_svn_reviewed(entity: SvnReviewEntity):
 # 连接事件处理函数到事件信号
 event_manager["merge_request_reviewed"].connect(on_merge_request_reviewed)
 event_manager["push_reviewed"].connect(on_push_reviewed)
-event_manager["svn_reviewed"].connect(on_svn_reviewed)
 event_manager["svn_reviewed"].connect(on_svn_reviewed)
