@@ -565,12 +565,12 @@ def env_management_page():
                 )
                 timezone = st.text_input("时区", value=env_config.get("TZ", "Asia/Shanghai"))
             with col2:
-                api_port = st.text_input("API端口", value=env_config.get("API_PORT", "5001"))
-                api_url = st.text_input("API地址", value=env_config.get("API_URL", "http://localhost:5001"), 
+                api_port = st.text_input("API端口（容器可以使用映射修改）", value=env_config.get("API_PORT", "5001"))
+                api_url = st.text_input("API地址（外部地址）", value=env_config.get("API_URL", "http://localhost:5001"), 
                                         help="API服务地址，用于内部API调用，如: http://yourserver.com:5001")
-                ui_port = st.text_input("UI端口", value=env_config.get("UI_PORT", "5002"))
-                ui_url = st.text_input("UI地址", value=env_config.get("UI_URL", "http://localhost:5001"), 
-                                         help="用于推送消息中的详情页面链接，如: http://yourserver.com:5001")
+                ui_port = st.text_input("UI端口（容器可以使用映射修改）", value=env_config.get("UI_PORT", "5002"))
+                ui_url = st.text_input("UI地址（外部地址）", value=env_config.get("UI_URL", "http://localhost:5002"), 
+                                         help="用于推送消息中的详情页面链接，如: http://yourserver.com:5002")
             # 第二部分：平台开关配置（少量配置项）
             st.markdown("#### 🔀 平台开关配置")
             col_platform1, col_platform2, col_platform3 = st.columns(3)
