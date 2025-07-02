@@ -17,7 +17,7 @@ class ConfigManager:
     def __init__(self, config_dir: str = "conf"):
         self.config_dir = Path(config_dir)
         self.env_file = self.config_dir / ".env"
-        self.env_dist_file = self.config_dir / ".env.dist"
+        self.env_dist_file = Path("conf_templates") / ".env.dist"  # 修正路径到conf_templates
         self.dashboard_config_file = self.config_dir / "dashboard_config.py"
         self.prompt_config_file = self.config_dir / "prompt_templates.yml"
     

@@ -808,46 +808,6 @@ def env_management_page():
                     key="svn_config_editor"
                 )
                 
-                # 配置模板和帮助
-                col_help1, col_help2 = st.columns(2)
-                with col_help1:
-                    st.markdown("📋 **SVN配置模板**")
-                    with st.container():
-                        example_config = [
-                            {
-                                "name": "main_project",
-                                "remote_url": "svn://server.com/project/trunk",
-                                "local_path": "data/svn/main_project",
-                                "username": "svn_user",
-                                "password": "svn_pass",
-                                "check_hours": 24,
-                                "enable_merge_review": True,
-                                "check_crontab": "*/30 * * * *",
-                                "check_limit": 100
-                            }
-                        ]
-                        with st.expander("查看示例配置", expanded=False):
-                            st.code(json.dumps(example_config, indent=2, ensure_ascii=False), language="json")
-                
-                with col_help2:
-                    st.markdown("📝 **字段说明**")
-                    with st.container():
-                        with st.expander("查看字段详情", expanded=False):
-                            st.markdown("""
-                            **必填字段：**
-                            - `name`: 仓库名称（唯一标识）
-                            - `remote_url`: SVN远程地址
-                            - `local_path`: 本地存储路径
-                            
-                            **可选字段：**
-                            - `username`: SVN用户名
-                            - `password`: SVN密码
-                            - `check_hours`: 检查间隔（小时）
-                            - `enable_merge_review`: 是否启用审查
-                            - `check_crontab`: 定时表达式
-                            - `check_limit`: 检查限制条数
-                            """)
-                
                 # 配置验证和预览
                 if svn_config_text.strip() and svn_config_text != "[]":
                     try:
@@ -922,42 +882,7 @@ def env_management_page():
                     help="使用YAML格式配置Prompt模板，支持系统Prompt和用户Prompt",
                     key="prompt_config_editor"
                 )
-                
-                # 配置模板和帮助
-                col_help1, col_help2 = st.columns(2)
-                with col_help1:
-                    st.markdown("📋 **Prompt配置模板**")
-                    with st.container():
-                        with st.expander("查看示例模板", expanded=False):
-                            example_config = """code_review_prompt:
-  system_prompt: |-
-    你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。
-    审查风格：{{ style }}
-  user_prompt: |-
-    以下是代码变更，请以{{ style }}风格审查：
-    
-    结构化diff JSON内容：
-    {diffs_text}
-    
-    提交历史：
-    {commits_text}"""
-                            st.code(example_config, language="yaml")
-                
-                with col_help2:
-                    st.markdown("📖 **模板变量说明**")
-                    with st.container():
-                        with st.expander("查看变量详情", expanded=False):
-                            st.markdown("""
-                            **系统Prompt可用变量：**
-                            - `{{ style }}`: 审查风格 (professional/sarcastic/gentle/humorous)
-                            - 支持条件语句: `{% if style == 'professional' %}`
-                            
-                            **用户Prompt可用变量：**
-                            - `{{ style }}`: 审查风格
-                            - `{diffs_text}`: 结构化diff JSON内容
-                            - `{commits_text}`: 提交历史信息
-                            """)
-                
+
                 # 配置验证和预览
                 if prompt_config_text.strip():
                     try:
@@ -989,7 +914,8 @@ def env_management_page():
                         # 验证JSON格式
                         parsed_svn = json.loads(svn_config_text)
                         if isinstance(parsed_svn, list):
-                            svn_config_final = svn_config_text.strip()
+                            # 将JSON压缩为单行格式，避免换行导致的.env文件解析问题
+                            svn_config_final = json.dumps(parsed_svn, ensure_ascii=False, separators=(',', ':'))
                         else:
                             st.error("❌ SVN配置必须是一个数组格式")
                             st.stop()
