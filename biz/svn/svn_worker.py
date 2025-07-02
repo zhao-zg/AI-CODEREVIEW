@@ -114,13 +114,15 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
                 username = repo_config.get('username')
                 password = repo_config.get('password')
                 repo_check_hours = check_hours or repo_config.get('check_hours', 24)
+                # 使用仓库特定的check_limit，如果没有则使用全局默认值
+                repo_check_limit = repo_config.get('check_limit', check_limit)
                 
                 if not remote_url or not local_path:
                     logger.error(f"仓库 {repo_name} 配置不完整，跳过")
                     continue
                 
                 logger.info(f"开始检查仓库: {repo_name}")
-                handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, trigger_type, repo_config)
+                handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, repo_check_limit, repo_name, trigger_type, repo_config)
                 
             except Exception as e:
                 error_message = f'处理仓库 {repo_config.get("name", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'

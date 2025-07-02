@@ -210,25 +210,79 @@ def setup_scheduler():
         
         # SVN定时检查任务
         if svn_check_enabled:
-            svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')  # 默认每30分钟检查一次
-            svn_cron_parts = svn_crontab.split()
+            # 首先尝试从 SVN_REPOSITORIES 配置中为每个仓库创建独立任务
+            svn_repositories_str = get_env_with_default('SVN_REPOSITORIES')
+            individual_tasks_created = False
             
-            if len(svn_cron_parts) == 5:
-                svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+            if svn_repositories_str:
+                try:
+                    import json
+                    repositories = json.loads(svn_repositories_str)
+                    if isinstance(repositories, list):
+                        for repo_config in repositories:
+                            repo_name = repo_config.get('name', 'unknown')
+                            repo_crontab = repo_config.get('check_crontab')
+                            
+                            if repo_crontab:
+                                svn_cron_parts = repo_crontab.split()
+                                
+                                if len(svn_cron_parts) == 5:
+                                    svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                                    
+                                    # 为每个仓库创建独立的定时任务
+                                    scheduler.add_job(
+                                        lambda repo=repo_config: trigger_single_svn_repo_check(repo),
+                                        trigger=CronTrigger(
+                                            minute=svn_minute,
+                                            hour=svn_hour,
+                                            day=svn_day,
+                                            month=svn_month,
+                                            day_of_week=svn_day_of_week
+                                        ),
+                                        id=f"svn_check_{repo_name}",
+                                        name=f"SVN检查任务 - {repo_name}"
+                                    )
+                                    logger.info(f"为仓库 {repo_name} 创建独立定时任务，表达式: {repo_crontab}")
+                                    individual_tasks_created = True
+                                else:
+                                    logger.error(f"仓库 {repo_name} 的定时表达式格式错误: {repo_crontab}")
+                            else:
+                                logger.info(f"仓库 {repo_name} 未配置 check_crontab，将使用全局定时任务")
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.error(f"解析 SVN_REPOSITORIES 配置失败: {e}")
+            
+            # 如果没有为任何仓库创建独立任务，或者有仓库没有配置 check_crontab，则创建全局任务
+            if not individual_tasks_created or svn_repositories_str:
+                svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')  # 默认每30分钟检查一次
+                svn_cron_parts = svn_crontab.split()
                 
-                scheduler.add_job(
-                    trigger_svn_check,
-                    trigger=CronTrigger(
-                        minute=svn_minute,
-                        hour=svn_hour,
-                        day=svn_day,
-                        month=svn_month,
-                        day_of_week=svn_day_of_week
+                if len(svn_cron_parts) == 5:
+                    svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                    
+                    scheduler.add_job(
+                        trigger_svn_check,
+                        trigger=CronTrigger(
+                            minute=svn_minute,
+                            hour=svn_hour,
+                            day=svn_day,
+                            month=svn_month,
+                            day_of_week=svn_day_of_week
+                        ),
+                        id="svn_check_global",
+                        name="SVN全局检查任务"
                     )
-                )
-                logger.info(f"SVN定时检查任务已配置，定时表达式: {svn_crontab}")
-            else:
-                logger.error(f"SVN定时表达式格式错误: {svn_crontab}")
+                    logger.info(f"SVN全局定时检查任务已配置，定时表达式: {svn_crontab}")
+                else:
+                    logger.error(f"SVN定时表达式格式错误: {svn_crontab}")
+
+        # 在启动调度器之前初始化所有SVN仓库
+        logger.info("🔄 正在初始化SVN仓库...")
+        svn_init_success = initialize_all_svn_repositories()
+        
+        if svn_init_success:
+            logger.info("✅ SVN仓库初始化完成，启动调度器...")
+        else:
+            logger.warning("⚠️ SVN仓库初始化失败，但仍将启动调度器（定时任务会处理初始化）")
 
         # Start the scheduler
         scheduler.start()
@@ -499,6 +553,41 @@ def trigger_svn_check(hours: int = None):
         release_svn_lock(lock)
 
 
+def trigger_single_svn_repo_check(repo_config: dict):
+    """触发单个SVN仓库检查（带互斥锁）"""
+    lock = acquire_svn_lock()
+    if not lock:
+        logger.warning(f"已有SVN检查任务正在执行，跳过仓库 {repo_config.get('name', 'unknown')} 的检查。")
+        return
+    try:
+        if not svn_check_enabled:
+            logger.info("SVN检查功能未启用")
+            return
+        
+        repo_name = repo_config.get('name', 'unknown')
+        remote_url = repo_config.get('remote_url')
+        local_path = repo_config.get('local_path')
+        username = repo_config.get('username')
+        password = repo_config.get('password')
+        check_hours = repo_config.get('check_hours', 24)
+        check_limit = repo_config.get('check_limit', get_env_int('SVN_CHECK_LIMIT'))
+        
+        if not remote_url or not local_path:
+            logger.error(f"仓库 {repo_name} 配置不完整，跳过检查")
+            return
+        
+        logger.info(f"开始独立检查仓库: {repo_name}")
+        handle_svn_changes(remote_url, local_path, username, password, check_hours, check_limit, repo_name, "scheduled", repo_config)
+        
+    except Exception as e:
+        error_message = f'单独触发仓库 {repo_config.get("name", "unknown")} 检查时出现错误: {str(e)}\n{traceback.format_exc()}'
+        logger.error(error_message)
+        from biz.utils.reporter import notifier
+        notifier.send_notification(content=error_message)
+    finally:
+        release_svn_lock(lock)
+
+
 # 添加配置重载的API端点
 @api_app.route('/reload-config', methods=['POST'])
 def reload_config_endpoint():
@@ -592,6 +681,93 @@ def retry_review():
         return jsonify({"success": False, "message": f"重新评审失败: {e}"}), 500
 
 
+def initialize_all_svn_repositories():
+    """在启动定时器前初始化所有SVN仓库"""
+    try:
+        if not svn_check_enabled:
+            logger.info("SVN检查功能未启用，跳过SVN仓库初始化")
+            return True
+        
+        logger.info("开始初始化SVN仓库...")
+        
+        # 获取SVN仓库配置
+        svn_repositories_config = get_env_with_default('SVN_REPOSITORIES')
+        
+        if svn_repositories_config and svn_repositories_config.strip() != '[]':
+            # 多仓库模式
+            import json
+            try:
+                repositories = json.loads(svn_repositories_config)
+                if isinstance(repositories, list):
+                    logger.info(f"发现 {len(repositories)} 个SVN仓库配置，开始初始化...")
+                    
+                    for repo_config in repositories:
+                        repo_name = repo_config.get('name', 'unknown')
+                        remote_url = repo_config.get('remote_url')
+                        local_path = repo_config.get('local_path')
+                        username = repo_config.get('username')
+                        password = repo_config.get('password')
+                        
+                        if not remote_url or not local_path:
+                            logger.warning(f"仓库 {repo_name} 配置不完整，跳过初始化")
+                            continue
+                        
+                        try:
+                            logger.info(f"初始化仓库: {repo_name}")
+                            from biz.svn.svn_handler import SVNHandler
+                            
+                            # 创建SVN处理器并初始化工作副本
+                            svn_handler = SVNHandler(remote_url, local_path, username, password)
+                            svn_handler._prepare_working_copy()
+                            
+                            logger.info(f"✅ 仓库 {repo_name} 初始化完成")
+                            
+                        except Exception as e:
+                            logger.error(f"❌ 仓库 {repo_name} 初始化失败: {str(e)}")
+                            # 继续初始化其他仓库，不因单个仓库失败而停止
+                            continue
+                    
+                    logger.info("✅ 多仓库SVN初始化完成")
+                    return True
+                    
+                else:
+                    logger.error("SVN_REPOSITORIES 配置格式错误，必须是数组")
+                    return False
+                    
+            except json.JSONDecodeError as e:
+                logger.error(f"解析 SVN_REPOSITORIES 配置失败: {e}")
+                return False
+        else:
+            # 单仓库模式（向后兼容）
+            svn_remote_url = get_env_with_default('SVN_REMOTE_URL')
+            svn_local_path = get_env_with_default('SVN_LOCAL_PATH')
+            svn_username = get_env_with_default('SVN_USERNAME')
+            svn_password = get_env_with_default('SVN_PASSWORD')
+            
+            if svn_remote_url and svn_local_path:
+                try:
+                    logger.info("初始化单SVN仓库...")
+                    from biz.svn.svn_handler import SVNHandler
+                    
+                    svn_handler = SVNHandler(svn_remote_url, svn_local_path, svn_username, svn_password)
+                    svn_handler._prepare_working_copy()
+                    
+                    logger.info("✅ 单SVN仓库初始化完成")
+                    return True
+                    
+                except Exception as e:
+                    logger.error(f"❌ 单SVN仓库初始化失败: {str(e)}")
+                    return False
+            else:
+                logger.info("未配置SVN仓库，跳过初始化")
+                return True
+                
+    except Exception as e:
+        logger.error(f"❌ SVN仓库初始化过程出现异常: {str(e)}")
+        logger.error(f"❌ Traceback: {traceback.format_exc()}")
+        return False
+
+
 if __name__ == '__main__':
     try:
         logger.info("🚀 启动 AI-CodeReview 统一服务")
@@ -603,6 +779,9 @@ if __name__ == '__main__':
         
         # 启动后台任务
         start_background_tasks()
+        
+        # 初始化SVN仓库
+        initialize_all_svn_repositories()
         
         # 启动Flask API服务
         port = get_env_int('SERVER_PORT')
