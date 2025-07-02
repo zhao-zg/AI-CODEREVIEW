@@ -338,6 +338,9 @@ def main_dashboard():
 def main():
     """主函数 - 改进版，包含异常处理和环境检测"""
     try:
+        # 确保streamlit已导入
+        import streamlit as st
+        
         # 使用session_state避免重复打印启动信息
         if 'app_initialized' not in st.session_state:
             st.session_state.app_initialized = True
@@ -367,10 +370,12 @@ def main():
         error_info = f"\n❌ 应用运行时出现错误: {e}"
         print(error_info)
         # 在Streamlit中也显示错误
-        if 'streamlit' in sys.modules:
+        try:
             import streamlit as st
             st.error(f"应用启动错误: {e}")
             st.info("请检查控制台输出获取详细错误信息")
+        except ImportError:
+            pass  # 如果无法导入streamlit，忽略错误显示
         cleanup_resources()
         # 在Streamlit环境中不要直接退出，避免页面崩溃
         if not any(key.startswith('STREAMLIT_') for key in os.environ.keys()):
