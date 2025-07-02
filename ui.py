@@ -338,21 +338,23 @@ def main_dashboard():
 def main():
     """主函数 - 改进版，包含异常处理和环境检测"""
     try:
-        # 输出启动信息
-        print("🚀 AI-CodeReview UI 正在启动...")
-        print(f"📝 当前工作目录: {os.getcwd()}")
-        print(f"🐍 Python版本: {sys.version}")
-        
-        # 检测运行环境
-        import threading
-        is_main_thread = threading.current_thread() is threading.main_thread()
-        is_streamlit_env = any(key.startswith('STREAMLIT_') for key in os.environ.keys()) or \
-                          'streamlit' in sys.modules
-        
-        print(f"🔍 运行环境检测: 主线程={is_main_thread}, Streamlit环境={is_streamlit_env}")
-        
-        # 尝试注册信号处理器（根据环境自动判断）
-        register_signal_handlers()
+        # 使用session_state避免重复打印启动信息
+        if 'app_initialized' not in st.session_state:
+            st.session_state.app_initialized = True
+            # 只在首次访问时输出启动信息
+            print("🚀 AI-CodeReview UI 页面加载...")
+            print(f"📝 当前工作目录: {os.getcwd()}")
+            
+            # 检测运行环境
+            import threading
+            is_main_thread = threading.current_thread() is threading.main_thread()
+            is_streamlit_env = any(key.startswith('STREAMLIT_') for key in os.environ.keys()) or \
+                              'streamlit' in sys.modules
+            
+            print(f"🔍 运行环境: 主线程={is_main_thread}, Streamlit={is_streamlit_env}")
+            
+            # 尝试注册信号处理器（根据环境自动判断）
+            register_signal_handlers()
         
         # 直接显示主仪表板，登录组件集成在侧边栏中
         main_dashboard()

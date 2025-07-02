@@ -30,7 +30,8 @@ def is_api_error_message(text: str) -> bool:
     if len(text_stripped) < 15:  # 非常短的消息很可能是错误
         logger.warning(f"检测到过短的响应，可能是错误消息: {text}")
         return True
-    
+    if len(text_stripped) > 200:
+        return False  # 假设超过200字符的消息通常是正常的审查结果
     # 定义API错误消息的特征模式
     error_patterns = [
         # 超时相关

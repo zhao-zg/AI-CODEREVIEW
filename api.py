@@ -450,10 +450,15 @@ def after_request(response):
     return response
 
 
-def acquire_svn_lock(lockfile_path="log/svn_check.lock"):
-    """尝试获取SVN检查互斥锁，成功返回文件对象，失败返回None（跨平台实现）"""
+def acquire_svn_repo_lock(repo_name: str = "global"):
+    """为特定仓库获取互斥锁，成功返回文件对象，失败返回None（跨平台实现）"""
     import os
     import portalocker
+    
+    # 为每个仓库创建独立的锁文件
+    safe_repo_name = "".join(c for c in repo_name if c.isalnum() or c in ('-', '_')).lower()
+    lockfile_path = f"log/svn_check_{safe_repo_name}.lock"
+    
     try:
         os.makedirs(os.path.dirname(lockfile_path), exist_ok=True)
         lockfile = open(lockfile_path, "w")
@@ -466,8 +471,8 @@ def acquire_svn_lock(lockfile_path="log/svn_check.lock"):
     except Exception:
         return None
 
-def release_svn_lock(lockfile):
-    """释放SVN检查互斥锁（跨平台实现）"""
+def release_svn_repo_lock(lockfile):
+    """释放SVN仓库互斥锁（跨平台实现）"""
     import portalocker
     try:
         portalocker.unlock(lockfile)
@@ -476,10 +481,10 @@ def release_svn_lock(lockfile):
         pass
 
 def trigger_specific_svn_repo(repo_name: str, hours: int = None):
-    """触发特定SVN仓库的检查（带互斥锁）"""
-    lock = acquire_svn_lock()
+    """触发特定SVN仓库的检查（带仓库级互斥锁）"""
+    lock = acquire_svn_repo_lock(repo_name)
     if not lock:
-        logger.warning("已有SVN检查任务正在执行，跳过本次触发。")
+        logger.warning(f"仓库 {repo_name} 已有检查任务正在执行，跳过本次触发。")
         return
     try:
         if not svn_check_enabled:
@@ -512,14 +517,14 @@ def trigger_specific_svn_repo(repo_name: str, hours: int = None):
         logger.info(f"开始检查指定仓库: {repo_name}")
         handle_svn_changes(remote_url, local_path, username, password, repo_check_hours, check_limit, repo_name, "manual", target_repo)
     finally:
-        release_svn_lock(lock)
+        release_svn_repo_lock(lock)
 
 
 def trigger_svn_check(hours: int = None):
-    """触发SVN检查（带互斥锁）"""
-    lock = acquire_svn_lock()
+    """触发SVN检查（全局模式使用全局锁）"""
+    lock = acquire_svn_repo_lock("global")
     if not lock:
-        logger.warning("已有SVN检查任务正在执行，跳过本次触发。")
+        logger.warning("已有全局SVN检查任务正在执行，跳过本次触发。")
         return
     try:
         if not svn_check_enabled:
@@ -550,14 +555,15 @@ def trigger_svn_check(hours: int = None):
         logger.info(f"使用单仓库配置进行SVN检查，远程URL: {svn_remote_url}, 本地路径: {svn_local_path}, 检查最近 {check_hours} 小时")
         handle_svn_changes(svn_remote_url, svn_local_path, svn_username, svn_password, check_hours, check_limit, None, "scheduled", None)
     finally:
-        release_svn_lock(lock)
+        release_svn_repo_lock(lock)
 
 
 def trigger_single_svn_repo_check(repo_config: dict):
-    """触发单个SVN仓库检查（带互斥锁）"""
-    lock = acquire_svn_lock()
+    """触发单个SVN仓库检查（带仓库级互斥锁）"""
+    repo_name = repo_config.get('name', 'unknown')
+    lock = acquire_svn_repo_lock(repo_name)
     if not lock:
-        logger.warning(f"已有SVN检查任务正在执行，跳过仓库 {repo_config.get('name', 'unknown')} 的检查。")
+        logger.warning(f"仓库 {repo_name} 已有检查任务正在执行，跳过本次检查。")
         return
     try:
         if not svn_check_enabled:
@@ -585,7 +591,7 @@ def trigger_single_svn_repo_check(repo_config: dict):
         from biz.utils.reporter import notifier
         notifier.send_notification(content=error_message)
     finally:
-        release_svn_lock(lock)
+        release_svn_repo_lock(lock)
 
 
 # 添加配置重载的API端点
