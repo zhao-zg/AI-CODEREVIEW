@@ -45,7 +45,7 @@ def create_complete_env_file():
     """创建完整的 .env 配置文件"""
     
     project_root = Path(__file__).parent.parent
-    env_dist_path = project_root / "conf" / ".env.dist"
+    env_dist_path = project_root / "conf_templates" / ".env.dist"
     env_path = project_root / "conf" / ".env"
     
     print("🔧 检查 .env 配置文件...")

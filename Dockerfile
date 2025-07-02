@@ -34,7 +34,6 @@ RUN mkdir -p log data scripts .streamlit conf_templates
 COPY biz ./biz
 COPY ui_components ./ui_components
 COPY conf_templates ./conf_templates
-COPY .streamlit ./.streamlit
 COPY api.py ./api.py
 COPY ui.py ./ui.py
 COPY scripts/ ./scripts/

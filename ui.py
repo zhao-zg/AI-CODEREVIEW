@@ -4,10 +4,78 @@ AI-CodeReview 代码审查仪表板
 重构后的主UI文件 - 模块化设计
 """
 import streamlit as st
+import signal
+import sys
+import os
+import atexit
 from ui_components.config import setup_page_config, apply_custom_css
 from ui_components.auth import check_authentication, login_sidebar, quick_login_button
 from ui_components.pages import data_analysis_page, env_management_page
 from biz.utils.config_manager import ConfigManager
+
+# 信号处理和优雅关闭
+def signal_handler(signum, frame):
+    """处理系统信号，优雅关闭应用"""
+    print(f"\n收到信号 {signum}，正在优雅关闭 AI-CodeReview UI...")
+    cleanup_resources()
+    print("AI-CodeReview UI 已安全关闭")
+    sys.exit(0)
+
+def cleanup_resources():
+    """清理资源"""
+    try:
+        # 清理Streamlit缓存
+        if hasattr(st, 'cache_data'):
+            st.cache_data.clear()
+        if hasattr(st, 'cache_resource'):
+            st.cache_resource.clear()
+        
+        # 清理临时文件
+        temp_files = ['ui_startup.log', '.streamlit/config.toml']
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+                    
+        print("资源清理完成")
+    except Exception as e:
+        print(f"资源清理时出现错误: {e}")
+
+# 信号处理和优雅关闭 - 仅在合适的环境中注册
+def register_signal_handlers():
+    """在合适的环境中注册信号处理器"""
+    try:
+        import threading
+        import sys
+        
+        # 检查是否在主线程和主解释器中
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        is_main_interpreter = hasattr(sys, '_getframe')
+        
+        # 检查是否在Streamlit环境中（Streamlit有自己的信号处理）
+        is_streamlit_env = any(key.startswith('STREAMLIT_') for key in os.environ.keys()) or \
+                          'streamlit' in sys.modules
+        
+        if is_main_thread and is_main_interpreter and not is_streamlit_env:
+            signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
+            signal.signal(signal.SIGTERM, signal_handler)  # 终止信号
+            print("✅ 信号处理器已注册")
+        else:
+            reason = []
+            if not is_main_thread:
+                reason.append("非主线程")
+            if not is_main_interpreter:
+                reason.append("非主解释器")
+            if is_streamlit_env:
+                reason.append("Streamlit环境")
+            print(f"⚠️ 跳过信号处理器注册 ({', '.join(reason)})")
+    except Exception as e:
+        print(f"⚠️ 信号处理器注册失败: {e}")
+
+# 注册退出清理（这个可以在任何地方调用）
+atexit.register(cleanup_resources)
 
 # 设置页面配置（必须在最开始）
 setup_page_config()
@@ -268,9 +336,43 @@ def main_dashboard():
         data_analysis_page()
 
 def main():
-    """主函数"""
-    # 直接显示主仪表板，登录组件集成在侧边栏中
-    main_dashboard()
+    """主函数 - 改进版，包含异常处理和环境检测"""
+    try:
+        # 输出启动信息
+        print("🚀 AI-CodeReview UI 正在启动...")
+        print(f"📝 当前工作目录: {os.getcwd()}")
+        print(f"🐍 Python版本: {sys.version}")
+        
+        # 检测运行环境
+        import threading
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        is_streamlit_env = any(key.startswith('STREAMLIT_') for key in os.environ.keys()) or \
+                          'streamlit' in sys.modules
+        
+        print(f"🔍 运行环境检测: 主线程={is_main_thread}, Streamlit环境={is_streamlit_env}")
+        
+        # 尝试注册信号处理器（根据环境自动判断）
+        register_signal_handlers()
+        
+        # 直接显示主仪表板，登录组件集成在侧边栏中
+        main_dashboard()
+        
+    except KeyboardInterrupt:
+        print("\n⚠️ 用户中断，正在关闭...")
+        cleanup_resources()
+        sys.exit(0)
+    except Exception as e:
+        error_info = f"\n❌ 应用运行时出现错误: {e}"
+        print(error_info)
+        # 在Streamlit中也显示错误
+        if 'streamlit' in sys.modules:
+            import streamlit as st
+            st.error(f"应用启动错误: {e}")
+            st.info("请检查控制台输出获取详细错误信息")
+        cleanup_resources()
+        # 在Streamlit环境中不要直接退出，避免页面崩溃
+        if not any(key.startswith('STREAMLIT_') for key in os.environ.keys()):
+            sys.exit(1)
 
 if __name__ == "__main__":
     import os

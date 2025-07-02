@@ -60,10 +60,10 @@ def ensure_config_files():
     
     # 特殊处理 .env 文件
     env_file = conf_dir / '.env'
-    env_dist_file = conf_dir / '.env.dist'
+    env_dist_file = template_dir / '.env.dist'
     
     if not env_file.exists() and env_dist_file.exists():
-        print("从 .env.dist 创建默认 .env 文件...")
+        print("从 conf_templates/.env.dist 创建默认 .env 文件...")
         shutil.copy2(env_dist_file, env_file)
         print("[OK] 已创建默认 .env 文件")
     

@@ -8,7 +8,7 @@ setlocal enabledelayedexpansion
 echo [INFO] Start environment configuration check...
 
 REM 定义文件路径
-set ENV_DIST=conf\.env.dist
+set ENV_DIST=conf_templates\.env.dist
 set ENV_FILE=conf\.env
 
 REM 检查 .env.dist 是否存在

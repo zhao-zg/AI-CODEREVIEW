@@ -87,7 +87,7 @@ def check_and_initialize_env():
     log_info("开始环境配置检查...")
     
     # 定义文件路径
-    env_dist_path = "conf/.env.dist"
+    env_dist_path = "conf_templates/.env.dist"
     env_path = "conf/.env"
     
     # 检查 .env.dist 是否存在

@@ -6,6 +6,7 @@ import streamlit as st
 import requests
 import os
 import json
+import datetime
 from dotenv import load_dotenv
 from biz.utils.config_manager import ConfigManager
 from .utils import get_platform_status, get_review_stats, get_available_authors, get_available_projects
@@ -740,26 +741,253 @@ def env_management_page():
                     }
                     st.info(mode_description.get(notification_mode, ""))
             
-            # 第八部分：GitLab配置
-            with st.expander("🔗 GitLab配置", expanded=False):
+            # 第八部分：代码仓库配置（合并GitLab、GitHub、SVN）
+            with st.expander("🏛️ 代码仓库配置", expanded=False):
+                st.markdown("🔧 **统一管理所有代码仓库平台的访问配置**")
+                
+                # GitLab配置子区域
+                st.markdown("### 🔗 GitLab配置")
                 col_gitlab1, col_gitlab2 = st.columns(2)
-                
                 with col_gitlab1:
-                    gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""))
-                    gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password")
-                
+                    gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""), placeholder="https://gitlab.example.com")
+                    gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password", placeholder="glpat-xxxxxxxxxxxxxxxxxxxx")
                 with col_gitlab2:
                     push_review_enabled = st.checkbox("启用Push审查", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
                     merge_protected_only = st.checkbox("仅审查受保护分支的MR", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "1") == "1")
-            
-            # 第九部分：GitHub配置
-            with st.expander("🐙 GitHub配置", expanded=False):
-                github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password")
-            
+                
+                st.divider()
+                
+                # GitHub配置子区域
+                st.markdown("### 🐙 GitHub配置")
+                github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
+                
+                st.divider()
+                
+                # SVN配置子区域
+                st.markdown("### 📂 SVN仓库配置")
+                st.caption("💡 通过JSON文本编辑器配置SVN仓库，支持多个仓库的统一管理")
+                
+                # 获取当前SVN配置
+                current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
+                
+                # 解析并格式化显示
+                try:
+                    if current_svn_config and current_svn_config.strip():
+                        svn_repos = json.loads(current_svn_config)
+                        formatted_config = json.dumps(svn_repos, indent=2, ensure_ascii=False)
+                    else:
+                        svn_repos = []
+                        formatted_config = "[]"
+                except json.JSONDecodeError:
+                    svn_repos = []
+                    formatted_config = "[]"
+                
+                # 显示当前仓库统计
+                col_svn_stats1, col_svn_stats2, col_svn_stats3 = st.columns(3)
+                with col_svn_stats1:
+                    st.metric("SVN仓库数量", len(svn_repos))
+                with col_svn_stats2:
+                    if svn_repos:
+                        enabled_count = sum(1 for repo in svn_repos if repo.get('enable_merge_review', True))
+                        st.metric("启用Merge审查", f"{enabled_count}/{len(svn_repos)}")
+                    else:
+                        st.metric("启用Merge审查", "0/0")
+                with col_svn_stats3:
+                    if svn_repos:
+                        avg_hours = sum(repo.get('check_hours', 24) for repo in svn_repos) / len(svn_repos)
+                        st.metric("平均检查间隔", f"{avg_hours:.1f}h")
+                    else:
+                        st.metric("平均检查间隔", "N/A")
+                
+                # JSON配置编辑器
+                svn_config_text = st.text_area(
+                    "SVN仓库配置 (JSON格式)",
+                    value=formatted_config,
+                    height=200,
+                    help="请使用有效的JSON格式配置SVN仓库",
+                    key="svn_config_editor"
+                )
+                
+                # 配置模板和帮助
+                col_help1, col_help2 = st.columns(2)
+                with col_help1:
+                    with st.expander("📋 SVN配置模板", expanded=False):
+                        example_config = [
+                            {
+                                "name": "main_project",
+                                "remote_url": "svn://server.com/project/trunk",
+                                "local_path": "data/svn/main_project",
+                                "username": "svn_user",
+                                "password": "svn_pass",
+                                "check_hours": 24,
+                                "enable_merge_review": True,
+                                "check_crontab": "*/30 * * * *",
+                                "check_limit": 100
+                            }
+                        ]
+                        st.code(json.dumps(example_config, indent=2, ensure_ascii=False), language="json")
+                
+                with col_help2:
+                    with st.expander("� 字段说明", expanded=False):
+                        st.markdown("""
+                        **必填字段：**
+                        - `name`: 仓库名称（唯一标识）
+                        - `remote_url`: SVN远程地址
+                        - `local_path`: 本地存储路径
+                        
+                        **可选字段：**
+                        - `username`: SVN用户名
+                        - `password`: SVN密码
+                        - `check_hours`: 检查间隔（小时）
+                        - `enable_merge_review`: 是否启用审查
+                        - `check_crontab`: 定时表达式
+                        - `check_limit`: 检查限制条数
+                        """)
+                
+                # 配置验证和预览
+                if svn_config_text.strip() and svn_config_text != "[]":
+                    try:
+                        parsed_svn_config = json.loads(svn_config_text)
+                        if isinstance(parsed_svn_config, list):
+                            st.success(f"✅ SVN配置格式正确，包含 {len(parsed_svn_config)} 个仓库")
+                            
+                            # 显示仓库列表预览
+                            if parsed_svn_config:
+                                st.markdown("**📋 仓库列表预览：**")
+                                for i, repo in enumerate(parsed_svn_config[:3]):  # 只显示前3个
+                                    merge_status = "✅" if repo.get('enable_merge_review', True) else "❌"
+                                    st.caption(f"{i+1}. {repo.get('name', 'Unnamed')} {merge_status} - {repo.get('remote_url', 'No URL')}")
+                                if len(parsed_svn_config) > 3:
+                                    st.caption(f"... 还有 {len(parsed_svn_config) - 3} 个仓库")
+                        else:
+                            st.error("❌ SVN配置必须是一个数组格式")
+                    except json.JSONDecodeError as e:
+                        st.error(f"❌ SVN配置JSON格式错误: {str(e)}")
+                else:
+                    st.info("💡 SVN配置为空，将不会监控任何SVN仓库")
+
+            # 第九部分：Prompt模板配置
+            with st.expander("📝 Prompt模板配置", expanded=False):
+                st.markdown("🎨 **通过YAML文本编辑器自定义AI代码审查的Prompt模板**")
+                
+                # 读取当前prompt模板
+                import yaml
+                prompt_templates_file = "conf/prompt_templates.yml"
+                current_prompt_config = {}
+                
+                try:
+                    if os.path.exists(prompt_templates_file):
+                        with open(prompt_templates_file, 'r', encoding='utf-8') as f:
+                            current_prompt_config = yaml.safe_load(f) or {}
+                            # 直接读取原始YAML内容
+                        with open(prompt_templates_file, 'r', encoding='utf-8') as f:
+                            formatted_prompt_config = f.read()
+                except Exception as e:
+                    st.warning(f"⚠️ 读取Prompt模板文件失败: {e}")
+                    current_prompt_config = {}
+                    formatted_prompt_config = """code_review_prompt:
+  system_prompt: |-
+    你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。
+    审查风格：{{ style }}
+  user_prompt: |-
+    以下是代码变更，请以{{ style }}风格审查：
+    
+    结构化diff JSON内容：
+    {diffs_text}
+    
+    提交历史：
+    {commits_text}"""
+                
+                # 显示当前配置统计
+                col_stats1, col_stats2, col_stats3 = st.columns(3)
+                with col_stats1:
+                    system_prompt_len = len(current_prompt_config.get('code_review_prompt', {}).get('system_prompt', ''))
+                    st.metric("系统Prompt长度", f"{system_prompt_len}字符")
+                with col_stats2:
+                    user_prompt_len = len(current_prompt_config.get('code_review_prompt', {}).get('user_prompt', ''))
+                    st.metric("用户Prompt长度", f"{user_prompt_len}字符")
+                with col_stats3:
+                    has_templates = bool(system_prompt_len and user_prompt_len)
+                    st.metric("配置状态", "✅ 完整" if has_templates else "⚠️ 不完整")
+                
+                # YAML配置编辑器
+                prompt_config_text = st.text_area(
+                    "Prompt模板配置 (YAML格式)",
+                    value=formatted_prompt_config,
+                    height=400,
+                    help="使用YAML格式配置Prompt模板，支持系统Prompt和用户Prompt",
+                    key="prompt_config_editor"
+                )
+                
+                # 配置模板和帮助
+                col_help1, col_help2 = st.columns(2)
+                with col_help1:
+                    with st.expander("📋 Prompt配置模板", expanded=False):
+                        example_config = """code_review_prompt:
+  system_prompt: |-
+    你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。
+    审查风格：{{ style }}
+  user_prompt: |-
+    以下是代码变更，请以{{ style }}风格审查：
+    
+    结构化diff JSON内容：
+    {diffs_text}
+    
+    提交历史：
+    {commits_text}"""
+                        st.code(example_config, language="yaml")
+                
+                with col_help2:
+                    with st.expander("📖 模板变量说明", expanded=False):
+                        st.markdown("""
+                        **系统Prompt可用变量：**
+                        - `{{ style }}`: 审查风格 (professional/sarcastic/gentle/humorous)
+                        - 支持条件语句: `{% if style == 'professional' %}`
+                        
+                        **用户Prompt可用变量：**
+                        - `{{ style }}`: 审查风格
+                        - `{diffs_text}`: 结构化diff JSON内容
+                        - `{commits_text}`: 提交历史信息
+                        """)
+                
+                # 配置验证和预览
+                if prompt_config_text.strip():
+                    try:
+                        parsed_prompt_config = yaml.safe_load(prompt_config_text)
+                        if isinstance(parsed_prompt_config, dict) and 'code_review_prompt' in parsed_prompt_config:
+                            st.success("✅ Prompt配置YAML格式正确")
+                            
+                            # 显示配置预览
+                            code_review = parsed_prompt_config['code_review_prompt']
+                            if 'system_prompt' in code_review and 'user_prompt' in code_review:
+                                st.markdown("**📋 配置预览：**")
+                                st.caption(f"• 系统Prompt: {len(code_review['system_prompt'])}字符")
+                                st.caption(f"• 用户Prompt: {len(code_review['user_prompt'])}字符")
+                            else:
+                                st.warning("⚠️ 缺少必要的prompt字段")
+                        else:
+                            st.error("❌ 配置必须包含code_review_prompt字段")
+                    except yaml.YAMLError as e:
+                        st.error(f"❌ YAML格式错误: {str(e)}")
+                else:
+                    st.info("💡 Prompt配置为空，将使用默认模板")
+
             # 保存系统配置按钮
             if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
-                # 使用已经处理好的SVN仓库配置
-                svn_repositories_final = json.dumps(st.session_state.svn_repos_session, separators=(',', ':'), ensure_ascii=False)
+                # 处理SVN配置（从文本编辑器读取）
+                svn_config_final = "[]"  # 默认空配置
+                if svn_config_text and svn_config_text.strip():
+                    try:
+                        # 验证JSON格式
+                        parsed_svn = json.loads(svn_config_text)
+                        if isinstance(parsed_svn, list):
+                            svn_config_final = svn_config_text.strip()
+                        else:
+                            st.error("❌ SVN配置必须是一个数组格式")
+                            st.stop()
+                    except json.JSONDecodeError as e:
+                        st.error(f"❌ SVN配置JSON格式错误: {e}")
+                        st.stop()
                 
                 new_config = {
                     # AI模型配置
@@ -803,7 +1031,7 @@ def env_management_page():
                     "GITHUB_ACCESS_TOKEN": github_token,
                     
                     # SVN配置
-                    "SVN_REPOSITORIES": svn_repositories_final,
+                    "SVN_REPOSITORIES": svn_config_final,
                     
                     # 消息推送配置
                     "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
@@ -869,43 +1097,90 @@ def env_management_page():
                     "OLLAMA_API_MODEL": ollama_model
                 })
                 
-                # 保存配置
+                # 保存Prompt模板配置
+                prompt_save_success = True
+                try:
+                    # 处理Prompt配置（从YAML文本编辑器读取）
+                    if prompt_config_text and prompt_config_text.strip():
+                        try:
+                            # 验证YAML格式
+                            parsed_prompt = yaml.safe_load(prompt_config_text)
+                            if isinstance(parsed_prompt, dict) and 'code_review_prompt' in parsed_prompt:
+                                # 直接保存YAML文本到文件
+                                prompt_templates_file = "conf/prompt_templates.yml"
+                                
+                                # 确保目录存在
+                                os.makedirs(os.path.dirname(prompt_templates_file), exist_ok=True)
+                                
+                                with open(prompt_templates_file, 'w', encoding='utf-8') as f:
+                                    f.write(prompt_config_text)
+                            else:
+                                st.error("❌ Prompt配置必须包含code_review_prompt字段")
+                                prompt_save_success = False
+                        except yaml.YAMLError as e:
+                            st.error(f"❌ Prompt配置YAML格式错误: {e}")
+                            prompt_save_success = False
+                    else:
+                        # 配置为空，创建默认配置
+                        default_prompt_config = """code_review_prompt:
+  system_prompt: |-
+    你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。
+  user_prompt: |-
+    以下是代码变更，请进行审查：
+    
+    结构化diff JSON内容：
+    {diffs_text}
+    
+    提交历史：
+    {commits_text}"""
+                        
+                        prompt_templates_file = "conf/prompt_templates.yml"
+                        os.makedirs(os.path.dirname(prompt_templates_file), exist_ok=True)
+                        
+                        with open(prompt_templates_file, 'w', encoding='utf-8') as f:
+                            f.write(default_prompt_config)
+                    
+                except Exception as e:
+                    st.error(f"❌ Prompt模板保存失败: {e}")
+                    prompt_save_success = False
+                
+                # 保存环境配置
                 try:
                     from biz.utils.config_manager import ConfigManager
                     config_manager = ConfigManager()
-                    success = config_manager.update_env_config(new_config)
+                    env_save_success = config_manager.save_env_config(new_config)
                     
-                    if success:
-                        st.success("✅ 系统配置已保存成功！")
+                    # 综合判断保存结果
+                    overall_success = env_save_success and prompt_save_success
+                    
+                    if overall_success:
+                        st.success("✅ 系统配置和Prompt模板已保存成功！")
                         st.balloons()
+                        
+                        # 显示保存详情
+                        save_details = []
+                        if env_save_success:
+                            save_details.append("✅ 环境配置保存成功")
+                        if prompt_save_success:
+                            save_details.append("✅ Prompt模板保存成功")
+                        
+                        for detail in save_details:
+                            st.info(detail)
                         
                         # 显示重启提示
                         st.info("💡 部分配置更改需要重启服务才能生效")
                     else:
-                        st.error("❌ 配置保存失败，请检查文件权限")
+                        error_details = []
+                        if not env_save_success:
+                            error_details.append("❌ 环境配置保存失败")
+                        if not prompt_save_success:
+                            error_details.append("❌ Prompt模板保存失败")
+                        
+                        st.error("❌ 配置保存部分失败：")
+                        for error in error_details:
+                            st.error(error)
                 except Exception as e:
                     st.error(f"❌ 保存配置时出现错误: {str(e)}")
-
-        # SVN配置保存按钮
-        if st.button("💾 保存SVN仓库配置", use_container_width=True, type="primary"):
-            try:
-                # 生成SVN配置JSON
-                svn_repositories_final = json.dumps(st.session_state.svn_repos_session, separators=(',', ':'), ensure_ascii=False)
-                
-                # 保存SVN配置到环境变量
-                from biz.utils.config_manager import ConfigManager
-                config_manager = ConfigManager()
-                
-                # 更新SVN_REPOSITORIES配置
-                success = config_manager.update_env_config({"SVN_REPOSITORIES": svn_repositories_final})
-                
-                if success:
-                    st.success("✅ SVN仓库配置已保存")
-                    st.balloons()
-                else:
-                    st.error("❌ SVN仓库配置保存失败")
-            except Exception as e:
-                st.error(f"❌ 保存配置时出现错误: {str(e)}")
 
         # 添加配置测试按钮 - 移出form范围
         st.markdown("---")
@@ -968,36 +1243,90 @@ def env_management_page():
                     "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES"],
                     "🔔 消息推送": ["NOTIFICATION_MODE", "DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL", "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL"],
                     "🔗 额外Webhook": ["EXTRA_WEBHOOK_ENABLED", "EXTRA_WEBHOOK_URL"],
-                    "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"]
+                    "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"],
+                    "📝 Prompt模板": ["PROMPT_TEMPLATES_STATUS"]  # 特殊处理的配置项
                 }
                 
                 for category, keys in categories.items():
                     st.markdown(f"#### {category}")
                     
-                    category_data = []
-                    for key in keys:
-                        if key in current_config:
-                            value = current_config[key]
-                            # 隐藏敏感信息
-                            if any(sensitive in key.upper() for sensitive in ["PASSWORD", "TOKEN", "KEY", "SECRET", "WEBHOOK"]):
-                                if value:
-                                    display_value = "••••••••" + value[-4:] if len(value) > 4 else "••••••••"
-                                else:
-                                    display_value = "未设置"
-                            else:
-                                display_value = value if value else "未设置"
+                    # 特殊处理Prompt模板配置
+                    if category == "📝 Prompt模板":
+                        prompt_data = []
+                        try:
+                            # 读取prompt模板文件
+                            import yaml
+                            prompt_templates_file = "conf/prompt_templates.yml"
                             
-                            category_data.append({
-                                "配置项": key,
-                                "当前值": display_value,
-                                "状态": "✅ 已配置" if value else "⚠️ 未配置"
+                            if os.path.exists(prompt_templates_file):
+                                with open(prompt_templates_file, 'r', encoding='utf-8') as f:
+                                    prompt_config = yaml.safe_load(f) or {}
+                                
+                                code_review_prompt = prompt_config.get('code_review_prompt', {})
+                                system_prompt = code_review_prompt.get('system_prompt', '')
+                                user_prompt = code_review_prompt.get('user_prompt', '')
+                                
+                                prompt_data.append({
+                                    "配置项": "系统Prompt模板",
+                                    "当前值": f"{len(system_prompt)}字符" if system_prompt else "未设置",
+                                    "状态": "✅ 已配置" if system_prompt else "⚠️ 未配置"
+                                })
+                                
+                                prompt_data.append({
+                                    "配置项": "用户Prompt模板",
+                                    "当前值": f"{len(user_prompt)}字符" if user_prompt else "未设置",
+                                    "状态": "✅ 已配置" if user_prompt else "⚠️ 未配置"
+                                })
+                                
+                                prompt_data.append({
+                                    "配置项": "模板文件状态",
+                                    "当前值": "文件存在",
+                                    "状态": "✅ 正常"
+                                })
+                            else:
+                                prompt_data.append({
+                                    "配置项": "模板文件状态",
+                                    "当前值": "文件不存在",
+                                    "状态": "⚠️ 未配置"
+                                })
+                                
+                        except Exception as e:
+                            prompt_data.append({
+                                "配置项": "模板读取状态",
+                                "当前值": f"读取失败: {str(e)[:50]}...",
+                                "状态": "❌ 错误"
                             })
-                    
-                    if category_data:
-                        df = pd.DataFrame(category_data)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
+                        
+                        if prompt_data:
+                            df = pd.DataFrame(prompt_data)
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                        
                     else:
-                        st.info("该类别暂无配置项")
+                        # 处理其他常规配置
+                        category_data = []
+                        for key in keys:
+                            if key in current_config:
+                                value = current_config[key]
+                                # 隐藏敏感信息
+                                if any(sensitive in key.upper() for sensitive in ["PASSWORD", "TOKEN", "KEY", "SECRET", "WEBHOOK"]):
+                                    if value:
+                                        display_value = "••••••••" + value[-4:] if len(value) > 4 else "••••••••"
+                                    else:
+                                        display_value = "未设置"
+                                else:
+                                    display_value = value if value else "未设置"
+                                
+                                category_data.append({
+                                    "配置项": key,
+                                    "当前值": display_value,
+                                    "状态": "✅ 已配置" if value else "⚠️ 未配置"
+                                })
+                        
+                        if category_data:
+                            df = pd.DataFrame(category_data)
+                            st.dataframe(df, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("该类别暂无配置项")
                     
                     st.markdown("---")
                 
