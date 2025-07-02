@@ -23,7 +23,7 @@ class ConfigReloader:
         self.config_dir = Path("conf")
         self.env_file = self.config_dir / ".env"
         self.dashboard_config_file = self.config_dir / "dashboard_config.py"
-        self.last_reload_time = time.time()
+        self.last_reload_time = 0  # 初始化为0，允许第一次调用
         self.reload_cooldown = 3  # 调整为3秒冷却时间，避免过于频繁的提示
         
     def reload_environment_variables(self) -> bool:
@@ -209,6 +209,9 @@ class ConfigReloader:
                 "details": {}
             }
         
+        # 立即更新最后重载时间，避免并发调用时的冷却问题
+        self.last_reload_time = current_time
+        
         result = {
             "success": True,
             "message": "配置重载完成",
@@ -224,9 +227,6 @@ class ConfigReloader:
             
             # 通知服务
             result["details"]["services_notified"] = self.notify_services_config_changed()
-            
-            # 更新最后重载时间
-            self.last_reload_time = current_time
             
             # 检查是否有服务需要重启
             needs_restart = self._check_services_need_restart()

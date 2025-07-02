@@ -1101,8 +1101,18 @@ def env_management_page():
                         for detail in save_details:
                             st.info(detail)
                         
-                        # 显示重启提示
-                        st.info("💡 部分配置更改需要重启服务才能生效")
+                        # 自动重载配置
+                        st.info("� 正在自动重载配置...")
+                        try:
+                            reload_success = apply_config_changes()
+                            if reload_success:
+                                st.success("✅ 配置保存并重载成功！")
+                            else:
+                                st.warning("⚠️ 配置已保存，但重载部分成功，建议检查服务状态")
+                                st.info("💡 可以点击下方'🔄 立即重载配置'按钮手动重试")
+                        except Exception as e:
+                            st.warning(f"⚠️ 配置已保存，但自动重载失败: {e}")
+                            st.info("💡 可以点击下方'🔄 立即重载配置'按钮手动重载")
                     else:
                         error_details = []
                         if not env_save_success:
