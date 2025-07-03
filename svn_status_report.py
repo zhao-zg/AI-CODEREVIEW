@@ -32,10 +32,9 @@ def generate_status_report():
         env_config = config_manager.get_env_config()
         
         # 检查关键配置
-        incremental_enabled = env_config.get('SVN_INCREMENTAL_CHECK_ENABLED', '0') == '1'
         svn_repositories = env_config.get('SVN_REPOSITORIES', '')
         
-        print(f"✅ 增量检查启用: {incremental_enabled}")
+        print(f"✅ 增量检查: 默认启用")
         print(f"✅ SVN仓库配置: {'已配置' if svn_repositories else '未配置'}")
         print(f"✅ 配置文件路径: {config_manager.get_config_file_path()}")
         
@@ -128,7 +127,7 @@ def generate_status_report():
     # 6. 使用建议
     print("📋 6. 使用建议")
     print("-" * 40)
-    print("✅ 保持 SVN_INCREMENTAL_CHECK_ENABLED=1")
+    print("✅ 增量检查默认启用，无需配置")
     print("✅ 定时任务频率可保持30分钟不变")
     print("✅ 手动触发仍使用固定时间窗口")
     print("✅ 定期监控检查点表的数据增长")

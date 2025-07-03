@@ -149,32 +149,18 @@ def validate_incremental_setup():
         
         # 检查关键配置
         svn_enabled = env_config.get('SVN_CHECK_ENABLED', '0')
-        incremental_enabled = env_config.get('SVN_INCREMENTAL_CHECK_ENABLED', '1')
         crontab = env_config.get('SVN_CHECK_CRONTAB', '*/30 * * * *')
         
         print(f"SVN检查启用: {svn_enabled} {'✅' if svn_enabled == '1' else '❌'}")
-        print(f"增量检查启用: {incremental_enabled} {'✅' if incremental_enabled == '1' else '❌'}")
+        print(f"增量检查: 默认启用 ✅")
         print(f"定时表达式: {crontab}")
         
         # 分析定时任务频率
         if crontab.startswith('*/'):
             minutes = int(crontab.split()[0][2:])
             print(f"执行频率: 每 {minutes} 分钟")
-            
-            if incremental_enabled == '1':
-                print(f"检查范围: 动态增量（约 {minutes/60:.1f} 小时）")
-                print("重叠情况: 无重复检查 ✅")
-            else:
-                check_hours = env_config.get('SVN_CHECK_INTERVAL_HOURS', '24')
-                overlap_ratio = int(check_hours) * 60 / minutes
-                print(f"检查范围: 固定 {check_hours} 小时")
-                print(f"重叠倍数: {overlap_ratio:.1f} 倍")
-                if overlap_ratio > 10:
-                    print("重叠情况: 严重重复 ❌")
-                elif overlap_ratio > 2:
-                    print("重叠情况: 轻微重复 ⚠️")
-                else:
-                    print("重叠情况: 合理范围 ✅")
+            print(f"检查范围: 动态增量（约 {minutes/60:.1f} 小时）")
+            print("重叠情况: 无重复检查 ✅")
         
         # 数据库检查
         from biz.utils.svn_checkpoint import SVNCheckpointManager
@@ -186,8 +172,6 @@ def validate_incremental_setup():
         print(f"\n建议:")
         if svn_enabled != '1':
             print("- 启用SVN检查功能: SVN_CHECK_ENABLED=1")
-        if incremental_enabled != '1':
-            print("- 启用增量检查: SVN_INCREMENTAL_CHECK_ENABLED=1")
         if not checkpoints and svn_enabled == '1':
             print("- 执行一次手动检查来初始化检查点")
             

@@ -211,9 +211,8 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
             return
         
         # === 增量检查逻辑 ===
-        use_incremental_check = get_config_bool('SVN_INCREMENTAL_CHECK_ENABLED', True)
-        
-        if use_incremental_check and trigger_type == "scheduled":
+        # 定时任务自动使用增量检查，手动触发使用固定时间窗口
+        if trigger_type == "scheduled":
             # 定时任务使用增量检查
             # 初始化检查点管理器
             SVNCheckpointManager.init_db()
@@ -230,7 +229,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
             # 获取最近的提交（基于上次检查时间）
             recent_commits = svn_handler.get_recent_commits(hours=actual_check_hours, limit=check_limit)
         else:
-            # 手动触发或禁用增量检查时使用固定时间窗口
+            # 手动触发使用固定时间窗口
             logger.info(f'仓库 {display_name} 使用固定时间窗口检查，检查范围: {check_hours} 小时')
             recent_commits = svn_handler.get_recent_commits(hours=check_hours, limit=check_limit)
         # === 增量检查逻辑 END ===
@@ -239,7 +238,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
             logger.info(f'仓库 {display_name} 没有发现最近的SVN提交')
             
             # 即使没有新提交，也要更新检查点（定时任务）
-            if use_incremental_check and trigger_type == "scheduled":
+            if trigger_type == "scheduled":
                 SVNCheckpointManager.update_checkpoint(display_name)
             
             return
@@ -270,7 +269,7 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         logger.info(f'仓库 {display_name} 实际处理了 {processed_count} 个提交')
         
         # 更新检查点（定时任务）
-        if use_incremental_check and trigger_type == "scheduled":
+        if trigger_type == "scheduled":
             SVNCheckpointManager.update_checkpoint(display_name, latest_revision)
             
     except Exception as e:
