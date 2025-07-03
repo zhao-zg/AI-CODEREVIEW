@@ -208,7 +208,7 @@ USE_ENHANCED_MERGE_DETECTION=1
 
 # merge检测置信度阈值（0.0-1.0）
 # 值越高，检测越严格；值越低，检测越宽松
-MERGE_DETECTION_THRESHOLD=0.4
+MERGE_DETECTION_THRESHOLD=0.45
 ```
 
 ### 详细配置选项
@@ -219,12 +219,12 @@ MERGE_DETECTION_THRESHOLD=0.4
 - **说明**: 控制是否使用增强检测算法
 
 #### MERGE_DETECTION_THRESHOLD
-- **默认值**: `0.4`
+- **默认值**: `0.45`
 - **取值**: `0.0` - `1.0`
 - **说明**: 
   - `0.3-0.4`: 宽松模式，检测更多可能的merge
-  - `0.4-0.6`: 平衡模式，推荐设置
-  - `0.6-0.8`: 严格模式，只检测明确的merge
+  - `0.4-0.5`: 平衡模式，推荐设置
+  - `0.5-0.7`: 严格模式，只检测明确的merge
 
 ## 使用示例
 
@@ -300,10 +300,10 @@ python test_enhanced_merge_integration.py
 
 ### 调优建议
 
-1. **初始设置**：建议从 `MERGE_DETECTION_THRESHOLD=0.4` 开始
+1. **初始设置**：建议从 `MERGE_DETECTION_THRESHOLD=0.45` 开始
 2. **监控一周**：观察检测结果的准确性
 3. **调整阈值**：
-   - 如果漏检较多，降低阈值到 `0.3`
+   - 如果漏检较多，降低阈值到 `0.35-0.4`
    - 如果误检较多，提高阈值到 `0.5-0.6`
 
 ## 故障排除

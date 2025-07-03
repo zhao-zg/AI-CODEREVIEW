@@ -595,7 +595,9 @@ def is_merge_commit_enhanced(commit: Dict, svn_handler=None) -> Dict:
     # 最终判断（置信度阈值可配置）
     from biz.utils.default_config import get_env_with_default
     confidence_threshold = float(get_env_with_default('MERGE_DETECTION_THRESHOLD', '0.4'))
-    result['is_merge'] = result['confidence'] >= confidence_threshold
+    
+    # 修复浮点数精度问题，添加小的容差 (1e-10)
+    result['is_merge'] = (result['confidence'] + 1e-10) >= confidence_threshold
     result['confidence'] = min(1.0, result['confidence'])
     
     return result

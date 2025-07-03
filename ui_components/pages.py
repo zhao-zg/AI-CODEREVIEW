@@ -767,6 +767,37 @@ def env_management_page():
                 st.markdown("### 📂 SVN仓库配置")
                 st.caption("💡 通过JSON文本编辑器配置SVN仓库，支持多个仓库的统一管理")
                 
+                # SVN增强merge检测配置
+                st.markdown("#### 🔍 增强Merge检测配置")
+                col_merge1, col_merge2, col_merge3 = st.columns(3)
+                with col_merge1:
+                    use_enhanced_merge = st.checkbox(
+                        "启用增强Merge检测", 
+                        value=env_config.get("USE_ENHANCED_MERGE_DETECTION", "0") == "1",
+                        help="启用多维度merge检测算法，相比传统基于消息的检测，准确率更高"
+                    )
+                with col_merge2:
+                    merge_threshold = st.slider(
+                        "检测置信度阈值", 
+                        min_value=0.1, max_value=1.0, 
+                        value=float(env_config.get("MERGE_DETECTION_THRESHOLD", "0.45")),
+                        step=0.05,
+                        help="阈值越高检测越严格，越低检测越宽松。推荐值: 0.4-0.5"
+                    )
+                with col_merge3:
+                    # 显示检测模式信息
+                    if use_enhanced_merge:
+                        if merge_threshold <= 0.4:
+                            st.info("🔍 宽松模式")
+                        elif merge_threshold <= 0.6:
+                            st.success("⚖️ 平衡模式")
+                        else:
+                            st.warning("🎯 严格模式")
+                    else:
+                        st.info("📝 传统模式")
+                
+                st.divider()
+                
                 # 获取当前SVN配置
                 current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
                 
@@ -966,6 +997,10 @@ def env_management_page():
                     
                     # SVN配置
                     "SVN_REPOSITORIES": svn_config_final,
+                    
+                    # SVN增强merge检测配置
+                    "USE_ENHANCED_MERGE_DETECTION": "1" if use_enhanced_merge else "0",
+                    "MERGE_DETECTION_THRESHOLD": str(merge_threshold),
                     
                     # 消息推送配置
                     "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
@@ -1184,7 +1219,7 @@ def env_management_page():
                     "📊 报告配置": ["REPORT_CRONTAB_EXPRESSION"],
                     "🔗 GitLab配置": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED", "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED"],
                     "🐙 GitHub配置": ["GITHUB_ACCESS_TOKEN"],
-                    "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES"],
+                    "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES", "USE_ENHANCED_MERGE_DETECTION", "MERGE_DETECTION_THRESHOLD"],
                     "🔔 消息推送": ["NOTIFICATION_MODE", "DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL", "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL"],
                     "🔗 额外Webhook": ["EXTRA_WEBHOOK_ENABLED", "EXTRA_WEBHOOK_URL"],
                     "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"],
