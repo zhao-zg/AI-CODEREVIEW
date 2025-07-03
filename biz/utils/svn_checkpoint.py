@@ -7,8 +7,12 @@ SVN增量检查机制
 import sqlite3
 import time
 import json
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# 获取日志器
+logger = logging.getLogger(__name__)
 
 class SVNCheckpointManager:
     """SVN检查点管理器"""
@@ -21,6 +25,13 @@ class SVNCheckpointManager:
         try:
             with sqlite3.connect(SVNCheckpointManager.DB_FILE) as conn:
                 cursor = conn.cursor()
+                
+                # 检查表是否已存在
+                cursor.execute('''
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='svn_checkpoints'
+                ''')
+                table_exists = cursor.fetchone() is not None
                 
                 # 创建检查点表
                 cursor.execute('''
@@ -35,10 +46,13 @@ class SVNCheckpointManager:
                 ''')
                 
                 conn.commit()
-                print("SVN检查点表初始化成功")
+                
+                # 只在第一次创建表时打印消息
+                if not table_exists:
+                    logger.info("SVN检查点表初始化成功")
                 
         except sqlite3.DatabaseError as e:
-            print(f"SVN检查点表初始化失败: {e}")
+            logger.error(f"SVN检查点表初始化失败: {e}")
     
     @staticmethod
     def get_last_check_time(repo_name: str) -> int:
