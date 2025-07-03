@@ -295,9 +295,19 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         logger.info(f'处理SVN提交: r{revision} by {author}')
 
         # === Merge提交检查 ===
-        if repo_config and should_skip_merge_commit(repo_config, message):
-            logger.info(f'跳过merge提交 r{revision}: {message[:100]}...')
-            return
+        if repo_config:
+            # 使用增强检测（如果启用）或传统检测
+            from biz.utils.default_config import get_env_bool
+            use_enhanced = get_env_bool('USE_ENHANCED_MERGE_DETECTION', False)
+            
+            if use_enhanced:
+                should_skip = should_skip_merge_commit_enhanced(repo_config, commit, svn_handler)
+            else:
+                should_skip = should_skip_merge_commit(repo_config, message)
+            
+            if should_skip:
+                logger.info(f'跳过merge提交 r{revision}: {message[:100]}...')
+                return
         # === Merge提交检查 END ===
 
         # 获取提交的变更
@@ -440,7 +450,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
 
 def is_merge_commit(message: str) -> bool:
     """
-    判断提交信息是否为merge提交
+    判断提交信息是否为merge提交（基础版本，保持向后兼容）
     常见的merge提交信息模式：
     - "Merged ..."
     - "Merge branch ..."
@@ -453,42 +463,147 @@ def is_merge_commit(message: str) -> bool:
     
     message_lower = message.lower().strip()
     
-    # 常见的merge提交模式
+    # 增强的merge提交模式（使用正则表达式）
+    import re
     merge_patterns = [
-        'merged ',
-        'merge branch',
-        'merge pull request',
-        'merge pr ',
-        'auto-merged',
-        'auto merge',
-        'merging ',
-        'merge from ',
-        'merge to ',
-        'merge into ',
-        'merge of ',
-        'merge:',
-        'merge - ',
-        # SVN特有的merge模式
-        'merged via svn merge',
-        'merge r',
-        'merge rev'
+        r'merged?\s+.*from\s+',      # "merged xxx from yyy"
+        r'merged?\s+.*into\s+',      # "merged xxx into yyy"
+        r'merged?\s+.*to\s+',        # "merged xxx to yyy"
+        r'merged?\s+/branches',      # "merged /branches/xxx"
+        r'merged?\s+r?\d+',          # "merged r12345"  
+        r'merged?\s+branch',         # "merged branch xxx"
+        r'merge\s+branch',           # "merge branch"
+        r'merge\s+pull\s+request',   # "merge pull request"
+        r'merge\s+pr\s+',            # "merge pr #123"
+        r'auto-?merged?',            # "auto-merged" or "automerged"
+        r'merged?\s+via\s+svn',      # "merged via svn"
+        r'^merged?$',                # 单独的"merge"或"merged"
+        r'merge\s*[:;-]',            # "merge:" or "merge-"
+        r'merging\s+',               # "merging changes"
+        r'merge\s+from\s+',          # "merge from trunk"
+        r'merge\s+to\s+',            # "merge to branch"
+        r'merge\s+into\s+',          # "merge into main"
+        r'merge\s+of\s+',            # "merge of changes"
+        r'merge\s+rev',              # "merge rev"
     ]
     
     # 检查是否匹配任何merge模式
     for pattern in merge_patterns:
-        if pattern in message_lower:
+        if re.search(pattern, message_lower):
             return True
-    
-    # 如果消息完全就是"merge"
-    if message_lower == 'merge':
-        return True
     
     return False
 
 
+def is_merge_commit_enhanced(commit: Dict, svn_handler=None) -> Dict:
+    """
+    增强的merge提交检测，支持多维度分析
+    
+    Args:
+        commit: SVN提交信息字典
+        svn_handler: SVN处理器实例（可选）
+    
+    Returns:
+        检测结果字典：{
+            'is_merge': bool,
+            'confidence': float,
+            'detection_methods': list,
+            'evidence': dict
+        }
+    """
+    result = {
+        'is_merge': False,
+        'confidence': 0.0,
+        'detection_methods': [],
+        'evidence': {}
+    }
+    
+    message = commit.get('message', '')
+    revision = commit.get('revision', '')
+    paths = commit.get('paths', [])
+    author = commit.get('author', '')
+    
+    # 1. 基于提交消息的检测（权重40%）
+    if is_merge_commit(message):
+        result['detection_methods'].append('message')
+        result['evidence']['message'] = {'patterns_matched': True}
+        result['confidence'] += 0.4
+    
+    # 2. 基于文件路径和数量的检测（权重30%）
+    path_indicators = []
+    
+    # 大量文件修改（可能是merge）
+    if len(paths) > 20:
+        path_indicators.append(f'large_file_count: {len(paths)} files')
+        result['confidence'] += 0.15
+    elif len(paths) > 10:
+        path_indicators.append(f'moderate_file_count: {len(paths)} files')
+        result['confidence'] += 0.1
+    
+    # 检查分支相关路径
+    import re
+    branch_paths = []
+    for path_info in paths:
+        path = path_info.get('path', '')
+        if re.search(r'/(branches?|trunk|tags?)/|_(branch|dev|feature)_', path, re.IGNORECASE):
+            branch_paths.append(path)
+    
+    if branch_paths:
+        path_indicators.append(f'branch_paths: {len(branch_paths)} paths')
+        result['confidence'] += 0.15
+    
+    if path_indicators:
+        result['detection_methods'].append('paths')
+        result['evidence']['paths'] = path_indicators
+    
+    # 3. 基于变更统计的检测（权重20%）
+    stats_indicators = []
+    
+    # 统计变更类型
+    actions = {}
+    for path_info in paths:
+        action = path_info.get('action', 'M')
+        actions[action] = actions.get(action, 0) + 1
+    
+    total_changes = len(paths)
+    if total_changes > 15:
+        stats_indicators.append(f'large_changeset: {total_changes} files')
+        result['confidence'] += 0.1
+    
+    # 修改占比高（merge常见特征）
+    if total_changes > 0:
+        mod_ratio = actions.get('M', 0) / total_changes
+        if mod_ratio > 0.8:
+            stats_indicators.append(f'high_modification_ratio: {mod_ratio:.2f}')
+            result['confidence'] += 0.1
+    
+    if stats_indicators:
+        result['detection_methods'].append('stats')
+        result['evidence']['stats'] = stats_indicators
+    
+    # 4. 基于作者模式的检测（权重10%）
+    time_indicators = []
+    automated_authors = ['buildbot', 'jenkins', 'ci', 'auto', 'merge', 'system']
+    if any(bot in author.lower() for bot in automated_authors):
+        time_indicators.append(f'automated_author: {author}')
+        result['confidence'] += 0.1
+    
+    if time_indicators:
+        result['detection_methods'].append('time')
+        result['evidence']['time'] = time_indicators
+    
+    # 最终判断（置信度阈值可配置）
+    from biz.utils.default_config import get_env_with_default
+    confidence_threshold = float(get_env_with_default('MERGE_DETECTION_THRESHOLD', '0.4'))
+    result['is_merge'] = result['confidence'] >= confidence_threshold
+    result['confidence'] = min(1.0, result['confidence'])
+    
+    return result
+
+
 def should_skip_merge_commit(repo_config: dict, commit_message: str) -> bool:
     """
-    根据仓库配置判断是否应该跳过merge提交
+    根据仓库配置判断是否应该跳过merge提交（传统方法）
     :param repo_config: 仓库配置字典
     :param commit_message: 提交消息
     :return: True表示应该跳过，False表示应该处理
@@ -503,6 +618,50 @@ def should_skip_merge_commit(repo_config: dict, commit_message: str) -> bool:
     # 如果禁用了merge审查，则跳过
     if not enable_merge_review:
         logger.info(f'Merge提交已禁用审查，跳过: {commit_message[:100]}...')
+        return True
+    
+    return False  # 启用了merge审查，不跳过
+
+
+def should_skip_merge_commit_enhanced(repo_config: dict, commit: Dict, svn_handler=None) -> bool:
+    """
+    增强版本的merge提交跳过判断
+    
+    Args:
+        repo_config: 仓库配置字典
+        commit: 完整的提交信息字典
+        svn_handler: SVN处理器实例（可选）
+    
+    Returns:
+        True表示应该跳过，False表示应该处理
+    """
+    from biz.utils.default_config import get_env_bool
+    
+    # 检查是否启用增强检测
+    use_enhanced_detection = get_env_bool('USE_ENHANCED_MERGE_DETECTION', False)
+    
+    if use_enhanced_detection:
+        # 使用增强检测
+        detection_result = is_merge_commit_enhanced(commit, svn_handler)
+        is_merge = detection_result['is_merge']
+        
+        if is_merge:
+            logger.info(f'增强检测识别为merge提交 (置信度: {detection_result["confidence"]:.2f}, '
+                       f'方法: {", ".join(detection_result["detection_methods"])}): '
+                       f'{commit.get("message", "")[:100]}...')
+    else:
+        # 使用传统检测
+        is_merge = is_merge_commit(commit.get('message', ''))
+    
+    if not is_merge:
+        return False  # 不是merge提交，不跳过
+    
+    # 获取仓库的merge配置，默认为True（审查merge提交）
+    enable_merge_review = repo_config.get('enable_merge_review', True)
+    
+    # 如果禁用了merge审查，则跳过
+    if not enable_merge_review:
+        logger.info(f'Merge提交已禁用审查，跳过: {commit.get("message", "")[:100]}...')
         return True
     
     return False  # 启用了merge审查，不跳过

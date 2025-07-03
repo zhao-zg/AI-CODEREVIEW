@@ -1,27 +1,35 @@
 {
-  "timestamp": "2025-07-03T10:20:35.512942",
-  "total_deleted": 5,
+  "timestamp": "2025-07-03T11:06:08.943186",
+  "total_deleted": 9,
   "deleted_files": [
-    "check_svn_status.py",
-    "test_svn_config_fix.py",
-    "test_svn_incremental_fix.py",
-    "test_svn_startup_init.py",
-    "test_start.sh"
+    "check_merge_config.py",
+    "check_svn_merge_config.py",
+    "debug_merge_config.py",
+    "test_enhanced_merge_final.py",
+    "test_enhanced_merge_integration.py",
+    "test_enhanced_merge_integration_win.py",
+    "test_merge_commit.py",
+    "test_svn_merge_detection.py",
+    "cleanup_record.json"
   ],
   "cleanup_plan": {
     "建议删除": {
       "临时测试文件": [
-        "check_svn_status.py",
-        "test_svn_config_fix.py",
-        "test_svn_incremental_fix.py",
-        "test_svn_startup_init.py"
+        "check_merge_config.py",
+        "check_svn_merge_config.py",
+        "debug_merge_config.py",
+        "test_enhanced_merge_final.py",
+        "test_enhanced_merge_integration.py",
+        "test_enhanced_merge_integration_win.py",
+        "test_merge_commit.py",
+        "test_svn_merge_detection.py"
       ],
       "过期报告文件": [],
-      "JSON报告数据": [],
+      "JSON报告数据": [
+        "cleanup_record.json"
+      ],
       "日志文件": [],
-      "重复/无用脚本": [
-        "test_start.sh"
-      ]
+      "重复/无用脚本": []
     },
     "建议保留": {
       "核心文件": [
@@ -40,9 +48,6 @@
         ".gitignore",
         "analyze_duplicate_reviews.py",
         "cleanup_project_files.py",
-        "demo_prompt_templates.py",
-        "demo_push_url_config.py",
-        "demo_ui_config.py",
         "deploy_docker.bat",
         "deploy_docker.sh",
         "docker-compose.single.yml",
@@ -50,8 +55,7 @@
         "health_check.py",
         "start_ui_improved.bat",
         "stop_ui.bat",
-        "svn_status_report.py",
-        "test_encoding.bat"
+        "svn_status_report.py"
       ]
     },
     "需要确认": {

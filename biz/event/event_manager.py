@@ -22,6 +22,7 @@ def _get_ai_score(review_result):
     # 匹配总分的多种格式
     score_patterns = [
         r"总分[:：]\s*(\d+)分?",
+        r"总分 \(Total Score\)[:：]\s*(\d+)分?",
         r"评分[:：]\s*(\d+)分?", 
         r"得分[:：]\s*(\d+)分?",
         r"分数[:：]\s*(\d+)分?",
