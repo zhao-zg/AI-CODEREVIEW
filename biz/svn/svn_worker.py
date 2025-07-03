@@ -12,6 +12,10 @@ from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.config_manager import ConfigManager
 
+# === SVN增量检查集成 ===
+from biz.utils.svn_checkpoint import SVNCheckpointManager
+# === SVN增量检查集成 END ===
+
 def get_config_bool(key: str, default: bool = False) -> bool:
     """从 ConfigManager 获取布尔值配置"""
     try:
@@ -43,6 +47,54 @@ def get_config_int(key: str, default: int = 0) -> int:
 # === 版本追踪集成 ===
 from biz.utils.version_tracker import VersionTracker
 # === 版本追踪集成 END ===
+
+
+# === 简单的revision缓存（内存级别） ===
+_processed_revisions_cache = {}  # 格式: {repo_name: {revision: timestamp}}
+_cache_ttl = 3600  # 缓存1小时
+
+def is_revision_recently_processed(repo_name: str, revision: str) -> bool:
+    """
+    检查revision是否在最近已经处理过（简单内存缓存）
+    
+    Args:
+        repo_name: 仓库名称
+        revision: SVN revision号
+        
+    Returns:
+        如果最近已处理过则返回True
+    """
+    try:
+        current_time = int(datetime.now().timestamp())
+        
+        # 初始化仓库缓存
+        if repo_name not in _processed_revisions_cache:
+            _processed_revisions_cache[repo_name] = {}
+        
+        repo_cache = _processed_revisions_cache[repo_name]
+        
+        # 清理过期缓存
+        expired_revisions = [
+            rev for rev, timestamp in repo_cache.items()
+            if current_time - timestamp > _cache_ttl
+        ]
+        for rev in expired_revisions:
+            del repo_cache[rev]
+        
+        # 检查是否已处理
+        if revision in repo_cache:
+            logger.debug(f'Revision r{revision} 在缓存中找到，跳过处理')
+            return True
+        
+        # 记录到缓存
+        repo_cache[revision] = current_time
+        return False
+        
+    except Exception as e:
+        logger.warning(f'检查revision缓存失败: {e}')
+        return False
+
+# === 简单的revision缓存 END ===
 
 
 def handle_multiple_svn_repositories(repositories_config: str = None, check_hours: int = None, check_limit: int = 100, trigger_type: str = "scheduled"):
@@ -137,11 +189,12 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
 
 def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: str = None, svn_password: str = None, check_hours: int = 24, check_limit: int = 100, repo_name: str = None, trigger_type: str = "scheduled", repo_config: dict = None):
     """
-    处理SVN变更事件
+    处理SVN变更事件 - 支持增量检查
     :param svn_remote_url: SVN远程仓库URL
     :param svn_local_path: SVN本地路径
     :param svn_username: SVN用户名
-    :param svn_password: SVN密码    :param check_hours: 检查最近多少小时的变更
+    :param svn_password: SVN密码
+    :param check_hours: 检查最近多少小时的变更（仅在手动触发时使用）
     :param check_limit: 限制检查的提交数量
     :param repo_name: 仓库名称
     """
@@ -156,18 +209,69 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         if not svn_handler.update_working_copy():
             logger.error(f'仓库 {display_name} SVN工作副本更新失败')
             return
-          # 获取最近的提交
-        recent_commits = svn_handler.get_recent_commits(hours=check_hours, limit=check_limit)
+        
+        # === 增量检查逻辑 ===
+        use_incremental_check = get_config_bool('SVN_INCREMENTAL_CHECK_ENABLED', True)
+        
+        if use_incremental_check and trigger_type == "scheduled":
+            # 定时任务使用增量检查
+            # 初始化检查点管理器
+            SVNCheckpointManager.init_db()
+            
+            # 获取上次检查时间
+            last_check_time = SVNCheckpointManager.get_last_check_time(display_name)
+            current_time = int(datetime.now().timestamp())
+            
+            # 计算实际的检查时间范围（小时）
+            actual_check_hours = (current_time - last_check_time) / 3600
+            
+            logger.info(f'仓库 {display_name} 使用增量检查，上次检查: {datetime.fromtimestamp(last_check_time)}, 检查范围: {actual_check_hours:.1f} 小时')
+            
+            # 获取最近的提交（基于上次检查时间）
+            recent_commits = svn_handler.get_recent_commits(hours=actual_check_hours, limit=check_limit)
+        else:
+            # 手动触发或禁用增量检查时使用固定时间窗口
+            logger.info(f'仓库 {display_name} 使用固定时间窗口检查，检查范围: {check_hours} 小时')
+            recent_commits = svn_handler.get_recent_commits(hours=check_hours, limit=check_limit)
+        # === 增量检查逻辑 END ===
         
         if not recent_commits:
             logger.info(f'仓库 {display_name} 没有发现最近的SVN提交')
+            
+            # 即使没有新提交，也要更新检查点（定时任务）
+            if use_incremental_check and trigger_type == "scheduled":
+                SVNCheckpointManager.update_checkpoint(display_name)
+            
             return
         
         logger.info(f'仓库 {display_name} 发现 {len(recent_commits)} 个最近的提交')
         
+        # 记录处理的最新revision（用于更新检查点）
+        latest_revision = None
+        processed_count = 0
+        
         # 处理每个提交
         for commit in recent_commits:
+            revision = commit.get('revision', '')
+            
+            # === 简单的revision重复检查 ===
+            if revision and is_revision_recently_processed(display_name, revision):
+                logger.info(f'SVN r{revision} 最近已处理，跳过')
+                continue
+            # === 简单的revision重复检查 END ===
+            
             process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
+            processed_count += 1
+            
+            # 记录最新的revision
+            if revision and (not latest_revision or int(revision) > int(latest_revision)):
+                latest_revision = revision
+        
+        logger.info(f'仓库 {display_name} 实际处理了 {processed_count} 个提交')
+        
+        # 更新检查点（定时任务）
+        if use_incremental_check and trigger_type == "scheduled":
+            SVNCheckpointManager.update_checkpoint(display_name, latest_revision)
             
     except Exception as e:
         display_name = repo_name or os.path.basename(svn_local_path)
