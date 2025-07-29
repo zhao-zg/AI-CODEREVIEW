@@ -134,7 +134,7 @@ class SVNHandler:
         更新SVN工作副本
         :return: 更新是否成功
         """
-        stdout, stderr, returncode = self._run_svn_command(['svn', 'update'], cwd=self.svn_local_path)
+        stdout, stderr, returncode = self._run_svn_command(['svn', 'update', '--ignore-externals'], cwd=self.svn_local_path)
         
         if returncode != 0:
             logger.error(f"SVN更新失败: {stderr}")
@@ -147,7 +147,7 @@ class SVNHandler:
                 if cleanup_success:
                     # cleanup或重建成功后重试更新
                     logger.info("SVN cleanup/重建成功，重试更新...")
-                    stdout, stderr, returncode = self._run_svn_command(['svn', 'update'], cwd=self.svn_local_path)
+                    stdout, stderr, returncode = self._run_svn_command(['svn', 'update', '--ignore-externals'], cwd=self.svn_local_path)
                     
                     if returncode != 0:
                         logger.error(f"SVN cleanup/重建后更新仍然失败: {stderr}")
