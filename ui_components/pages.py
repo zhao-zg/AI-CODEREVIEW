@@ -560,11 +560,6 @@ def env_management_page():
                     ["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"],
                     index=["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"].index(env_config.get("LLM_PROVIDER", "deepseek"))
                 )
-                review_style = st.selectbox(
-                    "审查风格", 
-                    ["professional", "sarcastic", "gentle", "humorous"],
-                    index=["professional", "sarcastic", "gentle", "humorous"].index(env_config.get("REVIEW_STYLE", "professional"))
-                )
                 timezone = st.text_input("时区", value=env_config.get("TZ", "Asia/Shanghai"))
             with col2:
                 api_port = st.text_input("API端口（容器可以使用映射修改）", value=env_config.get("API_PORT", "5001"))
@@ -957,7 +952,7 @@ def env_management_page():
                 new_config = {
                     # AI模型配置
                     "LLM_PROVIDER": llm_provider,
-                    "REVIEW_STYLE": review_style,
+                    # "REVIEW_STYLE": review_style,  # 已去除风格
                     "REVIEW_MAX_TOKENS": str(review_max_tokens),
                     "SUPPORTED_EXTENSIONS": supported_extensions,
                     
@@ -1211,7 +1206,7 @@ def env_management_page():
                                    "QWEN_API_KEY", "QWEN_API_BASE_URL", "QWEN_API_MODEL",
                                    "JEDI_API_KEY", "JEDI_API_BASE_URL", "JEDI_API_MODEL",
                                    "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL",
-                                   "REVIEW_STYLE", "REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS"],
+                                   "REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS"],
                     "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
                     "📋 版本追踪配置": ["VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
                     "🏠 系统配置": ["API_PORT", "API_URL", "UI_PORT", "UI_URL", "TZ", "LOG_LEVEL", "LOG_FILE", "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER"],
