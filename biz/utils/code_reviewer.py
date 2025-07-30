@@ -177,10 +177,10 @@ class CodeReviewer(BaseReviewer):
             return "代码为空"
 
         # 计算tokens数量，如果超过REVIEW_MAX_TOKENS，截断changes_text
-        #tokens_count = count_tokens(changes_text)
-        #if tokens_count > review_max_tokens:
-        #    changes_text = truncate_text_by_tokens(changes_text, review_max_tokens)
-        #logger.debug(f"Reviewing code with {tokens_count} tokens, truncated to {len(changes_text)} characters if necessary.")
+        tokens_count = count_tokens(changes_text)
+        if tokens_count > review_max_tokens :
+            changes_text = truncate_text_by_tokens(changes_text, review_max_tokens)
+        logger.debug(f"Reviewing code with {tokens_count} tokens, truncated to {len(changes_text)} characters if necessary.")
         logger.debug(f"commits_text with {commits_text} ")
 
         # 调用review_code方法
