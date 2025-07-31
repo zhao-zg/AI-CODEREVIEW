@@ -603,26 +603,24 @@ class ReviewService:
                     json.dumps(diff_struct, ensure_ascii=False), commit_message
                 )
                 new_score = CodeReviewer.parse_review_score(new_review_result)
-                new_reviewed_at = int(time.time())
-                
+                # 重新审查不应影响时间点，保留原 reviewed_at
+                # new_reviewed_at = int(time.time())
                 # 更新数据库
                 cursor.execute(
-                    "UPDATE version_tracker SET review_result=?, score=?, reviewed_at=? WHERE version_hash=?", 
-                    (new_review_result, new_score, new_reviewed_at, version_hash)
+                    "UPDATE version_tracker SET review_result=?, score=? WHERE version_hash= ?",
+                    (new_review_result, new_score, version_hash)
                 )
                 conn.commit()
-                
                 # 触发推送通知 (主要针对SVN)
                 if review_type_db == 'svn':
                     try:
                         # 从文件路径中提取SVN版本号
                         svn_revision = commit_sha if commit_sha and commit_sha.isdigit() else "unknown"
-                        
                         svn_entity = SvnReviewEntity(
                             project_name=project_name,
                             author=author,
                             revision=svn_revision,
-                            updated_at=new_reviewed_at,
+                            updated_at=reviewed_at,
                             commits=[{"message": commit_message}],
                             score=float(new_score),
                             review_result=new_review_result,
