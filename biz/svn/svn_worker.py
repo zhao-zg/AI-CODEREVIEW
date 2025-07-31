@@ -157,6 +157,16 @@ def handle_multiple_svn_repositories(repositories_config: str = None, check_hour
         
         logger.info(f"开始检查 {len(repositories)} 个SVN仓库")
         
+        # 检查仓库配置唯一性，避免 name 重复
+        seen_keys = set()
+        for repo_config in repositories:
+            repo_name = repo_config.get('name', 'unknown')
+            if repo_name in seen_keys:
+                logger.error(f"检测到重复的仓库配置: name={repo_name}，请确保唯一！")
+                notifier.send_notification(content=f"❌ 检测到重复的SVN仓库配置：\nname={repo_name}\n请检查配置，确保每个仓库唯一！")
+                return
+            seen_keys.add(repo_name)
+        
         # 处理每个仓库
         for repo_config in repositories:
             try:
