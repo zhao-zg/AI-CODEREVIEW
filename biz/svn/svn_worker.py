@@ -369,8 +369,9 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                     'commits': commit_info
                 }
                 # 传递结构化diff给AI
-                diff_struct_json = json.dumps(diff_struct, ensure_ascii=False, indent=2)
-                commits_text = f"SVN提交 r{revision}: {message}"
+                diff_struct_json = json.dumps(files_json, ensure_ascii=False, indent=2)
+                #commits_text = f"SVN提交 r{revision}: {message}"
+                commits_text = json.dumps(commit_info, ensure_ascii=False, indent=2)
                 review_result = CodeReviewer().review_and_strip_code(diff_struct_json, commits_text)
                 if review_result and review_result.strip() and review_result != "代码为空":
                     
