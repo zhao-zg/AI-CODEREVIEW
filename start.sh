@@ -345,7 +345,7 @@ start_service_menu() {
         echo "🔧 启动服务选项："
         echo "1) 基础模式 (内存队列) - 使用默认配置"
         echo "2) Redis 模式 (Redis 队列) - 使用默认配置"
-        echo "3) 基础模式 (内存队列) - 自定义端口"
+        echo "3) 基础模式 (内存队列) - 自定义端口和容器名"
         echo "4) Redis 模式 (Redis 队列) - 自定义端口和容器名"
         echo "0) 返回主菜单"
         echo ""
@@ -419,15 +419,29 @@ start_service_menu() {
                 fi
                 ;;
             3)
-                log_info "启动基础模式 (内存队列) - 自定义端口..."
-                write_log "启动基础模式 - 自定义端口"
+                log_info "启动基础模式 (内存队列) - 自定义端口和容器名..."
+                write_log "启动基础模式 - 自定义端口和容器名"
                 
                 # 仅配置端口参数
                 configure_port_parameters
+
+                # 配置容器名
+                while true; do
+                    read -p "请输入容器名 (默认: ai-codereview，直接回车使用默认): " container_name
+                    if [ -z "$container_name" ]; then
+                        container_name="ai-codereview"
+                        break
+                    elif [[ "$container_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+                        break
+                    else
+                        log_warning "容器名只能包含字母、数字、点号、下划线和连字符，且必须以字母或数字开头"
+                    fi
+                done
                 
                 # 设置环境变量
                 export AI_CODEREVIEW_API_PORT="${CUSTOM_API_PORT:-5001}"
                 export AI_CODEREVIEW_UI_PORT="${CUSTOM_UI_PORT:-5002}"
+                export AI_CODEREVIEW_CONTAINER_NAME="$container_name"
                 
                 # 拉取最新镜像
                 log_info "拉取最新 Docker 镜像..."
@@ -439,20 +453,22 @@ start_service_menu() {
                 
                 if docker_compose up -d; then
                     log_success "基础模式启动成功"
-                    write_log "基础模式启动成功 - 自定义端口"
+                    write_log "基础模式启动成功 - 自定义端口和容器名"
                     echo ""
                     log_info "服务地址："
                     log_info "- API: http://localhost:${CUSTOM_API_PORT:-5001}"
                     log_info "- UI: http://localhost:${CUSTOM_UI_PORT:-5002}"
+                    log_info "- 容器名: ${AI_CODEREVIEW_CONTAINER_NAME}"
                     return 0
                 else
                     log_error "基础模式启动失败"
-                    write_log "基础模式启动失败 - 自定义端口"
+                    write_log "基础模式启动失败 - 自定义端口和容器名"
                     echo ""
                     log_info "请尝试以下解决方案："
                     log_info "1. 检查 Docker 服务是否正常运行"
                     log_info "2. 检查端口是否被占用"
-                    log_info "3. 查看详细日志进行诊断"
+                    log_info "3. 检查容器名是否冲突"
+                    log_info "4. 查看详细日志进行诊断"
                     return 1
                 fi
                 ;;
