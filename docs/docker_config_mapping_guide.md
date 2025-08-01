@@ -86,7 +86,7 @@ conf/
 
 1. **Docker 环境变量** - 通过 `-e` 参数或 `environment` 配置的变量
 2. **conf/.env 文件** - 映射目录中的环境配置文件
-3. **conf/.env.dist** - 内置的默认配置模板
+3. **conf_templates/.env.dist** - 内置的默认配置模板
 4. **代码默认值** - 程序中的备用默认值
 
 ## 🔍 配置验证
@@ -182,11 +182,11 @@ chmod -R 755 conf/ data/ log/
 
 ### 自定义配置模板
 
-您可以修改 `conf/.env.dist` 来定制默认配置：
+您可以修改 `conf_templates/.env.dist` 来定制默认配置：
 
 ```bash
 # 编辑模板文件
-vim conf/.env.dist
+vim conf_templates/.env.dist
 
 # 重新生成配置文件
 rm conf/.env
@@ -236,7 +236,7 @@ docker-compose logs -f ai-codereview
 git log --oneline conf/.env
 
 # 比较配置差异
-diff conf/.env conf/.env.dist
+diff conf/.env conf_templates/.env.dist
 ```
 
 ## 🎉 总结

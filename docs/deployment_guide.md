@@ -2,13 +2,13 @@
 
 ## 📋 部署概述
 
-AI-CodeReview-GitLab 是一个基于大模型的自动化代码审查工具，支持多种部署方式，本指南将详细介绍各种部署选项和配置方法�?
+AI-CodeReview-GitLab 是一个基于大模型的自动化代码审查工具，支持多种部署方式，本指南将详细介绍各种部署选项和配置方法�?
 
 ## 🐳 Docker 部署（推荐）
 
-### 方式一：使�?Docker Hub 镜像
+### 方式一：使�?Docker Hub 镜像
 
-这是最简单的部署方式，直接使用我们发布的官方镜像�?
+这是最简单的部署方式，直接使用我们发布的官方镜像�?
 
 ```bash
 # 1. 克隆配置文件
@@ -18,7 +18,7 @@ cd ai-codereview-gitlab
 # 2. 使用 Docker Hub 镜像启动
 docker-compose -f docker-compose.dockerhub.yml up -d
 
-# 3. 查看服务状�?
+# 3. 查看服务状�?
 docker-compose -f docker-compose.dockerhub.yml ps
 ```
 
@@ -32,7 +32,7 @@ cd ai-codereview-gitlab
 # 2. 使用 GHCR 镜像启动
 docker-compose up -d
 
-# 3. 查看服务状�?
+# 3. 查看服务状�?
 docker-compose ps
 ```
 
@@ -43,7 +43,7 @@ docker-compose ps
 git clone https://github.com/zhao-zg/ai-codereview-gitlab.git
 cd ai-codereview-gitlab
 
-# 2. 本地构建并启�?
+# 2. 本地构建并启�?
 docker-compose up --build -d
 
 # 3. 查看构建日志
@@ -56,22 +56,22 @@ docker-compose logs -f app
 
 1. **复制配置文件模板**
 ```bash
-cp conf/.env.dist conf/.env
+cp conf_templates/.env.dist conf/.env
 ```
 
 2. **编辑配置文件**
 ```bash
-# 编辑 conf/.env 文件，配置以下关键参�?
+# 编辑 conf/.env 文件，配置以下关键参�?
 nano conf/.env
 ```
 
-### 关键配置�?
+### 关键配置�?
 
 ```env
 # ===================
 # LLM 配置
 # ===================
-LLM_PROVIDER=deepseek                    # 选择 LLM 提供�?
+LLM_PROVIDER=deepseek                    # 选择 LLM 提供�?
 DEEPSEEK_API_KEY=your_deepseek_api_key   # DeepSeek API密钥
 OPENAI_API_KEY=your_openai_api_key       # OpenAI API密钥
 ZHIPUAI_API_KEY=your_zhipuai_api_key     # 智谱AI API密钥
@@ -90,7 +90,7 @@ GITHUB_TOKEN=your_github_token           # GitHub Personal Access Token
 GITHUB_WEBHOOK_SECRET=your_webhook_secret # GitHub Webhook 密钥
 
 # ===================
-# 消息推送配�?
+# 消息推送配�?
 # ===================
 DINGTALK_WEBHOOK=your_dingtalk_webhook   # 钉钉机器人Webhook
 WECOM_WEBHOOK=your_wecom_webhook         # 企业微信机器人Webhook
@@ -107,9 +107,9 @@ TZ=Asia/Shanghai                        # 时区设置
 
 ## 🔧 高级部署配置
 
-### 多实例部�?
+### 多实例部�?
 
-对于高负载场景，可以部署多个实例�?
+对于高负载场景，可以部署多个实例�?
 
 ```yaml
 # docker-compose.prod.yml
@@ -148,11 +148,11 @@ services:
       - app2
 ```
 
-### 持久化存储配�?
+### 持久化存储配�?
 
 ```yaml
 volumes:
-  # 数据持久�?
+  # 数据持久�?
   - ./data:/app/data:rw
   - ./log:/app/log:rw
   - ./conf:/app/conf:ro
@@ -160,7 +160,7 @@ volumes:
   # SVN 仓库挂载
   - /path/to/svn/repos:/app/data/svn:ro
   
-  # 自定义配�?
+  # 自定义配�?
   - ./custom_configs:/app/custom_configs:ro
 ```
 
@@ -244,14 +244,14 @@ server {
 }
 ```
 
-### 防火墙配�?
+### 防火墙配�?
 
 ```bash
 # Ubuntu/Debian
 ufw allow 80/tcp
 ufw allow 443/tcp
-ufw allow 5001/tcp  # 如果需要直接访�?API
-ufw allow 5002/tcp  # 如果需要直接访�?Web 界面
+ufw allow 5001/tcp  # 如果需要直接访�?API
+ufw allow 5002/tcp  # 如果需要直接访�?Web 界面
 
 # CentOS/RHEL
 firewall-cmd --permanent --add-port=80/tcp
@@ -259,12 +259,12 @@ firewall-cmd --permanent --add-port=443/tcp
 firewall-cmd --reload
 ```
 
-## 📊 监控和日�?
+## 📊 监控和日�?
 
 ### 日志配置
 
 ```yaml
-# docker-compose.yml 中添加日志配�?
+# docker-compose.yml 中添加日志配�?
 services:
   app:
     image: zzg1189/ai-codereview-gitlab:latest
@@ -275,7 +275,7 @@ services:
         max-file: "5"
 ```
 
-### 健康检�?
+### 健康检�?
 
 ```yaml
 services:
@@ -291,7 +291,7 @@ services:
 ### 监控指标
 
 ```bash
-# 查看容器状�?
+# 查看容器状�?
 docker-compose ps
 
 # 查看资源使用
@@ -300,15 +300,15 @@ docker stats
 # 查看日志
 docker-compose logs -f app
 
-# 检查健康状�?
+# 检查健康状�?
 curl http://localhost:5001/health
 ```
 
-## 🚀 生产环境最佳实�?
+## 🚀 生产环境最佳实�?
 
 ### 1. 资源配置建议
 
-| 组件 | 最小配�?| 推荐配置 |
+| 组件 | 最小配�?| 推荐配置 |
 |------|----------|----------|
 | CPU | 2 cores | 4+ cores |
 | 内存 | 4GB | 8GB+ |
@@ -323,7 +323,7 @@ curl http://localhost:5001/health
 BACKUP_DIR="/backup/ai-codereview"
 DATE=$(date +%Y%m%d_%H%M%S)
 
-# 备份数据�?
+# 备份数据�?
 cp ./data/data.db "$BACKUP_DIR/data_$DATE.db"
 
 # 备份配置文件
@@ -344,52 +344,52 @@ docker-compose down
 # 备份数据
 ./backup.sh
 
-# 拉取最新镜�?
+# 拉取最新镜�?
 docker-compose pull
 
 # 启动服务
 docker-compose up -d
 
-# 检查服务状�?
+# 检查服务状�?
 docker-compose ps
 ```
 
-## 🛠�?故障排查
+## 🛠�?故障排查
 
 ### 常见问题
 
 1. **服务无法启动**
 ```bash
-# 检查日�?
+# 检查日�?
 docker-compose logs app
 
-# 检查配置文�?
+# 检查配置文�?
 cat conf/.env
 
-# 检查端口占�?
+# 检查端口占�?
 netstat -tulpn | grep 5001
 ```
 
-2. **数据库连接问�?*
+2. **数据库连接问�?*
 ```bash
 # 检查数据库文件权限
 ls -la data/data.db
 
-# 重置数据�?
+# 重置数据�?
 rm data/data.db
 docker-compose restart app
 ```
 
-3. **Webhook 不工�?*
+3. **Webhook 不工�?*
 ```bash
-# 检查网络连�?
+# 检查网络连�?
 curl -X POST http://your-domain.com/api/webhook/gitlab
 
-# 检查配�?
+# 检查配�?
 grep WEBHOOK conf/.env
 ```
 
-## 📞 技术支�?
+## 📞 技术支�?
 
 - **GitHub Issues**: https://github.com/zhao-zg/ai-codereview-gitlab/issues
 - **文档**: https://github.com/zhao-zg/ai-codereview-gitlab/blob/main/README.md
@@ -397,4 +397,4 @@ grep WEBHOOK conf/.env
 
 ---
 
-*本部署指南涵盖了从基础部署到生产环境的完整配置，如有问题请提交 Issue 或查�?FAQ 文档�?
+*本部署指南涵盖了从基础部署到生产环境的完整配置，如有问题请提交 Issue 或查�?FAQ 文档�?

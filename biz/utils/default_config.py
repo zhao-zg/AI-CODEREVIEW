@@ -31,7 +31,7 @@ class DefaultConfigManager:
         """从 .env.dist 文件中加载默认值"""
         # 获取项目根目录
         project_root = Path(__file__).parent.parent.parent
-        env_dist_path = project_root / "conf" / ".env.dist"
+        env_dist_path = project_root / "conf_templates" / ".env.dist"
         
         if not env_dist_path.exists():
             print(f"警告: 找不到 .env.dist 文件: {env_dist_path}")

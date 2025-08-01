@@ -61,7 +61,7 @@ scripts\env_checker.bat
 ### 1. 文件存在性检查
 
 ```
-conf/.env.dist (模板文件) ──┐
+conf_templates/.env.dist (模板文件) ──┐
                          ├─ 比较 ── 检测差异
 conf/.env (配置文件) ────┘
 ```
@@ -80,7 +80,7 @@ conf/.env (配置文件) ────┘
 **首次运行（.env 不存在）：**
 ```
 [WARNING] 环境配置文件 conf/.env 不存在
-[INFO] 正在从 conf/.env.dist 复制配置...
+[INFO] 正在从 conf_templates/.env.dist 复制配置...
 [INFO] ✅ 成功创建 conf/.env
 ```
 
@@ -165,7 +165,7 @@ A: 更新 `.env.dist` 文件后，下次启动时检查器会自动检测并补�
 
 ### Q: 检查器报错怎么办？
 A: 
-1. 确保 `conf/.env.dist` 文件存在且格式正确
+1. 确保 `conf_templates/.env.dist` 文件存在且格式正确
 2. 检查文件权限
 3. 查看详细错误信息并修复
 
