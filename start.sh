@@ -611,6 +611,24 @@ stop_service() {
     fi
 }
 
+# 查看服务状态
+show_service_status() {
+    echo ""
+    log_info "=== AI-CodeReview 服务状态 ==="
+    docker_compose ps 2>/dev/null || echo "无服务运行"
+    echo ""
+    log_info "=== Docker 容器状态 ==="
+    docker ps --filter "name=${AI_CODEREVIEW_CONTAINER_NAME:-ai-codereview}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+}
+
+# 查看服务日志
+show_service_logs() {
+    echo ""
+    log_info "=== AI-CodeReview 服务日志 ==="
+    # 跟随最新日志，显示最后100行
+    docker_compose logs --tail 100 -f
+}
+
 # 配置服务参数（端口和容器名）
 configure_service_parameters() {
     log_info "配置服务参数..."
