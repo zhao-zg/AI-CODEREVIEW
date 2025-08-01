@@ -1,6 +1,6 @@
 # AI-CodeReview
 
-![Push图片](./doc/img/ai-codereview-cartoon.png)
+![Push图片](./docs/img/ai-codereview-cartoon.png)
 
 ## 项目简介
 
@@ -44,11 +44,11 @@
 
 **效果图:**
 
-![MR图片](./doc/img/mr.png)
+![MR图片](./docs/img/mr.png)
 
-![Note图片](./doc/img/note.jpg)
+![Note图片](./docs/img/note.jpg)
 
-![Dashboard图片](./doc/img/dashboard.jpg)
+![Dashboard图片](./docs/img/dashboard.jpg)
 
 ## 原理
 
@@ -56,7 +56,7 @@
 事件，调用本系统的接口。系统随后通过第三方大模型对代码进行审查，并将审查结果直接反馈到对应的 Merge Request 或 Commit 的
 Note 中，便于团队查看和处理。
 
-![流程图](./doc/img/process.png)
+![流程图](./docs/img/process.png)
 
 ## 💻 系统要求
 

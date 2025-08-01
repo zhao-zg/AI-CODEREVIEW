@@ -345,7 +345,7 @@ start_service_menu() {
         echo "🔧 启动服务选项："
         echo "1) 基础模式 (内存队列) - 使用默认配置"
         echo "2) Redis 模式 (Redis 队列) - 使用默认配置"
-        echo "3) 基础模式 (内存队列) - 自定义端口和容器名"
+        echo "3) 基础模式 (内存队列) - 自定义端口"
         echo "4) Redis 模式 (Redis 队列) - 自定义端口和容器名"
         echo "0) 返回主菜单"
         echo ""
@@ -419,14 +419,13 @@ start_service_menu() {
                 fi
                 ;;
             3)
-                log_info "启动基础模式 (内存队列) - 自定义配置..."
-                write_log "启动基础模式 - 自定义配置"
+                log_info "启动基础模式 (内存队列) - 自定义端口..."
+                write_log "启动基础模式 - 自定义端口"
                 
-                # 配置服务参数
-                configure_service_parameters
+                # 仅配置端口参数
+                configure_port_parameters
                 
                 # 设置环境变量
-                export AI_CODEREVIEW_CONTAINER_NAME="${CUSTOM_CONTAINER_NAME:-ai-codereview}"
                 export AI_CODEREVIEW_API_PORT="${CUSTOM_API_PORT:-5001}"
                 export AI_CODEREVIEW_UI_PORT="${CUSTOM_UI_PORT:-5002}"
                 
@@ -440,22 +439,20 @@ start_service_menu() {
                 
                 if docker_compose up -d; then
                     log_success "基础模式启动成功"
-                    write_log "基础模式启动成功 - 自定义配置"
+                    write_log "基础模式启动成功 - 自定义端口"
                     echo ""
                     log_info "服务地址："
                     log_info "- API: http://localhost:${CUSTOM_API_PORT:-5001}"
                     log_info "- UI: http://localhost:${CUSTOM_UI_PORT:-5002}"
-                    log_info "- 容器名: ${CUSTOM_CONTAINER_NAME:-ai-codereview}"
                     return 0
                 else
                     log_error "基础模式启动失败"
-                    write_log "基础模式启动失败 - 自定义配置"
+                    write_log "基础模式启动失败 - 自定义端口"
                     echo ""
                     log_info "请尝试以下解决方案："
                     log_info "1. 检查 Docker 服务是否正常运行"
                     log_info "2. 检查端口是否被占用"
-                    log_info "3. 检查容器名是否冲突"
-                    log_info "4. 查看详细日志进行诊断"
+                    log_info "3. 查看详细日志进行诊断"
                     return 1
                 fi
                 ;;
@@ -737,6 +734,70 @@ configure_service_parameters() {
     
     log_success "服务参数配置完成"
     write_log "配置参数: API端口=$api_port, UI端口=$ui_port, 主容器名=$container_name, Redis容器名=$redis_container_name"
+}
+
+# 配置端口参数（仅基础模式自定义配置使用）
+configure_port_parameters() {
+    log_info "配置端口参数..."
+    echo ""
+    echo "🔧 端口参数配置"
+    echo "=================================================="
+    echo "当前默认端口： API=5001, UI=5002"
+    echo "=================================================="
+    echo ""
+    # 配置 API 端口
+    while true; do
+        read -p "请输入 API 端口 (默认: 5001，直接回车使用默认): " api_port
+        if [ -z "$api_port" ]; then
+            api_port="5001"
+            break
+        elif [[ "$api_port" =~ ^[0-9]+$ ]] && [ "$api_port" -ge 1 ] && [ "$api_port" -le 65535 ]; then
+            # 检查端口是否被占用
+            if netstat -an 2>/dev/null | grep -q ":$api_port " || ss -tuln 2>/dev/null | grep -q ":$api_port "; then
+                log_warning "端口 $api_port 可能已被占用，请选择其他端口或确认"
+                read -p "是否继续使用端口 $api_port？(y/N): " confirm
+                if [[ "$confirm" =~ ^[yY]$ ]]; then
+                    break
+                fi
+            else
+                break
+            fi
+        else
+            log_warning "请输入有效的端口号 (1-65535)"
+        fi
+    done
+    
+    # 配置 UI 端口
+    while true; do
+        read -p "请输入 UI 端口 (默认: 5002，直接回车使用默认): " ui_port
+        if [ -z "$ui_port" ]; then
+            ui_port="5002"
+            break
+        elif [[ "$ui_port" =~ ^[0-9]+$ ]] && [ "$ui_port" -ge 1 ] && [ "$ui_port" -le 65535 ]; then
+            if [ "$ui_port" = "$api_port" ]; then
+                log_warning "UI 端口不能与 API 端口相同"
+                continue
+            fi
+            # 检查端口是否被占用
+            if netstat -an 2>/dev/null | grep -q ":$ui_port " || ss -tuln 2>/dev/null | grep -q ":$ui_port "; then
+                log_warning "端口 $ui_port 可能已被占用，请选择其他端口或确认"
+                read -p "是否继续使用端口 $ui_port？(y/N): " confirm
+                if [[ "$confirm" =~ ^[yY]$ ]]; then
+                    break
+                fi
+            else
+                break
+            fi
+        else
+            log_warning "请输入有效的端口号 (1-65535)"
+        fi
+    done
+    
+    # 导出环境变量
+    export CUSTOM_API_PORT="$api_port"
+    export CUSTOM_UI_PORT="$ui_port"
+    log_success "端口参数配置完成: API=$api_port, UI=$ui_port"
+    write_log "配置端口: API端口=$api_port, UI端口=$ui_port"
 }
 
 # 下载并启动服务
