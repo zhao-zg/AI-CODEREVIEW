@@ -7,13 +7,13 @@ services:
       context: .
       dockerfile: Dockerfile
     image: ghcr.io/zhao-zg/ai-codereview:latest
-    container_name: ai-codereview
+    container_name: ${AI_CODEREVIEW_CONTAINER_NAME:-ai-codereview}
     restart: unless-stopped
     
     # 端口映射
     ports:
-      - "5001:5001"    # Flask API 端口
-      - "5002:5002"    # Streamlit UI 端口
+      - "${AI_CODEREVIEW_API_PORT:-5001}:5001"    # Flask API 端口
+      - "${AI_CODEREVIEW_UI_PORT:-5002}:5002"     # Streamlit UI 端口
     
     # 卷映射
     volumes:
@@ -54,7 +54,7 @@ services:
   # Redis 服务（可选，仅在使用 RQ 队列时需要）
   redis:
     image: redis:7-alpine
-    container_name: ai-codereview-redis
+    container_name: ${AI_CODEREVIEW_REDIS_CONTAINER_NAME:-ai-codereview-redis}
     restart: unless-stopped
     
     # Redis 配置

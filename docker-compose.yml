@@ -8,13 +8,13 @@ services:
       context: .
       dockerfile: Dockerfile
     image: ghcr.io/zhao-zg/ai-codereview:latest
-    container_name: ai-codereview
+    container_name: ${CONTAINER_NAME:-ai-codereview}
     restart: unless-stopped
     
     # 端口映射
     ports:
-      - "5001:5001"    # Flask API 端口
-      - "5002:5002"    # Streamlit UI 端口
+      - "${API_PORT:-5001}:5001"    # Flask API 端口
+      - "${UI_PORT:-5002}:5002"     # Streamlit UI 端口
     
     # 卷映射
     volumes:

@@ -37,10 +37,16 @@ docker_compose() {
         fi
     fi
     
-    write_log "执行命令: $DOCKER_COMPOSE_CMD $*"
+    # 如果设置了自定义 compose 文件，使用 -f 参数
+    local compose_args=""
+    if [ -n "$CUSTOM_COMPOSE_FILE" ]; then
+        compose_args="-f $CUSTOM_COMPOSE_FILE"
+    fi
+    
+    write_log "执行命令: $DOCKER_COMPOSE_CMD $compose_args $*"
     
     # 执行命令并捕获错误
-    if ! $DOCKER_COMPOSE_CMD "$@"; then
+    if ! $DOCKER_COMPOSE_CMD $compose_args "$@"; then
         local exit_code=$?
         log_error "Docker Compose 命令执行失败 (退出码: $exit_code)"
         write_log "ERROR: Docker Compose command failed with exit code $exit_code"
@@ -320,7 +326,11 @@ show_deployment_menu() {
     echo "   - 安装 Docker 和 Docker Compose"
     echo "   - 下载最新配置文件"
     echo ""
-    echo "8) 下载配置文件"
+    echo "8) 拉取最新镜像"
+    echo "   - 拉取最新的 Docker 镜像"
+    echo "   - 不启动服务"
+    echo ""
+    echo "9) 下载配置文件"
     echo "   - 下载/更新 docker-compose.yml"
     echo "   - 下载/更新相关配置"
     echo ""
@@ -333,16 +343,27 @@ start_service_menu() {
     while true; do
         echo ""
         echo "🔧 启动服务选项："
-        echo "1) 基础模式 (内存队列)"
-        echo "2) Redis 模式 (Redis 队列)"
+        echo "1) 基础模式 (内存队列) - 使用默认配置"
+        echo "2) Redis 模式 (Redis 队列) - 使用默认配置"
+        echo "3) 基础模式 (内存队列) - 自定义端口和容器名"
+        echo "4) Redis 模式 (Redis 队列) - 自定义端口和容器名"
         echo "0) 返回主菜单"
         echo ""
-        read -p "请选择 [1-2, 0]: " choice
+        read -p "请选择 [1-4, 0]: " choice
         
         case $choice in
             1)
-                log_info "启动基础模式 (内存队列)..."
-                write_log "启动基础模式"
+                log_info "启动基础模式 (内存队列) - 默认配置..."
+                write_log "启动基础模式 - 默认配置"
+                
+                # 拉取最新镜像
+                log_info "拉取最新 Docker 镜像..."
+                if docker_compose pull; then
+                    log_success "镜像拉取完成"
+                else
+                    log_warning "镜像拉取失败，将使用本地缓存镜像"
+                fi
+                
                 if docker_compose up -d; then
                     log_success "基础模式启动成功"
                     write_log "基础模式启动成功"
@@ -363,8 +384,20 @@ start_service_menu() {
                 fi
                 ;;
             2)
-                log_info "启动 Redis 模式..."
-                write_log "启动 Redis 模式"
+                log_info "启动 Redis 模式 - 默认配置..."
+                write_log "启动 Redis 模式 - 默认配置"
+                
+                # 设置使用 single compose 文件
+                export CUSTOM_COMPOSE_FILE="docker-compose.single.yml"
+                
+                # 拉取最新镜像
+                log_info "拉取最新 Docker 镜像..."
+                if COMPOSE_PROFILES=redis docker_compose pull; then
+                    log_success "镜像拉取完成"
+                else
+                    log_warning "镜像拉取失败，将使用本地缓存镜像"
+                fi
+                
                 if COMPOSE_PROFILES=redis docker_compose up -d; then
                     log_success "Redis 模式启动成功"
                     write_log "Redis 模式启动成功"
@@ -380,8 +413,96 @@ start_service_menu() {
                     echo ""
                     log_info "请尝试以下解决方案："
                     log_info "1. 检查 Docker 服务是否正常运行"
-                    log_info "2. 检查 docker-compose.yml 文件是否存在且正确"
+                    log_info "2. 检查 docker-compose.single.yml 文件是否存在且正确"
                     log_info "3. 查看详细日志进行诊断"
+                    return 1
+                fi
+                ;;
+            3)
+                log_info "启动基础模式 (内存队列) - 自定义配置..."
+                write_log "启动基础模式 - 自定义配置"
+                
+                # 配置服务参数
+                configure_service_parameters
+                
+                # 设置环境变量
+                export AI_CODEREVIEW_CONTAINER_NAME="${CUSTOM_CONTAINER_NAME:-ai-codereview}"
+                export AI_CODEREVIEW_API_PORT="${CUSTOM_API_PORT:-5001}"
+                export AI_CODEREVIEW_UI_PORT="${CUSTOM_UI_PORT:-5002}"
+                
+                # 拉取最新镜像
+                log_info "拉取最新 Docker 镜像..."
+                if docker_compose pull; then
+                    log_success "镜像拉取完成"
+                else
+                    log_warning "镜像拉取失败，将使用本地缓存镜像"
+                fi
+                
+                if docker_compose up -d; then
+                    log_success "基础模式启动成功"
+                    write_log "基础模式启动成功 - 自定义配置"
+                    echo ""
+                    log_info "服务地址："
+                    log_info "- API: http://localhost:${CUSTOM_API_PORT:-5001}"
+                    log_info "- UI: http://localhost:${CUSTOM_UI_PORT:-5002}"
+                    log_info "- 容器名: ${CUSTOM_CONTAINER_NAME:-ai-codereview}"
+                    return 0
+                else
+                    log_error "基础模式启动失败"
+                    write_log "基础模式启动失败 - 自定义配置"
+                    echo ""
+                    log_info "请尝试以下解决方案："
+                    log_info "1. 检查 Docker 服务是否正常运行"
+                    log_info "2. 检查端口是否被占用"
+                    log_info "3. 检查容器名是否冲突"
+                    log_info "4. 查看详细日志进行诊断"
+                    return 1
+                fi
+                ;;
+            4)
+                log_info "启动 Redis 模式 - 自定义配置..."
+                write_log "启动 Redis 模式 - 自定义配置"
+                
+                # 设置使用 single compose 文件
+                export CUSTOM_COMPOSE_FILE="docker-compose.single.yml"
+                
+                # 配置服务参数
+                configure_service_parameters
+                
+                # 设置环境变量
+                export AI_CODEREVIEW_CONTAINER_NAME="${CUSTOM_CONTAINER_NAME:-ai-codereview}"
+                export AI_CODEREVIEW_API_PORT="${CUSTOM_API_PORT:-5001}"
+                export AI_CODEREVIEW_UI_PORT="${CUSTOM_UI_PORT:-5002}"
+                export AI_CODEREVIEW_REDIS_CONTAINER_NAME="${CUSTOM_REDIS_CONTAINER_NAME:-ai-codereview-redis}"
+                
+                # 拉取最新镜像
+                log_info "拉取最新 Docker 镜像..."
+                if COMPOSE_PROFILES=redis docker_compose pull; then
+                    log_success "镜像拉取完成"
+                else
+                    log_warning "镜像拉取失败，将使用本地缓存镜像"
+                fi
+                
+                if COMPOSE_PROFILES=redis docker_compose up -d; then
+                    log_success "Redis 模式启动成功"
+                    write_log "Redis 模式启动成功 - 自定义配置"
+                    echo ""
+                    log_info "服务地址："
+                    log_info "- API: http://localhost:${CUSTOM_API_PORT:-5001}"
+                    log_info "- UI: http://localhost:${CUSTOM_UI_PORT:-5002}"
+                    log_info "- Redis: localhost:6379"
+                    log_info "- 容器名: ${CUSTOM_CONTAINER_NAME:-ai-codereview}"
+                    log_info "- Redis 容器名: ${CUSTOM_REDIS_CONTAINER_NAME:-ai-codereview-redis}"
+                    return 0
+                else
+                    log_error "Redis 模式启动失败"
+                    write_log "Redis 模式启动失败 - 自定义配置"
+                    echo ""
+                    log_info "请尝试以下解决方案："
+                    log_info "1. 检查 Docker 服务是否正常运行"
+                    log_info "2. 检查端口是否被占用"
+                    log_info "3. 检查容器名是否冲突"
+                    log_info "4. 查看详细日志进行诊断"
                     return 1
                 fi
                 ;;
@@ -392,7 +513,7 @@ start_service_menu() {
                 log_warning "请输入有效的选项"
                 ;;
             *)
-                log_warning "无效选择：'$choice'，请输入 1、2 或 0"
+                log_warning "无效选择：'$choice'，请输入 1-4 或 0"
                 ;;
         esac
     done
@@ -403,18 +524,64 @@ restart_service() {
     log_info "重启服务..."
     write_log "重启服务"
     
-    if docker_compose down --remove-orphans && docker_compose up -d; then
-        log_success "服务重启成功"
-        write_log "服务重启成功"
-        echo ""
-        log_info "服务地址："
-        log_info "- API: http://localhost:5001"
-        log_info "- UI: http://localhost:5002"
-        check_service_health
-    else
-        log_error "服务重启失败"
-        write_log "服务重启失败"
-    fi
+    echo ""
+    echo "� 重启服务选项："
+    echo "1) 停止所有服务并重新选择启动模式"
+    echo "2) 快速重启 (使用默认配置)"
+    echo "0) 取消"
+    echo ""
+    read -p "请选择 [1-2, 0]: " restart_choice
+    
+    case $restart_choice in
+        1)
+            log_info "停止所有服务..."
+            # 停止可能的服务
+            docker_compose down --remove-orphans 2>/dev/null || true
+            CUSTOM_COMPOSE_FILE="docker-compose.single.yml" docker_compose down --remove-orphans 2>/dev/null || true
+            
+            log_info "请重新选择启动模式..."
+            start_service_menu
+            ;;
+        2)
+            log_info "快速重启服务..."
+            # 停止服务
+            docker_compose down --remove-orphans
+            
+            # 拉取最新镜像
+            log_info "拉取最新 Docker 镜像..."
+            if docker_compose pull; then
+                log_success "镜像拉取完成"
+            else
+                log_warning "镜像拉取失败，将使用本地缓存镜像"
+            fi
+            
+            # 启动服务
+            if docker_compose up -d; then
+                log_success "服务重启成功"
+                write_log "服务重启成功"
+                echo ""
+                log_info "服务地址："
+                log_info "- API: http://localhost:5001"
+                log_info "- UI: http://localhost:5002"
+                check_service_health
+            else
+                log_error "服务重启失败"
+                write_log "服务重启失败"
+            fi
+            ;;
+        0)
+            log_info "取消重启"
+            return 0
+            ;;
+        "")
+            log_warning "请输入有效的选项"
+            restart_service
+            ;;
+        *)
+            log_warning "无效选择：'$restart_choice'，请输入 1、2 或 0"
+            restart_service
+            ;;
+    esac
 }
 
 # 停止服务
@@ -431,143 +598,191 @@ stop_service() {
     fi
 }
 
-# 安全清理网络函数
-cleanup_networks_safe() {
-    log_info "安全清理网络资源..."
-    
-    # 获取所有包含 ai-codereview 的网络，但只清理未被使用的
-    local networks=$(docker network ls --format "{{.Name}}" | grep -E "(ai-codereview|aicodereview)" 2>/dev/null || true)
-    
-    if [ -n "$networks" ]; then
-        echo "$networks" | while read -r network; do
-            if [ -n "$network" ]; then
-                # 检查网络是否正在被使用
-                local network_in_use=$(docker network inspect "$network" --format '{{len .Containers}}' 2>/dev/null || echo "0")
-                
-                if [ "$network_in_use" = "0" ]; then
-                    log_info "删除未使用的网络: $network"
-                    if docker network rm "$network" 2>/dev/null; then
-                        log_success "网络 $network 已删除"
-                    else
-                        log_warning "无法删除网络 $network"
-                    fi
-                else
-                    log_info "网络 $network 正在使用中，跳过删除"
-                fi
-            fi
-        done
-    else
-        log_info "没有发现相关网络需要清理"
-    fi
-}
-
-# 清理 Docker 网络和资源
-cleanup_docker_resources() {
-    log_info "清理 Docker 资源..."
-    
-    # 停止所有相关容器
-    log_info "停止 AI-CodeReview 相关容器..."
-    docker stop $(docker ps -q --filter "name=ai-codereview") 2>/dev/null || true
-    
-    # 删除所有相关容器
-    log_info "删除 AI-CodeReview 相关容器..."
-    docker rm $(docker ps -aq --filter "name=ai-codereview") 2>/dev/null || true
-    
-    # 删除网络
-    log_info "删除网络..."
-    docker network rm ai-codereview-network 2>/dev/null || true
-    
-    # 删除未使用的卷
-    log_info "清理未使用的卷..."
-    docker volume prune -f 2>/dev/null || true
-    
-    # 清理未使用的网络
-    log_info "清理未使用的网络..."
-    docker network prune -f 2>/dev/null || true
-    
-    log_success "Docker 资源清理完成"
-}
-
-# 查看服务状态
-show_service_status() {
+# 配置服务参数（端口和容器名）
+configure_service_parameters() {
+    log_info "配置服务参数..."
     echo ""
-    log_info "=== AI-CodeReview 服务状态 ==="
-    docker_compose ps 2>/dev/null || echo "无服务运行"
-    
+    echo "🔧 服务参数配置"
+    echo "=================================================="
+    echo "当前默认配置："
+    echo "- API 端口: 5001"
+    echo "- UI 端口: 5002"
+    echo "- 主容器名: ai-codereview"
+    echo "- Redis 容器名: ai-codereview-redis"
+    echo "=================================================="
     echo ""
-    log_info "=== Docker 容器状态 ==="
-    docker ps --filter "name=ai-codereview" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
     
-    echo ""
-    log_info "=== 网络状态 ==="
-    docker network ls --filter "name=ai-codereview" --format "table {{.Name}}\t{{.Driver}}\t{{.Scope}}"
-}
-
-# 查看服务日志
-show_service_logs() {
+    # 配置 API 端口
     while true; do
-        echo ""
-        echo "📋 选择要查看的日志："
-        echo "1) 实时日志 (最新100行)"
-        echo "2) 完整日志"
-        echo "3) 特定容器日志"
-        echo "0) 返回主菜单"
-        echo ""
-        read -p "请选择 [1-3, 0]: " choice
-        
-        case $choice in
-            1)
-                log_info "显示实时日志..."
-                if docker_compose ps -q 2>/dev/null | grep -q .; then
-                    docker_compose logs -f --tail=100
-                else
-                    log_warning "没有运行中的服务"
+        read -p "请输入 API 端口 (默认: 5001，直接回车使用默认): " api_port
+        if [ -z "$api_port" ]; then
+            api_port="5001"
+            break
+        elif [[ "$api_port" =~ ^[0-9]+$ ]] && [ "$api_port" -ge 1 ] && [ "$api_port" -le 65535 ]; then
+            # 检查端口是否被占用
+            if netstat -an 2>/dev/null | grep -q ":$api_port " || ss -tuln 2>/dev/null | grep -q ":$api_port "; then
+                log_warning "端口 $api_port 可能已被占用，请选择其他端口或确认"
+                read -p "是否继续使用端口 $api_port？(y/N): " confirm
+                if [[ "$confirm" =~ ^[yY]$ ]]; then
+                    break
                 fi
-                ;;
-            2)
-                log_info "显示完整日志..."
-                if docker_compose ps -q 2>/dev/null | grep -q .; then
-                    docker_compose logs
-                else
-                    log_warning "没有运行中的服务"
-                fi
-                ;;  
-            3)
-                echo ""
-                echo "可用容器："
-                local containers=$(docker ps --filter "name=ai-codereview" --format "{{.Names}}")
-                if [ -n "$containers" ]; then
-                    echo "$containers"
-                    echo ""
-                    read -p "请输入容器名称: " container_name
-                    if [ -n "$container_name" ]; then
-                        if docker ps --format "{{.Names}}" | grep -q "^${container_name}$"; then
-                            docker logs -f --tail=100 "$container_name"
-                        else
-                            log_warning "容器 '$container_name' 不存在或未运行"
-                        fi
-                    else
-                        log_warning "容器名称不能为空"
-                    fi
-                else
-                    log_warning "没有发现运行中的 AI-CodeReview 容器"
-                fi
-                ;;
-            0)
-                return 0
-                ;;
-            "")
-                log_warning "请输入有效的选项"
-                ;;
-            *)
-                log_warning "无效选择：'$choice'，请输入 1-3 或 0"
-                ;;
-        esac
-        
-        # 日志查看结束后提示用户
-        echo ""
-        read -p "日志查看结束，按回车键返回日志菜单..." dummy
+            else
+                break
+            fi
+        else
+            log_warning "请输入有效的端口号 (1-65535)"
+        fi
     done
+    
+    # 配置 UI 端口
+    while true; do
+        read -p "请输入 UI 端口 (默认: 5002，直接回车使用默认): " ui_port
+        if [ -z "$ui_port" ]; then
+            ui_port="5002"
+            break
+        elif [[ "$ui_port" =~ ^[0-9]+$ ]] && [ "$ui_port" -ge 1 ] && [ "$ui_port" -le 65535 ]; then
+            if [ "$ui_port" = "$api_port" ]; then
+                log_warning "UI 端口不能与 API 端口相同"
+                continue
+            fi
+            # 检查端口是否被占用
+            if netstat -an 2>/dev/null | grep -q ":$ui_port " || ss -tuln 2>/dev/null | grep -q ":$ui_port "; then
+                log_warning "端口 $ui_port 可能已被占用，请选择其他端口或确认"
+                read -p "是否继续使用端口 $ui_port？(y/N): " confirm
+                if [[ "$confirm" =~ ^[yY]$ ]]; then
+                    break
+                fi
+            else
+                break
+            fi
+        else
+            log_warning "请输入有效的端口号 (1-65535)"
+        fi
+    done
+    
+    # 配置容器名
+    while true; do
+        read -p "请输入主容器名 (默认: ai-codereview，直接回车使用默认): " container_name
+        if [ -z "$container_name" ]; then
+            container_name="ai-codereview"
+            break
+        elif [[ "$container_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+            # 检查容器名是否已存在
+            if docker ps -a --format "{{.Names}}" | grep -q "^${container_name}$"; then
+                log_warning "容器名 '$container_name' 已存在"
+                read -p "是否停止并移除现有容器？(y/N): " confirm
+                if [[ "$confirm" =~ ^[yY]$ ]]; then
+                    log_info "停止并移除现有容器 '$container_name'"
+                    docker stop "$container_name" 2>/dev/null || true
+                    docker rm "$container_name" 2>/dev/null || true
+                    break
+                fi
+            else
+                break
+            fi
+        else
+            log_warning "容器名只能包含字母、数字、点号、下划线和连字符，且必须以字母或数字开头"
+        fi
+    done
+    
+    # 配置 Redis 容器名
+    while true; do
+        read -p "请输入 Redis 容器名 (默认: ai-codereview-redis，直接回车使用默认): " redis_container_name
+        if [ -z "$redis_container_name" ]; then
+            redis_container_name="ai-codereview-redis"
+            break
+        elif [[ "$redis_container_name" =~ ^[a-zA-Z0-9][a-zA-Z0-9._-]*$ ]]; then
+            if [ "$redis_container_name" = "$container_name" ]; then
+                log_warning "Redis 容器名不能与主容器名相同"
+                continue
+            fi
+            # 检查容器名是否已存在
+            if docker ps -a --format "{{.Names}}" | grep -q "^${redis_container_name}$"; then
+                log_warning "容器名 '$redis_container_name' 已存在"
+                read -p "是否停止并移除现有容器？(y/N): " confirm
+                if [[ "$confirm" =~ ^[yY]$ ]]; then
+                    log_info "停止并移除现有容器 '$redis_container_name'"
+                    docker stop "$redis_container_name" 2>/dev/null || true
+                    docker rm "$redis_container_name" 2>/dev/null || true
+                    break
+                fi
+            else
+                break
+            fi
+        else
+            log_warning "容器名只能包含字母、数字、点号、下划线和连字符，且必须以字母或数字开头"
+        fi
+    done
+    
+    # 确认配置
+    echo ""
+    echo "📋 配置确认："
+    echo "- API 端口: $api_port"
+    echo "- UI 端口: $ui_port"
+    echo "- 主容器名: $container_name"
+    echo "- Redis 容器名: $redis_container_name"
+    echo ""
+    read -p "确认使用以上配置？(Y/n): " confirm
+    if [[ "$confirm" =~ ^[nN]$ ]]; then
+        log_info "重新配置参数..."
+        configure_service_parameters
+        return
+    fi
+    
+    # 导出环境变量供后续使用
+    export CUSTOM_API_PORT="$api_port"
+    export CUSTOM_UI_PORT="$ui_port"
+    export CUSTOM_CONTAINER_NAME="$container_name"
+    export CUSTOM_REDIS_CONTAINER_NAME="$redis_container_name"
+    
+    log_success "服务参数配置完成"
+    write_log "配置参数: API端口=$api_port, UI端口=$ui_port, 主容器名=$container_name, Redis容器名=$redis_container_name"
+}
+
+# 下载并启动服务
+download_and_start_service() {
+    log_info "下载并启动服务..."
+    
+    # 下载配置文件
+    if ! download_compose_files; then
+        log_error "配置文件下载失败，无法启动服务"
+        return 1
+    fi
+    
+    # 检查 Docker 环境
+    if ! check_docker; then
+        log_warning "Docker 环境检查失败，某些功能可能不可用"
+        log_info "您仍可以使用菜单选项 7 来安装 Docker 环境"
+    fi
+    
+    # 创建必要目录
+    if ! create_directories; then
+        log_warning "目录创建存在问题，但将尝试继续运行"
+    fi
+    
+    # 配置服务参数
+    configure_service_parameters
+    
+    # 启动服务
+    log_info "启动服务 (单容器模式)..."
+    if docker_compose_with_custom_params up -d; then
+        log_success "服务启动成功"
+        write_log "服务启动成功"
+        echo ""
+        log_info "服务地址："
+        log_info "- API: http://localhost:${CUSTOM_API_PORT}"
+        log_info "- UI: http://localhost:${CUSTOM_UI_PORT}"
+        return 0
+    else
+        log_error "服务启动失败"
+        write_log "服务启动失败"
+        echo ""
+        log_info "请尝试以下解决方案："
+        log_info "1. 检查 Docker 服务是否正常运行"
+        log_info "2. 检查 docker-compose.yml 文件是否存在且正确"
+        log_info "3. 查看详细日志进行诊断"
+        return 1
+    fi
 }
 
 # 检查服务健康状态
@@ -799,6 +1014,103 @@ init_startup_log() {
     echo "================================" >> "$LOG_FILE"
 }
 
+# 拉取最新 Docker 镜像
+pull_latest_images() {
+    log_info "拉取最新 Docker 镜像..."
+    write_log "拉取最新镜像"
+    
+    echo ""
+    echo "📦 镜像拉取选项："
+    echo "1) 基础模式镜像"
+    echo "2) Redis 模式镜像 (包含 Redis)"
+    echo "3) 所有镜像"
+    echo "0) 取消"
+    echo ""
+    read -p "请选择 [1-3, 0]: " choice
+    
+    case $choice in
+        1)
+            log_info "拉取基础模式镜像..."
+            if docker_compose pull; then
+                log_success "基础模式镜像拉取完成"
+                write_log "基础模式镜像拉取成功"
+            else
+                log_error "基础模式镜像拉取失败"
+                write_log "基础模式镜像拉取失败"
+                return 1
+            fi
+            ;;
+        2)
+            log_info "拉取 Redis 模式镜像..."
+            # 临时设置使用 single compose 文件
+            local old_compose_file="$CUSTOM_COMPOSE_FILE"
+            export CUSTOM_COMPOSE_FILE="docker-compose.single.yml"
+            
+            if COMPOSE_PROFILES=redis docker_compose pull; then
+                log_success "Redis 模式镜像拉取完成"
+                write_log "Redis 模式镜像拉取成功"
+            else
+                log_error "Redis 模式镜像拉取失败"
+                write_log "Redis 模式镜像拉取失败"
+                export CUSTOM_COMPOSE_FILE="$old_compose_file"
+                return 1
+            fi
+            
+            # 恢复原来的 compose 文件设置
+            export CUSTOM_COMPOSE_FILE="$old_compose_file"
+            ;;
+        3)
+            log_info "拉取所有镜像..."
+            local pull_success=true
+            
+            # 拉取基础镜像
+            if docker_compose pull; then
+                log_success "基础镜像拉取完成"
+            else
+                log_error "基础镜像拉取失败"
+                pull_success=false
+            fi
+            
+            # 拉取 Redis 镜像 (使用 single compose 文件)
+            local old_compose_file="$CUSTOM_COMPOSE_FILE"
+            export CUSTOM_COMPOSE_FILE="docker-compose.single.yml"
+            
+            if COMPOSE_PROFILES=redis docker_compose pull; then
+                log_success "Redis 镜像拉取完成"
+            else
+                log_error "Redis 镜像拉取失败"
+                pull_success=false
+            fi
+            
+            # 恢复原来的 compose 文件设置
+            export CUSTOM_COMPOSE_FILE="$old_compose_file"
+            
+            if [ "$pull_success" = true ]; then
+                log_success "所有镜像拉取完成"
+                write_log "所有镜像拉取成功"
+            else
+                log_warning "部分镜像拉取失败"
+                write_log "部分镜像拉取失败"
+                return 1
+            fi
+            ;;
+        0)
+            log_info "取消镜像拉取"
+            return 0
+            ;;
+        "")
+            log_warning "请输入有效的选项"
+            pull_latest_images
+            ;;
+        *)
+            log_warning "无效选择：'$choice'，请输入 1、2、3 或 0"
+            pull_latest_images
+            ;;
+    esac
+    
+    return 0
+}
+
 # 主函数
 main() {
     # 初始化启动日志
@@ -828,7 +1140,7 @@ main() {
 
     while true; do
         show_deployment_menu
-        read -p "请选择操作 [0-8]: " choice
+        read -p "请选择操作 [0-9]: " choice
         
         # 处理空输入
         if [ -z "$choice" ]; then
@@ -870,6 +1182,9 @@ main() {
                 log_success "环境检查/更新完成"
                 ;;
             8)
+                pull_latest_images
+                ;;
+            9)
                 log_info "开始下载配置文件..."
                 download_compose_files
                 ;;
@@ -882,7 +1197,7 @@ main() {
                 log_warning "请输入有效的选项"
                 ;;
             *)
-                log_warning "无效选择：'$choice'，请输入 0-8 之间的数字"
+                log_warning "无效选择：'$choice'，请输入 0-9 之间的数字"
                 echo "提示: 输入 0 退出程序"
                 ;;
         esac
