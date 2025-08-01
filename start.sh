@@ -861,26 +861,27 @@ check_service_health() {
     log_info "检查 API 服务健康状态..."
     local api_healthy=false
     i=1
+    local api_port="${CUSTOM_API_PORT:-5001}"
     while [ $i -le $max_retries ]; do
-        log_info "API 健康检查尝试 $i/$max_retries..."
+        log_info "API 健康检查尝试 $i/$max_retries (端口 $api_port)..."
         
-        if timeout 10 curl -s http://localhost:5001/health >/dev/null 2>&1; then
-            log_success "API 服务 (端口 5001) 运行正常"
+        if timeout 10 curl -s http://localhost:$api_port/health >/dev/null 2>&1; then
+            log_success "API 服务 (端口 $api_port) 运行正常"
             api_healthy=true
             break
-        elif timeout 5 curl -s http://localhost:5001 >/dev/null 2>&1; then
-            log_success "API 服务 (端口 5001) 响应正常 (health endpoint 不可用)"
+        elif timeout 5 curl -s http://localhost:$api_port >/dev/null 2>&1; then
+            log_success "API 服务 (端口 $api_port) 响应正常 (health endpoint 不可用)"
             api_healthy=true
             break
         else
             # 检查端口是否被占用
-            if netstat -tuln 2>/dev/null | grep -q ":5001 " || ss -tuln 2>/dev/null | grep -q ":5001 "; then
-                log_warning "API 服务 (端口 5001) 端口已开启，但服务未完全就绪"
+            if netstat -tuln 2>/dev/null | grep -q ":$api_port " || ss -tuln 2>/dev/null | grep -q ":$api_port "; then
+                log_warning "API 服务 (端口 $api_port) 端口已开启，但服务未完全就绪"
                 if [ $i -eq $max_retries ]; then
                     log_warning "API 服务启动超时，但端口已占用"
                 fi
             else
-                log_warning "API 服务 (端口 5001) 可能未启动"
+                log_warning "API 服务 (端口 $api_port) 可能未启动"
                 if [ $i -eq $max_retries ]; then
                     all_healthy=false
                 fi
@@ -898,23 +899,24 @@ check_service_health() {
     log_info "检查 UI 服务健康状态..."
     local ui_healthy=false
     i=1
+    local ui_port="${CUSTOM_UI_PORT:-5002}"
     while [ $i -le $max_retries ]; do
-        log_info "UI 健康检查尝试 $i/$max_retries..."
+        log_info "UI 健康检查尝试 $i/$max_retries (端口 $ui_port)..."
         
-        if timeout 10 curl -s http://localhost:5002 >/dev/null 2>&1; then
-            log_success "UI 服务 (端口 5002) 运行正常"
+        if timeout 10 curl -s http://localhost:$ui_port >/dev/null 2>&1; then
+            log_success "UI 服务 (端口 $ui_port) 运行正常"
             ui_healthy=true
             break
         else
             # 检查端口是否被占用
-            if netstat -tuln 2>/dev/null | grep -q ":5002 " || ss -tuln 2>/dev/null | grep -q ":5002 "; then
-                log_warning "UI 服务 (端口 5002) 端口已开启，可能仍在启动中"
+            if netstat -tuln 2>/dev/null | grep -q ":$ui_port " || ss -tuln 2>/dev/null | grep -q ":$ui_port "; then
+                log_warning "UI 服务 (端口 $ui_port) 端口已开启，可能仍在启动中"
                 if [ $i -eq $max_retries ]; then
                     log_warning "UI 服务启动超时，但端口已占用"
-                    ui_healthy=true  # Streamlit 需要更长时间启动，但端口占用说明服务正在运行
+                    ui_healthy=true
                 fi
             else
-                log_warning "UI 服务 (端口 5002) 可能未启动"
+                log_warning "UI 服务 (端口 $ui_port) 可能未启动"
                 if [ $i -eq $max_retries ]; then
                     all_healthy=false
                 fi
