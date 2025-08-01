@@ -62,7 +62,7 @@ class ConfigReloader:
             "GITLAB_URL", "GITLAB_ACCESS_TOKEN", "GITHUB_ACCESS_TOKEN",
             
             # 系统配置
-            "SERVER_PORT", "LOG_LEVEL", "QUEUE_DRIVER",
+            "API_PORT", "LOG_LEVEL", "QUEUE_DRIVER",
             "REDIS_HOST", "REDIS_PORT",
             
             # 消息推送配置
@@ -245,7 +245,7 @@ class ConfigReloader:
         restart_needed = []
         
         # 检查端口配置是否更改（需要重启）
-        current_port = os.environ.get('SERVER_PORT', '5001')
+        current_port = os.environ.get('API_PORT', '5001')
         if hasattr(self, '_last_port') and self._last_port != current_port:
             restart_needed.append('API服务 (端口配置更改)')
         self._last_port = current_port

@@ -790,7 +790,7 @@ if __name__ == '__main__':
         initialize_all_svn_repositories()
         
         # 启动Flask API服务
-        port = get_env_int('SERVER_PORT')
+        port = get_env_int('API_PORT')
         logger.info("=" * 60)
         logger.info("🚀 AI-CodeReview API 服务启动中...")
         logger.info(f"🌐 服务地址: http://0.0.0.0:{port}")

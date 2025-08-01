@@ -166,7 +166,6 @@ def validate_critical_config():
     # 定义关键配置项
     critical_configs = {
         'LLM_PROVIDER': '大模型供应商',
-        'SERVER_PORT': '服务端口',
         'TZ': '时区设置'
     }
     
@@ -199,7 +198,6 @@ def show_config_summary():
     # 显示主要配置
     key_configs = [
         'LLM_PROVIDER',
-        'SERVER_PORT', 
         'TZ',
         'VERSION_TRACKING_ENABLED',
         'LOG_LEVEL'

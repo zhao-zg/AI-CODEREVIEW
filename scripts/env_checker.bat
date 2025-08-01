@@ -102,9 +102,9 @@ if errorlevel 1 (
     echo [WARNING] Missing critical configuration: LLM_PROVIDER
 )
 
-findstr /b "SERVER_PORT=" "%ENV_FILE%" >nul 2>&1
+findstr /b "API_PORT=" "%ENV_FILE%" >nul 2>&1
 if errorlevel 1 (
-    echo [WARNING] Missing critical configuration: SERVER_PORT
+    echo [WARNING] Missing critical configuration: API_PORT
 )
 
 echo [INFO] Environment configuration check completed
@@ -113,7 +113,7 @@ echo.
 REM 显示配置摘要
 echo ========================================
 echo Configuration Summary:
-for /f "tokens=1,2 delims==" %%a in ('findstr /b "LLM_PROVIDER=\|SERVER_PORT=\|TZ=" "%ENV_FILE%" 2^>nul') do (
+for /f "tokens=1,2 delims==" %%a in ('findstr /b "LLM_PROVIDER=\|API_PORT=\|TZ=" "%ENV_FILE%" 2^>nul') do (
     echo   %%a: %%b
 )
 echo ========================================

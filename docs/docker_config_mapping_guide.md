@@ -96,7 +96,6 @@ conf/
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
 | `LLM_PROVIDER` | 大语言模型提供商 | `deepseek` |
-| `SERVER_PORT` | 服务端口 | `5001` |
 | `LOG_LEVEL` | 日志级别 | `INFO` |
 | `DASHBOARD_USER` | 仪表板用户名 | `admin` |
 | `DASHBOARD_PASSWORD` | 仪表板密码 | `admin` |

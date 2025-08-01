@@ -99,7 +99,7 @@ FEISHU_WEBHOOK=your_feishu_webhook       # 飞书机器人Webhook
 # ===================
 # 服务配置
 # ===================
-SERVER_PORT=5001                         # API服务端口
+API_PORT=5001                         # API服务端口
 UI_PORT=5002                            # Web界面端口
 LOG_LEVEL=INFO                          # 日志级别
 TZ=Asia/Shanghai                        # 时区设置

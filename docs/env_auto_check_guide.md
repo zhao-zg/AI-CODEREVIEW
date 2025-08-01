@@ -107,7 +107,6 @@ conf/.env (配置文件) ────┘
 ==================================================
 主要配置项:
   LLM_PROVIDER: jedi
-  SERVER_PORT: 5001
   TZ: Asia/Shanghai
   VERSION_TRACKING_ENABLED: 1
   LOG_LEVEL: DEBUG
@@ -122,7 +121,6 @@ conf/.env (配置文件) ────┘
 系统会特别检查以下关键配置：
 
 - `LLM_PROVIDER`: AI模型供应商
-- `SERVER_PORT`: 服务端口
 - `TZ`: 时区设置
 
 如果缺失，会显示警告提示。
