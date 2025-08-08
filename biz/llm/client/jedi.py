@@ -96,11 +96,11 @@ class JediClient(BaseClient):
                 "input": jedi_input,
                 "model_name": model,
                 "chatModelConfig": {
-                    "temperature": 0.7,
+                    "temperature": 0.1,
                     "frequency_penalty": 0,
                     "presence_penalty": 0,
                     "max_tokens": max_tokens,
-                    "top_p": 1,
+                    "top_p": 0.8,
                     "seed": 0,
                     "thinking": thinking,
                     "number_of_images": 0

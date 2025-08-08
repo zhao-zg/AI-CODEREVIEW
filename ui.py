@@ -3,6 +3,10 @@
 AI-CodeReview 代码审查仪表板
 重构后的主UI文件 - 模块化设计
 """
+# 首先加载环境变量
+from dotenv import load_dotenv
+load_dotenv("conf/.env")
+
 import streamlit as st
 import signal
 import sys
@@ -410,7 +414,8 @@ if __name__ == "__main__":
     
     if not is_streamlit_run:
         # 直接运行ui.py时，自动启动streamlit
-        ui_port = get_env_with_default('UI_PORT', '5002')
+        from biz.utils.default_config import get_env_int
+        ui_port = get_env_int('UI_PORT', 5002)
         
         print(f"启动 AI-CodeReview UI 服务...")
         print(f"地址: http://0.0.0.0:{ui_port}")
