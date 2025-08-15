@@ -100,7 +100,6 @@ class JediClient(BaseClient):
                     "frequency_penalty": 0.1,
                     "presence_penalty": 0,
                     "max_tokens": max_tokens,
-                    "top_p": 1,
                     "seed": 42,
                     "thinking": thinking
                 },
