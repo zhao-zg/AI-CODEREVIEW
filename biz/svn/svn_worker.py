@@ -269,12 +269,18 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
                 continue
             # === 简单的revision重复检查 END ===
             
-            process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
-            processed_count += 1
+            # 处理提交并检查是否成功
+            commit_success = process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
             
-            # 记录最新的revision
-            if revision and (not latest_revision or int(revision) > int(latest_revision)):
-                latest_revision = revision
+            # 只有审查成功的提交才计入处理数量和更新检查点
+            if commit_success:
+                processed_count += 1
+                
+                # 记录最新成功处理的revision
+                if revision and (not latest_revision or int(revision) > int(latest_revision)):
+                    latest_revision = revision
+            else:
+                logger.warning(f'SVN r{revision} 审查失败，不更新检查点，下次轮询将重新处理')
         
         logger.info(f'仓库 {display_name} 实际处理了 {processed_count} 个提交')
         
@@ -296,6 +302,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
     :param commit: 提交信息
     :param svn_path: SVN路径
     :param repo_name: 仓库名称
+    :return: 布尔值，表示审查是否成功
     """
     try:
         revision = commit['revision']
@@ -316,7 +323,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             
             if should_skip:
                 logger.info(f'跳过merge提交 r{revision}: {message[:100]}...')
-                return
+                return True  # merge提交跳过也算处理成功
         # === Merge提交检查 END ===
 
         # 获取提交的变更
@@ -328,7 +335,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
 
         if not changes:
             logger.info(f'提交 r{revision} 没有包含需要审查的文件类型')
-            return
+            return True  # 没有需要审查的文件也算处理成功
         # 统计新增和删除的代码行数
         additions = sum(change.get('additions', 0) for change in changes)
         deletions = sum(change.get('deletions', 0) for change in changes)
@@ -351,7 +358,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             existing_review = VersionTracker.is_version_reviewed(project_name, commit_info, changes)
             if existing_review:
                 logger.info(f'SVN版本 r{revision} 已审查，跳过重复审查。')
-                return
+                return True  # 已审查的提交也算处理成功
         # === 版本追踪集成 END ===
 
         review_result = ""
@@ -390,10 +397,10 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                     logger.info(f'代码审查完成，评分: {score}')
                 else:
                     logger.warning(f'代码审查失败：审查结果为空或无效，不写入数据库')
-                    return
+                    return False
             except Exception as e:
                 logger.error(f'代码审查过程中发生异常: {e}，不写入数据库')
-                return
+                return False
         elif svn_review_enabled:
             logger.info(f'SVN提交 r{revision} 没有包含需要审查的文件，跳过审查')
             review_result = "无需要审查的文件"
@@ -405,7 +412,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
 
         if not review_successful:
             logger.warning(f'SVN提交 r{revision} 审查未成功，不进行事件触发和通知')
-            return
+            return False
 
         # 构造提交信息
         commit_info = [{
@@ -451,11 +458,15 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 deletions_count=deletions
             )
             logger.info(f'SVN版本 r{revision} 审查结果已记录到版本追踪（包含详细信息）。')
+        
+        # 返回审查成功标志
+        return True
 
     except Exception as e:
         error_message = f'处理SVN提交 r{commit.get("revision", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
         notifier.send_notification(content=error_message)
         logger.error('处理SVN提交时出现错误: %s', error_message)
+        return False
 
 
 def is_merge_commit(message: str) -> bool:
