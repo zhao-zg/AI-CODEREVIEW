@@ -45,10 +45,12 @@ scheduler = None
 
 
 def reload_config():
-    """重新加载配置"""
-    global push_review_enabled, svn_check_enabled
+    """重新加载配置并重新配置定时任务"""
+    global push_review_enabled, svn_check_enabled, scheduler
     
     try:
+        logger.info("🔄 开始重新加载配置...")
+        
         # 重新加载环境变量
         load_dotenv("conf/.env", override=True)
         
@@ -56,12 +58,34 @@ def reload_config():
         push_review_enabled = get_env_bool('PUSH_REVIEW_ENABLED')
         svn_check_enabled = get_env_bool('SVN_CHECK_ENABLED')
         
-        logger.info("API服务配置已重新加载")
-        print("[API] 配置已重新加载")
+        # 🔄 重新配置定时任务（如果调度器已启动）
+        if scheduler and scheduler.running:
+            logger.info("🔄 检测到调度器正在运行，正在重新配置定时任务...")
+            
+            # 移除所有现有任务
+            old_jobs = scheduler.get_jobs()
+            scheduler.remove_all_jobs()
+            logger.info(f"已移除 {len(old_jobs)} 个旧的定时任务")
+            
+            # 重新添加定时任务（不重新创建调度器）
+            reconfigure_scheduler_jobs()
+            
+            new_jobs = scheduler.get_jobs()
+            logger.info(f"✅ 已重新配置 {len(new_jobs)} 个定时任务")
+        else:
+            logger.info("ℹ️ 调度器未运行，跳过定时任务重新配置")
+        
+        logger.info("✅ API服务配置已重新加载")
+        print("[API] 配置已重新加载（包括定时任务）")
+        
+        return True
         
     except Exception as e:
-        logger.error(f"API服务重新加载配置失败: {e}")
+        logger.error(f"❌ API服务重新加载配置失败: {e}")
         print(f"[API] 重新加载配置失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 
 def setup_signal_handlers():
@@ -173,6 +197,168 @@ def daily_report():
     except Exception as e:
         logger.error(f"Failed to generate daily report: {e}")
         return jsonify({'message': f"Failed to generate daily report: {e}"}), 500
+
+
+def reconfigure_scheduler_jobs():
+    """
+    重新配置调度器的任务（不重新创建调度器）
+    用于配置热重载时重新添加定时任务
+    """
+    global scheduler, svn_check_enabled
+    
+    if not scheduler:
+        logger.error("调度器未初始化")
+        return
+    
+    try:
+        # 1. 添加日报定时任务
+        crontab_expression = get_env_with_default('REPORT_CRONTAB_EXPRESSION')
+        logger.info(f"📅 配置日报定时任务，cron表达式: '{crontab_expression}'")
+        cron_parts = crontab_expression.split()
+        
+        if len(cron_parts) == 6:
+            # 6段式：秒 分 时 日 月 周
+            cron_second, cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
+            scheduler.add_job(
+                daily_report,
+                trigger=CronTrigger(
+                    second=cron_second,
+                    minute=cron_minute,
+                    hour=cron_hour,
+                    day=cron_day,
+                    month=cron_month,
+                    day_of_week=cron_day_of_week
+                ),
+                id="daily_report",
+                name="每日工作日报"
+            )
+            logger.info(f"✅ 日报定时任务已配置（含秒）: {crontab_expression}")
+        elif len(cron_parts) == 5:
+            # 5段式：分 时 日 月 周
+            cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
+            scheduler.add_job(
+                daily_report,
+                trigger=CronTrigger(
+                    minute=cron_minute,
+                    hour=cron_hour,
+                    day=cron_day,
+                    month=cron_month,
+                    day_of_week=cron_day_of_week
+                ),
+                id="daily_report",
+                name="每日工作日报"
+            )
+            logger.info(f"✅ 日报定时任务已配置: {crontab_expression}")
+        else:
+            logger.error(f"❌ 日报cron表达式格式错误: '{crontab_expression}'，使用默认值")
+            scheduler.add_job(
+                daily_report,
+                trigger=CronTrigger(minute=0, hour=18, day='*', month='*', day_of_week='mon-fri'),
+                id="daily_report",
+                name="每日工作日报"
+            )
+        
+        # 2. 添加SVN定时检查任务（如果启用）
+        if svn_check_enabled:
+            logger.info("📅 配置SVN定时检查任务...")
+            
+            # 尝试为每个仓库创建独立任务
+            svn_repositories_str = get_env_with_default('SVN_REPOSITORIES')
+            individual_tasks_created = False
+            
+            if svn_repositories_str:
+                try:
+                    import json
+                    repositories = json.loads(svn_repositories_str)
+                    if isinstance(repositories, list):
+                        for repo_config in repositories:
+                            repo_name = repo_config.get('name', 'unknown')
+                            repo_crontab = repo_config.get('check_crontab')
+                            
+                            if repo_crontab:
+                                svn_cron_parts = repo_crontab.split()
+                                
+                                if len(svn_cron_parts) == 6:
+                                    svn_second, svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                                    scheduler.add_job(
+                                        lambda repo=repo_config: trigger_single_svn_repo_check(repo),
+                                        trigger=CronTrigger(
+                                            second=svn_second,
+                                            minute=svn_minute,
+                                            hour=svn_hour,
+                                            day=svn_day,
+                                            month=svn_month,
+                                            day_of_week=svn_day_of_week
+                                        ),
+                                        id=f"svn_check_{repo_name}",
+                                        name=f"SVN检查 - {repo_name}"
+                                    )
+                                    logger.info(f"✅ 仓库 {repo_name} 定时任务已配置（含秒）: {repo_crontab}")
+                                    individual_tasks_created = True
+                                elif len(svn_cron_parts) == 5:
+                                    svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                                    scheduler.add_job(
+                                        lambda repo=repo_config: trigger_single_svn_repo_check(repo),
+                                        trigger=CronTrigger(
+                                            minute=svn_minute,
+                                            hour=svn_hour,
+                                            day=svn_day,
+                                            month=svn_month,
+                                            day_of_week=svn_day_of_week
+                                        ),
+                                        id=f"svn_check_{repo_name}",
+                                        name=f"SVN检查 - {repo_name}"
+                                    )
+                                    logger.info(f"✅ 仓库 {repo_name} 定时任务已配置: {repo_crontab}")
+                                    individual_tasks_created = True
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.error(f"解析 SVN_REPOSITORIES 配置失败: {e}")
+            
+            # 创建全局任务（如果需要）
+            if not individual_tasks_created or svn_repositories_str:
+                svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')
+                svn_cron_parts = svn_crontab.split()
+                
+                if len(svn_cron_parts) == 6:
+                    svn_second, svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                    scheduler.add_job(
+                        trigger_svn_check,
+                        trigger=CronTrigger(
+                            second=svn_second,
+                            minute=svn_minute,
+                            hour=svn_hour,
+                            day=svn_day,
+                            month=svn_month,
+                            day_of_week=svn_day_of_week
+                        ),
+                        id="svn_check_global",
+                        name="SVN全局检查"
+                    )
+                    logger.info(f"✅ SVN全局定时任务已配置（含秒）: {svn_crontab}")
+                elif len(svn_cron_parts) == 5:
+                    svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                    scheduler.add_job(
+                        trigger_svn_check,
+                        trigger=CronTrigger(
+                            minute=svn_minute,
+                            hour=svn_hour,
+                            day=svn_day,
+                            month=svn_month,
+                            day_of_week=svn_day_of_week
+                        ),
+                        id="svn_check_global",
+                        name="SVN全局检查"
+                    )
+                    logger.info(f"✅ SVN全局定时任务已配置: {svn_crontab}")
+        else:
+            logger.info("ℹ️ SVN检查已禁用，跳过SVN定时任务配置")
+        
+        logger.info("✅ 所有定时任务重新配置完成")
+        
+    except Exception as e:
+        logger.error(f"❌ 重新配置定时任务失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 
 def setup_scheduler():
