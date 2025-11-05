@@ -381,7 +381,7 @@ python biz/cmd/cleanup_versions.py
 ```bash
 VERSION_TRACKING_ENABLED=1              # 启用版本追踪
 REUSE_PREVIOUS_REVIEW_RESULT=1          # 复用之前的审查结果
-VERSION_TRACKING_RETENTION_DAYS=30     # 数据保留天数
+VERSION_TRACKING_RETENTION_DAYS=15     # 数据保留天数
 ```
 
 详细说明请参考：[版本追踪功能指南](doc/version_tracking_guide.md)
@@ -456,6 +456,8 @@ python scripts/verify_build_config_simple.py
 - [📖 自动构建详细指南](docs/auto-build-guide.md)
 - [📦 Docker自动构建说明](DOCKER_AUTO_BUILD.md)
 - [🔧 GitHub Actions配置说明](docs/github-actions-guide.md)
+- [⏰ Cron表达式使用指南](docs/cron_expression_guide.md) - 定时任务配置详解
+- [🔒 定时任务并发控制机制](docs/concurrent_control_guide.md) - 防止重复执行
 
 **构建状态监控:** [GitHub Actions](https://github.com/zhao-zg/AI-CODEREVIEW/actions)
 

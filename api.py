@@ -189,24 +189,51 @@ def setup_scheduler():
         cron_parts = crontab_expression.split()
         logger.info(f"📋 Cron parts after split: {cron_parts} (count: {len(cron_parts)})")
         
-        # 验证cron表达式格式
-        if len(cron_parts) != 5:
-            logger.error(f"❌ Invalid cron expression format: '{crontab_expression}'. Expected 5 parts (minute hour day month day_of_week), got {len(cron_parts)}")
+        # 验证cron表达式格式（支持5段式和6段式）
+        if len(cron_parts) == 6:
+            # 6段式：秒 分 时 日 月 周
+            cron_second, cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
+            logger.info(f"✅ Cron schedule set (with seconds): second={cron_second}, minute={cron_minute}, hour={cron_hour}, day={cron_day}, month={cron_month}, day_of_week={cron_day_of_week}")
+            scheduler.add_job(
+                daily_report,
+                trigger=CronTrigger(
+                    second=cron_second,
+                    minute=cron_minute,
+                    hour=cron_hour,
+                    day=cron_day,
+                    month=cron_month,
+                    day_of_week=cron_day_of_week
+                )
+            )
+        elif len(cron_parts) == 5:
+            # 5段式：分 时 日 月 周（向后兼容）
+            cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
+            logger.info(f"✅ Cron schedule set: minute={cron_minute}, hour={cron_hour}, day={cron_day}, month={cron_month}, day_of_week={cron_day_of_week}")
+            scheduler.add_job(
+                daily_report,
+                trigger=CronTrigger(
+                    minute=cron_minute,
+                    hour=cron_hour,
+                    day=cron_day,
+                    month=cron_month,
+                    day_of_week=cron_day_of_week
+                )
+            )
+        else:
+            logger.error(f"❌ Invalid cron expression format: '{crontab_expression}'. Expected 5 or 6 parts, got {len(cron_parts)}")
             logger.info(f"💡 Using default cron expression: '0 18 * * 1-5'")
             cron_parts = '0 18 * * 1-5'.split()
-        
-        cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
-        logger.info(f"✅ Cron schedule set: minute={cron_minute}, hour={cron_hour}, day={cron_day}, month={cron_month}, day_of_week={cron_day_of_week}")
-
-        scheduler.add_job(
-            daily_report,
-            trigger=CronTrigger(
-                minute=cron_minute,
-                hour=cron_hour,
-                day=cron_day,
-                month=cron_month,
-                day_of_week=cron_day_of_week
-            )        )
+            cron_minute, cron_hour, cron_day, cron_month, cron_day_of_week = cron_parts
+            scheduler.add_job(
+                daily_report,
+                trigger=CronTrigger(
+                    minute=cron_minute,
+                    hour=cron_hour,
+                    day=cron_day,
+                    month=cron_month,
+                    day_of_week=cron_day_of_week
+                )
+            )
         
         # SVN定时检查任务
         if svn_check_enabled:
@@ -226,10 +253,27 @@ def setup_scheduler():
                             if repo_crontab:
                                 svn_cron_parts = repo_crontab.split()
                                 
-                                if len(svn_cron_parts) == 5:
+                                if len(svn_cron_parts) == 6:
+                                    # 6段式：秒 分 时 日 月 周
+                                    svn_second, svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                                    scheduler.add_job(
+                                        lambda repo=repo_config: trigger_single_svn_repo_check(repo),
+                                        trigger=CronTrigger(
+                                            second=svn_second,
+                                            minute=svn_minute,
+                                            hour=svn_hour,
+                                            day=svn_day,
+                                            month=svn_month,
+                                            day_of_week=svn_day_of_week
+                                        ),
+                                        id=f"svn_check_{repo_name}",
+                                        name=f"SVN检查任务 - {repo_name}"
+                                    )
+                                    logger.info(f"为仓库 {repo_name} 创建独立定时任务（含秒），表达式: {repo_crontab}")
+                                    individual_tasks_created = True
+                                elif len(svn_cron_parts) == 5:
+                                    # 5段式：分 时 日 月 周（向后兼容）
                                     svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
-                                    
-                                    # 为每个仓库创建独立的定时任务
                                     scheduler.add_job(
                                         lambda repo=repo_config: trigger_single_svn_repo_check(repo),
                                         trigger=CronTrigger(
@@ -245,7 +289,7 @@ def setup_scheduler():
                                     logger.info(f"为仓库 {repo_name} 创建独立定时任务，表达式: {repo_crontab}")
                                     individual_tasks_created = True
                                 else:
-                                    logger.error(f"仓库 {repo_name} 的定时表达式格式错误: {repo_crontab}")
+                                    logger.error(f"仓库 {repo_name} 的定时表达式格式错误: {repo_crontab}，应为5段或6段")
                             else:
                                 logger.info(f"仓库 {repo_name} 未配置 check_crontab，将使用全局定时任务")
                 except (json.JSONDecodeError, Exception) as e:
@@ -256,9 +300,26 @@ def setup_scheduler():
                 svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')  # 默认每30分钟检查一次
                 svn_cron_parts = svn_crontab.split()
                 
-                if len(svn_cron_parts) == 5:
+                if len(svn_cron_parts) == 6:
+                    # 6段式：秒 分 时 日 月 周
+                    svn_second, svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
+                    scheduler.add_job(
+                        trigger_svn_check,
+                        trigger=CronTrigger(
+                            second=svn_second,
+                            minute=svn_minute,
+                            hour=svn_hour,
+                            day=svn_day,
+                            month=svn_month,
+                            day_of_week=svn_day_of_week
+                        ),
+                        id="svn_check_global",
+                        name="SVN全局检查任务"
+                    )
+                    logger.info(f"SVN全局定时检查任务已配置（含秒），定时表达式: {svn_crontab}")
+                elif len(svn_cron_parts) == 5:
+                    # 5段式：分 时 日 月 周（向后兼容）
                     svn_minute, svn_hour, svn_day, svn_month, svn_day_of_week = svn_cron_parts
-                    
                     scheduler.add_job(
                         trigger_svn_check,
                         trigger=CronTrigger(
@@ -273,7 +334,7 @@ def setup_scheduler():
                     )
                     logger.info(f"SVN全局定时检查任务已配置，定时表达式: {svn_crontab}")
                 else:
-                    logger.error(f"SVN定时表达式格式错误: {svn_crontab}")
+                    logger.error(f"SVN定时表达式格式错误: {svn_crontab}，应为5段或6段")
 
         # 在启动调度器之前初始化所有SVN仓库
         logger.info("🔄 正在初始化SVN仓库...")
