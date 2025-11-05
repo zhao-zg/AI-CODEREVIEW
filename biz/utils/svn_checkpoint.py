@@ -81,7 +81,7 @@ class SVNCheckpointManager:
                     return int(time.time() - 24 * 3600)
                     
         except sqlite3.DatabaseError as e:
-            print(f"获取检查点失败: {e}")
+            logger.error(f"获取检查点失败: {e}")
             return int(time.time() - 24 * 3600)
     
     @staticmethod
@@ -112,10 +112,10 @@ class SVNCheckpointManager:
                 ''', (repo_name, current_time, last_revision, current_time, current_time))
                 
                 conn.commit()
-                print(f"更新检查点成功: {repo_name} -> {datetime.fromtimestamp(current_time)}")
+                logger.info(f"更新检查点成功: {repo_name} -> {datetime.fromtimestamp(current_time)}")
                 
         except sqlite3.DatabaseError as e:
-            print(f"更新检查点失败: {e}")
+            logger.error(f"更新检查点失败: {e}")
     
     @staticmethod
     def get_all_checkpoints():
@@ -144,7 +144,7 @@ class SVNCheckpointManager:
                 return checkpoints
                 
         except sqlite3.DatabaseError as e:
-            print(f"获取检查点列表失败: {e}")
+            logger.error(f"获取检查点列表失败: {e}")
             return []
 
 def test_checkpoint_manager():

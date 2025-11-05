@@ -1,6 +1,6 @@
 import logging
 import os
-from logging.handlers import RotatingFileHandler
+from logging.handlers import TimedRotatingFileHandler
 from biz.utils.default_config import get_env_with_default, get_env_int
 
 # 自定义 Logger 类，重写 warn 和 error 方法
@@ -17,20 +17,28 @@ class CustomLogger(logging.Logger):
 
 
 log_file = get_env_with_default("LOG_FILE", "log/app.log")
-log_max_bytes = get_env_int("LOG_MAX_BYTES", 10 * 1024 * 1024)  # 默认10MB
-log_backup_count = get_env_int("LOG_BACKUP_COUNT", 5)  # 默认保留5个备份文件
+# 日志保留天数，默认30天（1个月）
+log_retention_days = get_env_int("LOG_RETENTION_DAYS", 30)
 # 设置日志级别
 log_level = get_env_with_default("LOG_LEVEL", "INFO")
 LOG_LEVEL = getattr(logging, log_level.upper(), logging.INFO)
 
-file_handler = RotatingFileHandler(
+# 确保日志目录存在
+log_dir = os.path.dirname(log_file)
+if log_dir and not os.path.exists(log_dir):
+    os.makedirs(log_dir, exist_ok=True)
+
+# 使用TimedRotatingFileHandler按天轮换日志
+file_handler = TimedRotatingFileHandler(
     filename=log_file,
-    mode='a',
-    maxBytes=log_max_bytes,
-    backupCount=log_backup_count,
+    when='midnight',        # 每天午夜轮换
+    interval=1,             # 间隔1天
+    backupCount=log_retention_days,  # 保留指定天数的日志
     encoding='utf-8',
     delay=False
 )
+# 设置日志文件名后缀为日期格式
+file_handler.suffix = "%Y-%m-%d"
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(filename)s:%(funcName)s:%(lineno)d - %(message)s'))
 file_handler.setLevel(LOG_LEVEL)
 
