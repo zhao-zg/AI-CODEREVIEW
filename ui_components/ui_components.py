@@ -336,18 +336,22 @@ class UIComponents:
         if row.get('commit_messages') or row.get('commit_message') or row.get('title'):
             st.markdown("#### 💬 提交信息")
             message = row.get('commit_messages', row.get('commit_message', row.get('title', 'N/A')))
-            st.text_area("提交消息", value=str(message), height=100, disabled=True)
+            # 使用唯一的key避免ID冲突
+            unique_id = row.get('commit_sha') or row.get('version_hash') or row.get('id') or str(row.get('created_at', ''))
+            st.text_area("提交消息", value=str(message), height=100, disabled=True, key=f"commit_msg_{unique_id}")
         
         # 审查结果
         if row.get('review_result'):
             st.markdown("#### 📝 审查结果")
             review_result = str(row.get('review_result', ''))
+            # 使用唯一的key避免ID冲突
+            unique_id = row.get('commit_sha') or row.get('version_hash') or row.get('id') or str(row.get('created_at', ''))
             if len(review_result) > 1000:
                 # 长文本使用可展开组件
                 with st.expander("点击查看完整审查结果", expanded=False):
                     st.markdown(review_result)
             else:
-                st.text_area("审查详情", value=review_result, height=200, disabled=True)
+                st.text_area("审查详情", value=review_result, height=200, disabled=True, key=f"review_result_{unique_id}")
         
         # 重新评审按钮（仅管理员可见）
         from ui_components.auth import check_authentication
