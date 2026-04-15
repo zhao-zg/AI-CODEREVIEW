@@ -149,6 +149,43 @@ def get_env_int(key: str, custom_fallback: Optional[int] = None) -> int:
     
     return custom_fallback or 0
 
+def is_path_excluded(path: str, exclude_patterns: list) -> bool:
+    """
+    检查文件路径是否匹配排除规则。
+
+    支持两种匹配方式：
+    1. fnmatch 通配符（如 *.pb.go、vendor/*）
+    2. 路径段包含匹配（如 generated 会匹配 a/generated/foo.go）
+
+    用法示例（conf/.env 中的 EXCLUDE_PATTERNS）：
+        *.pb.go          → 过滤所有 proto 生成的 Go 文件（任意目录）
+        vendor/*         → 过滤 vendor/ 一级目录下的文件
+        generated/       → 过滤路径中包含 generated 目录的所有文件（任意层级）
+        src/gen/*        → 过滤 src/gen/ 下的文件
+    """
+    import fnmatch
+    normalized = path.replace('\\', '/')
+    for pat in exclude_patterns:
+        pat = pat.strip()
+        if not pat:
+            continue
+        # 以 / 结尾：目录包含匹配（任意层级）
+        if pat.endswith('/'):
+            dir_name = pat.rstrip('/')
+            if ('/' + dir_name + '/') in ('/' + normalized) or normalized.startswith(dir_name + '/'):
+                return True
+        # 包含 / 但不以 / 结尾：路径前缀或 fnmatch 匹配
+        elif '/' in pat:
+            if fnmatch.fnmatch(normalized, pat):
+                return True
+        else:
+            # 无 /：匹配文件名（basename）或整个路径
+            basename = normalized.rsplit('/', 1)[-1]
+            if fnmatch.fnmatch(basename, pat) or fnmatch.fnmatch(normalized, pat):
+                return True
+    return False
+
+
 def reload_defaults():
     """重新加载默认配置（用于测试或动态更新）"""
     _default_config.reload()

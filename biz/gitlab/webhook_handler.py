@@ -13,8 +13,9 @@ def filter_changes(changes: list):
     过滤数据，只保留支持的文件类型以及必要的字段信息
     '''
     # 从环境变量中获取支持的文件扩展名
-    from biz.utils.default_config import get_env_with_default
+    from biz.utils.default_config import get_env_with_default, is_path_excluded
     supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
+    exclude_patterns = [p.strip() for p in get_env_with_default('EXCLUDE_PATTERNS').split(',') if p.strip()]
 
     filter_deleted_files_changes = [change for change in changes if not change.get("deleted_file")]
 
@@ -28,6 +29,7 @@ def filter_changes(changes: list):
         }
         for item in filter_deleted_files_changes
         if any(item.get('new_path', '').endswith(ext) for ext in supported_extensions)
+        and not is_path_excluded(item.get('new_path', ''), exclude_patterns)
     ]
     return filtered_changes
 

@@ -586,17 +586,23 @@ def filter_svn_changes(changes: List[Dict]) -> List[Dict]:
     """
     过滤SVN变更，只保留支持的文件类型
     """
-    from biz.utils.default_config import get_env_with_default
+    from biz.utils.default_config import get_env_with_default, is_path_excluded
     supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
+    exclude_patterns = [p.strip() for p in get_env_with_default('EXCLUDE_PATTERNS').split(',') if p.strip()]
     
     filtered_changes = []
     for change in changes:
-        if any(change.get('new_path', '').endswith(ext) for ext in supported_extensions):
-            filtered_changes.append({
-                'diff': change.get('diff', ''),
-                'new_path': change.get('new_path', ''),
-                'additions': change.get('additions', 0),
-                'deletions': change.get('deletions', 0)
-            })
+        path = change.get('new_path', '')
+        if not any(path.endswith(ext) for ext in supported_extensions):
+            continue
+        if is_path_excluded(path, exclude_patterns):
+            logger.info(f'文件 {path} 匹配排除规则，跳过审查')
+            continue
+        filtered_changes.append({
+            'diff': change.get('diff', ''),
+            'new_path': path,
+            'additions': change.get('additions', 0),
+            'deletions': change.get('deletions', 0)
+        })
     
     return filtered_changes

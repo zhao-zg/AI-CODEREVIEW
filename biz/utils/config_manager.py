@@ -180,6 +180,7 @@ class ConfigManager:
             "SVN_USERNAME": "SVN配置",
             "SVN_PASSWORD": "SVN配置",
             "SUPPORTED_EXTENSIONS": "SVN配置",
+            "EXCLUDE_PATTERNS": "SVN配置",
             
             # 消息推送相关
             "DINGTALK_ENABLED": "消息推送配置",
@@ -472,6 +473,7 @@ class ConfigManager:
             "SVN_USERNAME": "SVN用户名",
             "SVN_PASSWORD": "SVN密码",
             "SUPPORTED_EXTENSIONS": "支持的文件扩展名，逗号分隔",
+            "EXCLUDE_PATTERNS": "排除的文件路径模式，逗号分隔。支持通配符*，如 *.pb.go 过滤proto生成文件；generated/ 过滤任意层级的generated目录；vendor/* 过滤vendor目录",
             
             # 消息推送配置
             "DINGTALK_ENABLED": "是否启用钉钉推送，1启用/0禁用",

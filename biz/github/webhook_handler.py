@@ -15,7 +15,9 @@ def filter_changes(changes: list):
     '''
     # 从环境变量中获取支持的文件扩展名
     from biz.utils.default_config import get_env_with_default
+    import fnmatch
     supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
+    exclude_patterns = [p.strip() for p in get_env_with_default('EXCLUDE_PATTERNS').split(',') if p.strip()]
     
     # 筛选出未被删除的文件
     not_deleted_changes = []
@@ -51,6 +53,7 @@ def filter_changes(changes: list):
         }
         for item in not_deleted_changes
         if any(item.get('new_path', '').endswith(ext) for ext in supported_extensions)
+        and not is_path_excluded(item.get('new_path', ''), exclude_patterns)
     ]
     logger.info(f"After filtering by extension: {filtered_changes}")
     return filtered_changes
