@@ -69,9 +69,9 @@ class JediClient(BaseClient):
             # 获取系统配置的最大 token 限制
             system_max_tokens = get_env_int("REVIEW_MAX_TOKENS", 10000)
             
-            # 固定配置：超时600秒，只重试1次
+            # 配置：初始超时600秒，最多重试2次，每次重试超时加倍
             timeout = 600
-            max_retries = 1
+            max_retries = 2
             
             # 根据内容长度判断复杂度并调整参数，但不能超过系统限制
             if total_content_length < 400:  # 简单请求
@@ -112,17 +112,18 @@ class JediClient(BaseClient):
                 "Content-Type": "application/json"
             }
             
-            # 实现重试机制（固定超时600秒，只重试1次）
+            # 实现重试机制（初始超时600秒，最多重试2次，每次重试超时加倍，最大1200秒）
             for attempt in range(max_retries + 1):
+                current_timeout = min(timeout * (2 ** attempt), 1200)
                 try:
-                    logger.info(f"Jedi API 请求尝试 {attempt + 1}/{max_retries + 1}, 复杂度: {complexity_level}, 超时设置: {timeout}秒")
+                    logger.info(f"Jedi API 请求尝试 {attempt + 1}/{max_retries + 1}, 复杂度: {complexity_level}, 超时设置: {current_timeout}秒")
                     
                     # 发送请求
                     response = requests.post(
                         self.base_url,
                         headers=headers,
                         json=payload,
-                        timeout=timeout
+                        timeout=current_timeout
                     )
                     
                     logger.debug(f"Jedi API response status: {response.status_code}")
@@ -143,7 +144,7 @@ class JediClient(BaseClient):
                             else:
                                 logger.warning("Jedi API 返回空内容")
                                 if attempt == max_retries:
-                                    error_result = f"❌ AI审查失败: API返回空内容\n\n详细信息:\n- 状态码: 200\n- 响应内容: {str(result)[:500]}\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- 超时设置: {timeout}秒"
+                                    error_result = f"❌ AI审查失败: API返回空内容\n\n详细信息:\n- 状态码: 200\n- 响应内容: {str(result)[:500]}\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- 超时设置: {current_timeout}秒"
                                     logger.error(error_result)
                                     return error_result
                                 continue
@@ -153,7 +154,7 @@ class JediClient(BaseClient):
                                 return content
                             else:
                                 if attempt == max_retries:
-                                    error_result = f"❌ AI审查失败: API返回空内容\n\n详细信息:\n- 状态码: 200\n- 响应类型: {type(result)}\n- 响应内容: {str(result)[:500]}\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- 超时设置: {timeout}秒"
+                                    error_result = f"❌ AI审查失败: API返回空内容\n\n详细信息:\n- 状态码: 200\n- 响应类型: {type(result)}\n- 响应内容: {str(result)[:500]}\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- 超时设置: {current_timeout}秒"
                                     logger.error(error_result)
                                     return error_result
                                 continue
@@ -188,15 +189,15 @@ class JediClient(BaseClient):
                             return error_result
                         else:
                             if attempt == max_retries:
-                                error_result = f"❌ AI审查失败: API请求错误\n\n详细信息:\n{error_msg}\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- 超时设置: {timeout}秒\n- API地址: {self.base_url}"
+                                error_result = f"❌ AI审查失败: API请求错误\n\n详细信息:\n{error_msg}\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- 超时设置: {current_timeout}秒\n- API地址: {self.base_url}"
                                 logger.error(error_result)
                                 return error_result
                             continue
                             
                 except requests.exceptions.Timeout:
-                    logger.warning(f"Jedi API请求超时 (尝试 {attempt + 1}/{max_retries + 1}, 超时: {timeout}秒)")
+                    logger.warning(f"Jedi API请求超时 (尝试 {attempt + 1}/{max_retries + 1}, 超时: {current_timeout}秒)")
                     if attempt == max_retries:
-                        error_result = f"❌ AI审查失败: 请求超时\n\n详细信息:\n- 错误类型: 请求超时 (Timeout)\n- 超时设置: {timeout}秒\n- 可能原因: 网络延迟过高或服务器响应缓慢\n- 建议: 请检查网络连接或稍后重试\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- API地址: {self.base_url}\n- 复杂度: {complexity_level}\n- 内容长度: {total_content_length}"
+                        error_result = f"❌ AI审查失败: 请求超时\n\n详细信息:\n- 错误类型: 请求超时 (Timeout)\n- 超时设置: {current_timeout}秒\n- 可能原因: 网络延迟过高或服务器响应缓慢\n- 建议: 请检查网络连接或稍后重试\n- 尝试次数: {attempt + 1}/{max_retries + 1}\n- API地址: {self.base_url}\n- 复杂度: {complexity_level}\n- 内容长度: {total_content_length}"
                         logger.error(error_result)
                         return error_result
                     # 继续下一次重试

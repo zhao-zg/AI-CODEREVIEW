@@ -7,7 +7,7 @@ from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity
 from biz.event.event_manager import event_manager
 from biz.gitlab.webhook_handler import filter_changes, MergeRequestHandler, PushHandler
 from biz.github.webhook_handler import filter_changes as filter_github_changes, PullRequestHandler as GithubPullRequestHandler, PushHandler as GithubPushHandler
-from biz.utils.code_reviewer import CodeReviewer
+from biz.utils.code_reviewer import CodeReviewer, is_api_error_message
 from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.version_tracker import VersionTracker
@@ -76,8 +76,14 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
                             commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
                             review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
                             
-                            # 验证审查结果
-                            if review_result and review_result.strip() and review_result != "代码为空":
+                            # API错误时发送评论并入库，不再直接返回
+                            if is_api_error_message(review_result):
+                                logger.error(f'GitLab Push AI审查出现API错误，发送错误评论')
+                                handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+                                # review_successful 保持 False，跳过评分和版本追踪
+                            
+                            # 验证审查结果（非API错误才解析评分和记录版本）
+                            elif review_result and review_result.strip() and review_result != "代码为空":
                                 score = CodeReviewer.parse_review_score(review_text=review_result)
                                 for item in changes:
                                     additions += item['additions']
@@ -118,8 +124,13 @@ def handle_push_event(webhook_data: dict, gitlab_token: str, gitlab_url: str, gi
                         commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
                         review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
                         
-                        # 验证审查结果
-                        if review_result and review_result.strip() and review_result != "代码为空":
+                        # API错误时发送评论并入库，不再直接返回
+                        if is_api_error_message(review_result):
+                            logger.error(f'GitLab Push AI审查出现API错误，发送错误评论')
+                            handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+                        
+                        # 验证审查结果（非API错误才解析评分）
+                        elif review_result and review_result.strip() and review_result != "代码为空":
                             score = CodeReviewer.parse_review_score(review_text=review_result)
                             for item in changes:
                                 additions += item['additions']
@@ -245,26 +256,32 @@ def handle_merge_request_event(webhook_data: dict, gitlab_token: str, gitlab_url
         # review 代码
         commits_text = ';'.join(commit['title'] for commit in commits)
         
+        review_score = 0
         try:
             review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
             
+            # API错误时发送评论并入库，不再直接返回
+            if is_api_error_message(review_result):
+                logger.error(f'GitLab MR AI审查出现API错误，发送错误评论')
+                handler.add_merge_request_notes(f'Auto Review Result: \n{review_result}')
+            
             # 验证审查结果
-            if not review_result or not review_result.strip() or review_result == "代码为空":
+            elif not review_result or not review_result.strip() or review_result == "代码为空":
                 logger.warning(f'GitLab MR代码审查失败：审查结果为空或无效')
                 return  # 审查失败时直接返回
-                
-            # 解析审查评分
-            review_score = CodeReviewer.parse_review_score(review_text=review_result)
+            else:
+                # 解析审查评分
+                review_score = CodeReviewer.parse_review_score(review_text=review_result)
 
-            # 将review结果提交到Gitlab的 notes
-            handler.add_merge_request_notes(f'Auto Review Result: \n{review_result}')
+                # 将review结果提交到Gitlab的 notes
+                handler.add_merge_request_notes(f'Auto Review Result: \n{review_result}')
             
         except Exception as e:
             logger.error(f'GitLab MR代码审查过程中发生异常: {e}')
             return  # 审查出错时直接返回
         
-        # 记录版本审查信息（如果启用了版本追踪）
-        if version_tracking_enabled:
+        # 记录版本审查信息（如果启用了版本追踪且非API错误）
+        if version_tracking_enabled and not is_api_error_message(review_result):
             VersionTracker.record_version_review(
                 project_name=project_name,
                 commits=commits,
@@ -354,8 +371,13 @@ def handle_github_push_event(webhook_data: dict, github_token: str, github_url: 
                     commits_text = ';'.join(commit.get('message', '').strip() for commit in commits)
                     review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
                     
-                    # 验证审查结果
-                    if review_result and review_result.strip() and review_result != "代码为空":
+                    # API错误时发送评论并入库，不再直接返回
+                    if is_api_error_message(review_result):
+                        logger.error(f'GitHub Push AI审查出现API错误，发送错误评论')
+                        handler.add_push_notes(f'Auto Review Result: \n{review_result}')
+                    
+                    # 验证审查结果（非API错误才解析评分）
+                    elif review_result and review_result.strip() and review_result != "代码为空":
                         score = CodeReviewer.parse_review_score(review_text=review_result)
                         for item in changes:
                             additions += item.get('additions', 0)
@@ -460,13 +482,18 @@ def handle_github_pull_request_event(webhook_data: dict, github_token: str, gith
         try:
             review_result = CodeReviewer().review_and_strip_code(str(changes), commits_text)
             
+            # API错误时发送评论并入库，不再直接返回
+            if is_api_error_message(review_result):
+                logger.error(f'GitHub PR AI审查出现API错误，发送错误评论')
+                handler.add_pull_request_notes(f'Auto Review Result: \n{review_result}')
+            
             # 验证审查结果
-            if not review_result or not review_result.strip() or review_result == "代码为空":
+            elif not review_result or not review_result.strip() or review_result == "代码为空":
                 logger.warning(f'GitHub PR代码审查失败：审查结果为空或无效')
                 return  # 审查失败时直接返回
-
-            # 将review结果提交到GitHub的 notes
-            handler.add_pull_request_notes(f'Auto Review Result: \n{review_result}')
+            else:
+                # 将review结果提交到GitHub的 notes
+                handler.add_pull_request_notes(f'Auto Review Result: \n{review_result}')
             
         except Exception as e:
             logger.error(f'GitHub PR代码审查过程中发生异常: {e}')

@@ -7,7 +7,7 @@ from typing import List, Dict
 from biz.entity.review_entity import SvnReviewEntity
 from biz.event.event_manager import event_manager
 from biz.svn.svn_handler import SVNHandler, filter_svn_changes
-from biz.utils.code_reviewer import CodeReviewer
+from biz.utils.code_reviewer import CodeReviewer, is_api_error_message
 from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.config_manager import ConfigManager
@@ -53,46 +53,48 @@ from biz.utils.version_tracker import VersionTracker
 _processed_revisions_cache = {}  # 格式: {repo_name: {revision: timestamp}}
 _cache_ttl = 3600  # 缓存1小时
 
-def is_revision_recently_processed(repo_name: str, revision: str) -> bool:
-    """
-    检查revision是否在最近已经处理过（简单内存缓存）
-    
-    Args:
-        repo_name: 仓库名称
-        revision: SVN revision号
-        
-    Returns:
-        如果最近已处理过则返回True
-    """
+def _clean_revision_cache(repo_name: str):
+    """清理指定仓库的过期缓存"""
     try:
         current_time = int(datetime.now().timestamp())
-        
-        # 初始化仓库缓存
         if repo_name not in _processed_revisions_cache:
-            _processed_revisions_cache[repo_name] = {}
-        
+            return
         repo_cache = _processed_revisions_cache[repo_name]
-        
-        # 清理过期缓存
         expired_revisions = [
             rev for rev, timestamp in repo_cache.items()
             if current_time - timestamp > _cache_ttl
         ]
         for rev in expired_revisions:
             del repo_cache[rev]
-        
-        # 检查是否已处理
-        if revision in repo_cache:
+    except Exception as e:
+        logger.warning(f'清理revision缓存失败: {e}')
+
+
+def is_revision_recently_processed(repo_name: str, revision: str) -> bool:
+    """
+    检查revision是否在最近已经处理过（只读，不写入缓存）
+    """
+    try:
+        if repo_name not in _processed_revisions_cache:
+            return False
+        _clean_revision_cache(repo_name)
+        if revision in _processed_revisions_cache.get(repo_name, {}):
             logger.debug(f'Revision r{revision} 在缓存中找到，跳过处理')
             return True
-        
-        # 记录到缓存
-        repo_cache[revision] = current_time
         return False
-        
     except Exception as e:
         logger.warning(f'检查revision缓存失败: {e}')
         return False
+
+
+def mark_revision_processed(repo_name: str, revision: str):
+    """将revision标记为已处理（在成功处理后调用）"""
+    try:
+        if repo_name not in _processed_revisions_cache:
+            _processed_revisions_cache[repo_name] = {}
+        _processed_revisions_cache[repo_name][revision] = int(datetime.now().timestamp())
+    except Exception as e:
+        logger.warning(f'写入revision缓存失败: {e}')
 
 # === 简单的revision缓存 END ===
 
@@ -273,6 +275,10 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
             process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
             processed_count += 1
             
+            # 成功处理后才写入缓存，避免处理失败时缓存阻断后续重试
+            if revision:
+                mark_revision_processed(display_name, revision)
+            
             # 记录最新处理的revision
             if revision and (not latest_revision or int(revision) > int(latest_revision)):
                 latest_revision = revision
@@ -387,12 +393,13 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 review_result = CodeReviewer().review_and_strip_code(diff_struct_json, commits_text)
                 # 无论审查结果如何（包括错误信息），都记录并处理
                 if review_result and review_result.strip():
-                    score = CodeReviewer.parse_review_score(review_text=review_result)
-                    review_successful = True
-                    if "❌ AI审查失败" in review_result:
-                        logger.warning(f'代码审查遇到错误，错误信息已作为审查结果: {review_result[:200]}...')
+                    if is_api_error_message(review_result):
+                        logger.warning(f'代码审查遇到API错误，错误信息已作为审查结果: {review_result[:200]}...')
+                        score = 0
                     else:
+                        score = CodeReviewer.parse_review_score(review_text=review_result)
                         logger.info(f'代码审查完成，评分: {score}')
+                    review_successful = True
                 else:
                     logger.warning(f'代码审查返回空结果，使用默认消息')
                     review_result = "代码审查返回空结果"
@@ -443,7 +450,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         
         # === 版本追踪集成 ===
         version_tracking_enabled = get_config_bool('VERSION_TRACKING_ENABLED', True)
-        if version_tracking_enabled:
+        if version_tracking_enabled and not is_api_error_message(review_result):
             VersionTracker.record_version_review(
                 project_name=project_name,
                 commits=commit_info,

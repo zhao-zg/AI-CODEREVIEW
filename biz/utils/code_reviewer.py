@@ -187,8 +187,8 @@ class CodeReviewer(BaseReviewer):
         review_result = self.review_code(changes_text, commits_text).strip()
         # 检查是否是API错误消息
         if is_api_error_message(review_result):
-            logger.error(f"检测到API错误，跳过写入审查结果: {review_result[:100]}...")
-            return None  # 返回None表示应该跳过写入
+            logger.error(f"检测到API错误，返回错误消息: {review_result[:100]}...")
+            return review_result  # 返回错误消息，由调用方决定是否发布到评论
         
         # 验证审查结果
         if not review_result:
