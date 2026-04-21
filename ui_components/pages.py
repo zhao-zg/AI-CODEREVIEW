@@ -663,6 +663,9 @@ def env_management_page():
                 with col4:
                     supported_extensions = st.text_input("支持的文件扩展名", 
                                                        value=env_config.get("SUPPORTED_EXTENSIONS", ".py,.js,.java,.cpp,.c,.h"))
+                    exclude_patterns = st.text_input("排除的文件路径模式（逗号分隔，支持通配符*）",
+                                                    value=env_config.get("EXCLUDE_PATTERNS", ""),
+                                                    help="匹配到的文件不进行审查。例如：*.pb.go,vendor/*,node_modules/*,*.min.js")
                     log_max_bytes = st.number_input("日志文件最大字节数", 
                                                   min_value=1024, max_value=104857600, 
                                                   value=int(env_config.get("LOG_MAX_BYTES", "10485760") or "10485760"))
@@ -955,6 +958,7 @@ def env_management_page():
                     # "REVIEW_STYLE": review_style,  # 已去除风格
                     "REVIEW_MAX_TOKENS": str(review_max_tokens),
                     "SUPPORTED_EXTENSIONS": supported_extensions,
+                    "EXCLUDE_PATTERNS": exclude_patterns,
                     
                     # 平台开关配置
                     "SVN_CHECK_ENABLED": "1" if svn_enabled else "0",
