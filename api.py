@@ -315,7 +315,13 @@ def reconfigure_scheduler_jobs():
                     logger.error(f"解析 SVN_REPOSITORIES 配置失败: {e}")
             
             # 创建全局任务（如果需要）
-            if not individual_tasks_created or svn_repositories_str:
+            # 注意：当所有仓库都有独立任务时不创建全局任务，避免同一 revision 被重复处理
+            try:
+                _repos_for_global = json.loads(svn_repositories_str) if svn_repositories_str else []
+                has_repos_without_crontab = any(not r.get('check_crontab') for r in _repos_for_global if isinstance(r, dict))
+            except Exception:
+                has_repos_without_crontab = True
+            if not individual_tasks_created or has_repos_without_crontab:
                 svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')
                 svn_cron_parts = svn_crontab.split()
                 
@@ -482,7 +488,13 @@ def setup_scheduler():
                     logger.error(f"解析 SVN_REPOSITORIES 配置失败: {e}")
             
             # 如果没有为任何仓库创建独立任务，或者有仓库没有配置 check_crontab，则创建全局任务
-            if not individual_tasks_created or svn_repositories_str:
+            # 注意：当所有仓库都有独立任务时不创建全局任务，避免同一 revision 被重复处理
+            try:
+                _repos_for_global = json.loads(svn_repositories_str) if svn_repositories_str else []
+                has_repos_without_crontab = any(not r.get('check_crontab') for r in _repos_for_global if isinstance(r, dict))
+            except Exception:
+                has_repos_without_crontab = True
+            if not individual_tasks_created or has_repos_without_crontab:
                 svn_crontab = get_env_with_default('SVN_CHECK_CRONTAB')  # 默认每30分钟检查一次
                 svn_cron_parts = svn_crontab.split()
                 

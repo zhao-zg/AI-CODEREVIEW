@@ -270,14 +270,14 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
                 logger.info(f'SVN r{revision} 最近已处理，跳过')
                 continue
             # === 简单的revision重复检查 END ===
-            
+
+            # 提前写入缓存，防止并发任务（如独立任务和全局任务同时触发）重复处理同一 revision
+            if revision:
+                mark_revision_processed(display_name, revision)
+
             # 处理提交（所有情况都会返回结果，包括错误信息）
             process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
             processed_count += 1
-            
-            # 成功处理后才写入缓存，避免处理失败时缓存阻断后续重试
-            if revision:
-                mark_revision_processed(display_name, revision)
             
             # 记录最新处理的revision
             if revision and (not latest_revision or int(revision) > int(latest_revision)):
