@@ -71,7 +71,7 @@ class JediClient(BaseClient):
             
             # 配置：初始超时600秒，最多重试2次，每次重试超时加倍
             timeout = 600
-            max_retries = 2
+            max_retries = 1
             
             # 根据内容长度判断复杂度并调整参数，但不能超过系统限制
             if total_content_length < 400:  # 简单请求

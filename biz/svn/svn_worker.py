@@ -450,7 +450,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         
         # === 版本追踪集成 ===
         version_tracking_enabled = get_config_bool('VERSION_TRACKING_ENABLED', True)
-        if version_tracking_enabled and not is_api_error_message(review_result):
+        if version_tracking_enabled:
             VersionTracker.record_version_review(
                 project_name=project_name,
                 commits=commit_info,
@@ -465,7 +465,10 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 additions_count=additions,
                 deletions_count=deletions
             )
-            logger.info(f'SVN版本 r{revision} 审查结果已记录到版本追踪（包含详细信息）。')
+            if is_api_error_message(review_result):
+                logger.info(f'SVN版本 r{revision} AI审查失败，已记录到版本追踪以防止重复推送（可在UI手动重试）。')
+            else:
+                logger.info(f'SVN版本 r{revision} 审查结果已记录到版本追踪（包含详细信息）。')
 
     except Exception as e:
         error_message = f'处理SVN提交 r{commit.get("revision", "unknown")} 时出现错误: {str(e)}\n{traceback.format_exc()}'
