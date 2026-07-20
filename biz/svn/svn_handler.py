@@ -390,30 +390,122 @@ class SVNHandler:
             return ""
         
         return stdout
-    
-    def get_commit_changes(self, commit: Dict) -> List[Dict]:
+
+    def get_commit_diff_batch(self, commit: Dict, include_deleted: bool = False) -> List[Dict]:
+        """
+        使用 svn diff -c 批量获取提交中所有文件的变更内容，替代逐文件远程获取
+
+        Args:
+            commit: 提交信息字典（需包含 revision）
+            include_deleted: 是否包含删除的文件，默认 False
+
+        Returns:
+            变更列表，每个元素包含 new_path, diff, action, full_path, additions, deletions
+        """
+        revision = commit['revision']
+        logger.info(f'批量获取 SVN diff: r{revision}')
+
+        # 执行 svn diff -c {revision} 一次性获取整个提交的 diff
+        command = ['svn', 'diff', '-c', revision, self.svn_repo_root_url]
+        stdout, stderr, returncode = self._run_svn_command(command, cwd=None)
+
+        if returncode != 0:
+            logger.error(f"批量获取SVN diff失败 (r{revision}): {stderr}")
+            return []
+
+        if not stdout.strip():
+            logger.info(f'r{revision} diff 为空')
+            return []
+
+        # 按 Index: 文件头拆分 svn diff 输出
+        changes = []
+        raw_blocks = re.split(r'^Index: ', stdout, flags=re.MULTILINE)
+
+        for block in raw_blocks:
+            if not block.strip():
+                continue
+
+            lines = block.split('\n')
+            file_path = lines[0].strip()
+            if not file_path:
+                continue
+            diff_content = '\n'.join(lines[1:]).rstrip('\n')
+
+            # 跳过二进制文件
+            if 'Cannot display: file marked as a binary type' in diff_content:
+                logger.info(f'跳过二进制文件: {file_path}')
+                continue
+
+            # 跳过只有属性变更没有内容 diff 的块
+            has_content_diff = bool(re.search(r'^@@', diff_content, re.MULTILINE))
+            has_add_del = bool(re.search(r'^[+-]', diff_content, re.MULTILINE))
+            if not has_content_diff and not has_add_del:
+                continue
+
+            # 从 diff 内容推断 action（A/M/D）
+            has_dev_null_src = bool(re.search(r'^--- /dev/null', diff_content, re.MULTILINE))
+            has_dev_null_dst = bool(re.search(r'^\+\+\+ /dev/null', diff_content, re.MULTILINE))
+
+            if has_dev_null_src and not has_dev_null_dst:
+                action = 'A'
+            elif has_dev_null_dst and not has_dev_null_src:
+                action = 'D'
+            else:
+                action = 'M'
+
+            # 删除文件处理
+            if action == 'D' and not include_deleted:
+                continue
+
+            # 检查文件类型是否受支持
+            if not self._is_supported_file(file_path):
+                continue
+
+            # 构建完整的 diff 文本（Index 头让 AI 识别文件路径）
+            diff_text = f"Index: {file_path}\n" + diff_content
+
+            change = {
+                'new_path': file_path,
+                'diff': diff_text,
+                'action': action,
+                'full_path': file_path,
+                'additions': self._count_additions(diff_content),
+                'deletions': self._count_deletions(diff_content)
+            }
+            changes.append(change)
+
+        logger.info(f'r{revision} 批量 diff 解析完成: {len(changes)} 个文件')
+        return changes
+
+    def get_commit_changes(self, commit: Dict, use_batch: bool = True, include_deleted: bool = False) -> List[Dict]:
         """
         获取提交的变更内容
         :param commit: 提交信息
+        :param use_batch: 是否使用批量 svn diff -c 方式（默认 True，大幅减少 svn 命令调用次数）
+        :param include_deleted: 是否包含删除的文件
         :return: 变更列表
         """
+        if use_batch:
+            return self.get_commit_diff_batch(commit, include_deleted)
+
+        # 保留旧的逐文件方式作为 fallback
         changes = []
         revision = commit['revision']
         prev_revision = str(int(revision) - 1)
-        
+
         for path_info in commit['paths']:
             file_path = path_info['path']
             action = path_info['action']
-            
+
             if action == 'D' or not self._is_supported_file(file_path):
                 continue
-            
+
             diff_content = ""
             if action == 'A':
                 diff_content = self._get_file_content(file_path, revision)
             elif action == 'M':
                 diff_content = self.get_file_diff(file_path, prev_revision, revision)
-            
+
             if diff_content:
                 change = {
                     'new_path': os.path.basename(file_path),
@@ -424,9 +516,9 @@ class SVNHandler:
                     'deletions': self._count_deletions(diff_content)
                 }
                 changes.append(change)
-        
+
         return changes
-    
+
     def _get_file_content(self, file_path: str, revision: str) -> str:
         """
         获取指定版本的文件内容
@@ -601,6 +693,8 @@ def filter_svn_changes(changes: List[Dict]) -> List[Dict]:
         filtered_changes.append({
             'diff': change.get('diff', ''),
             'new_path': path,
+            'full_path': change.get('full_path', path),
+            'action': change.get('action', ''),
             'additions': change.get('additions', 0),
             'deletions': change.get('deletions', 0)
         })

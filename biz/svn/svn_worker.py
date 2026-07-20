@@ -7,7 +7,7 @@ from typing import List, Dict
 from biz.entity.review_entity import SvnReviewEntity
 from biz.event.event_manager import event_manager
 from biz.svn.svn_handler import SVNHandler, filter_svn_changes
-from biz.utils.code_reviewer import CodeReviewer, is_api_error_message
+from biz.utils.code_reviewer import CodeReviewer, BatchCodeReviewer, is_api_error_message
 from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.config_manager import ConfigManager
@@ -367,30 +367,25 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         review_successful = False
         svn_review_enabled = get_config_bool('SVN_REVIEW_ENABLED')
 
+        files_json = None  # 在所有代码路径下定义，供 version_tracker 使用
+
         if svn_review_enabled and changes:
             try:
-                # 构造结构化diff JSON
+                # 构造结构化diff JSON（供 BatchCodeReviewer 使用）
                 files_json = []
                 for change in changes:
-                    # 补充status/action字段
                     status = change.get('action', '')
                     files_json.append({
                         'file_path': change.get('full_path') or change.get('new_path'),
                         'status': status,  # A/M/D等
-                        'diff_content': change.get('diff', ''),
+                        'diff': change.get('diff', ''),
                         'additions': change.get('additions', 0),
                         'deletions': change.get('deletions', 0)
                     })
                 
-                diff_struct = {
-                    'files': files_json,
-                    'commits': commit_info
-                }
-                # 传递结构化diff给AI
-                diff_struct_json = json.dumps(files_json, ensure_ascii=False, indent=2)
-                #commits_text = f"SVN提交 r{revision}: {message}"
+                # 使用 BatchCodeReviewer 进行分批审查（自动处理 token 超限和合并报告）
                 commits_text = json.dumps(commit_info, ensure_ascii=False, indent=2)
-                review_result = CodeReviewer().review_and_strip_code(diff_struct_json, commits_text)
+                review_result = BatchCodeReviewer().review_in_batches(files_json, commits_text)
                 # 无论审查结果如何（包括错误信息），都记录并处理
                 if review_result and review_result.strip():
                     if is_api_error_message(review_result):
@@ -418,17 +413,6 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             logger.info(f'SVN代码审查未启用，跳过审查')
             review_result = "SVN代码审查未启用"
             review_successful = True
-
-        # 所有情况都认为审查成功（包括错误信息作为审查结果）
-        # 因此不再需要检查 review_successful
-
-        # 构造提交信息
-        commit_info = [{
-            'revision': revision,
-            'message': message,
-            'author': author,
-            'date': commit['date']
-        }]
 
         # 触发事件
         event_manager['svn_reviewed'].send(SvnReviewEntity(
@@ -463,7 +447,8 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 commit_message=message,
                 commit_date=commit['date'],
                 additions_count=additions,
-                deletions_count=deletions
+                deletions_count=deletions,
+                file_details=json.dumps(files_json, ensure_ascii=False) if files_json else None
             )
             if is_api_error_message(review_result):
                 logger.info(f'SVN版本 r{revision} AI审查失败，已记录到版本追踪以防止重复推送（可在UI手动重试）。')

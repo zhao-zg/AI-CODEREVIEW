@@ -415,8 +415,8 @@ def on_svn_reviewed(entity: SvnReviewEntity):
         project_name=entity.project_name
     )
 
-    # 记录到数据库（如果需要的话，可以扩展ReviewService支持SVN）
-    # ReviewService().insert_svn_review_log(entity)
+    # 记录到数据库
+    ReviewService().insert_svn_review_log(entity)
 
 
 # 连接事件处理函数到事件信号

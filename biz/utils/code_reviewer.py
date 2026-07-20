@@ -1,7 +1,8 @@
 import abc
+import json
 import os
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 import yaml
 from jinja2 import Template
@@ -219,4 +220,166 @@ class CodeReviewer(BaseReviewer):
             return 0
         match = re.search(r"总分[:：]\s*(\d+)分?", review_text)
         return int(match.group(1)) if match else 0
+
+
+class BatchCodeReviewer(BaseReviewer):
+    """支持分批审查 + LLM 合并报告的代码审查器"""
+
+    def __init__(self):
+        super().__init__("code_review_batch_prompt")
+        self.merge_prompts = self._load_prompts("code_review_merge_prompt", get_env_with_default("REVIEW_STYLE"))
+
+    def review_in_batches(self, files_json: List[Dict], commits_text: str = "") -> str:
+        """
+        将文件按 token 上限贪心打包为多批，每批分别审查后用 LLM 合并报告
+
+        Args:
+            files_json: 文件变更列表
+            commits_text: 提交信息
+
+        Returns:
+            合并后的审查报告
+        """
+        review_max_tokens = get_env_int("REVIEW_MAX_TOKENS", 10000)
+
+        if not files_json:
+            return "无需要审查的文件"
+
+        batches = self._pack_batches(files_json, review_max_tokens)
+
+        if len(batches) == 1:
+            # 单批直接审查
+            for file_entry in batches[0]:
+                file_entry.pop('_truncated', None)
+            diff_text = json.dumps(batches[0], ensure_ascii=False, indent=2)
+            result = self.review_code(diff_text, commits_text).strip()
+            if is_api_error_message(result):
+                return result
+            return self._strip_markdown(result)
+
+        # 多批：逐批审查
+        logger.info(f'代码变更需分 {len(batches)} 批进行审查')
+        batch_results = []
+        batch_scores = []
+        failed_batches = 0
+
+        for i, batch in enumerate(batches):
+            logger.info(f'分批审查: 第 {i + 1}/{len(batches)} 批, {len(batch)} 个文件')
+            # 移除内部字段，避免传给 LLM
+            for file_entry in batch:
+                file_entry.pop('_truncated', None)
+            diff_text = json.dumps(batch, ensure_ascii=False, indent=2)
+            result = self.review_code(diff_text, commits_text).strip()
+
+            if is_api_error_message(result):
+                logger.warning(f'分批 {i + 1} 审查失败: {result[:100]}')
+                failed_batches += 1
+                batch_results.append(f"## 第 {i + 1} 批 (审查失败)\n{result}")
+                continue
+
+            score = CodeReviewer.parse_review_score(result)
+            batch_scores.append((score, len(batch)))
+            batch_results.append(
+                f"## 第 {i + 1} 批 (评分: {score}分, {len(batch)} 个文件)\n{self._strip_markdown(result)}")
+
+        # 所有批都失败时直接降级拼接，避免浪费 LLM 合并调用
+        if failed_batches == len(batches):
+            logger.warning('所有批审查均失败，降级为拼接模式')
+            summary_parts = '\n\n'.join(batch_results)
+            return f"# 合并审查报告\n\n{summary_parts}\n\n**注意**: 各批审查均失败，以上为原始结果拼接。"
+
+        return self._merge_reviews(batch_results, batch_scores, commits_text, failed_batches)
+
+    def _pack_batches(self, files_json: List[Dict], max_tokens: int) -> List[List[Dict]]:
+        """将文件列表按 token 上限贪心打包为多批"""
+        batches = []
+        current_batch = []
+        current_tokens = 0
+
+        for file in files_json:
+            diff = file.get('diff', '')
+            file_tokens = count_tokens(diff)
+
+            if file_tokens >= max_tokens:
+                # 单文件超限：单独一批并截断
+                if current_batch:
+                    batches.append(current_batch)
+                    current_batch = []
+                    current_tokens = 0
+                truncated_diff = truncate_text_by_tokens(diff, max_tokens - 100)
+                file_copy = dict(file)
+                file_copy['diff'] = truncated_diff
+                file_copy['_truncated'] = True
+                file_path = file.get('file_path', 'unknown')
+                logger.warning(f'文件 {file_path} 超限: {file_tokens} tokens, '
+                               f'截断至 {max_tokens - 100} tokens')
+                batches.append([file_copy])
+                continue
+
+            if current_tokens + file_tokens > max_tokens:
+                batches.append(current_batch)
+                current_batch = []
+                current_tokens = 0
+
+            current_batch.append(file)
+            current_tokens += file_tokens
+
+        if current_batch:
+            batches.append(current_batch)
+
+        return batches
+
+    def _merge_reviews(self, batch_results: List[str], batch_scores: List[Tuple[int, int]],
+                       commits_text: str, failed_count: int) -> str:
+        """调用 LLM 合并多批审查结果为统一报告"""
+        total_weight = sum(w for _, w in batch_scores)
+        avg_score = sum(s * w for s, w in batch_scores) / total_weight if total_weight > 0 else 0
+
+        summary_text = f"该提交共分 {len(batch_results)} 批审查，各批加权平均分: {avg_score:.1f} 分\n\n"
+        for i, result in enumerate(batch_results):
+            summary_text += f"--- 第 {i + 1} 批审查结果 ---\n{result}\n\n"
+
+        if failed_count > 0:
+            summary_text += f"\n⚠️ 注意: 有 {failed_count} 批审查失败，以上合并报告可能不完整。\n"
+
+        messages = [
+            self.merge_prompts["system_message"],
+            {
+                "role": "user",
+                "content": self.merge_prompts["user_message"]["content"].format(
+                    batch_results=summary_text,
+                    commits_text=commits_text
+                ),
+            },
+        ]
+
+        result = self.call_llm(messages)
+        if is_api_error_message(result):
+            logger.warning("合并审查失败，降级为拼接模式")
+            return f"# 合并审查报告\n\n{summary_text}\n**注意**: AI 合并失败，以上为各批原始结果的拼接。"
+
+        result = result.strip()
+        if result.startswith("```markdown") and result.endswith("```"):
+            result = result[11:-3].strip()
+        return result
+
+    def review_code(self, diffs_text: str, commits_text: str = "") -> str:
+        """审查一批代码"""
+        messages = [
+            self.prompts["system_message"],
+            {
+                "role": "user",
+                "content": self.prompts["user_message"]["content"].format(
+                    diffs_text=diffs_text, commits_text=commits_text
+                ),
+            },
+        ]
+        return self.call_llm(messages)
+
+    @staticmethod
+    def _strip_markdown(text: str) -> str:
+        """去除 markdown 代码块标记"""
+        if text.startswith("```markdown") and text.endswith("```"):
+            return text[11:-3].strip()
+        return text
 

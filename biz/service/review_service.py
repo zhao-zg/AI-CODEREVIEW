@@ -2,7 +2,7 @@ import sqlite3
 
 import pandas as pd
 
-from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity
+from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity, SvnReviewEntity
 from biz.utils.log import logger
 
 
@@ -43,6 +43,23 @@ class ReviewService:
                             review_result TEXT,
                             additions INTEGER DEFAULT 0,
                             deletions INTEGER DEFAULT 0
+                        )
+                    ''')
+                cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS svn_review_log (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            project_name TEXT,
+                            author TEXT,
+                            revision TEXT,
+                            svn_path TEXT,
+                            updated_at INTEGER,
+                            commit_messages TEXT,
+                            score INTEGER,
+                            review_result TEXT,
+                            additions INTEGER DEFAULT 0,
+                            deletions INTEGER DEFAULT 0,
+                            file_details TEXT,
+                            trigger_type TEXT DEFAULT 'scheduled'
                         )
                     ''')                # 确保旧版本的mr_review_log、push_review_log表添加additions、deletions列
                 tables = ["mr_review_log", "push_review_log"]
@@ -212,6 +229,77 @@ class ReviewService:
                 return df
         except sqlite3.DatabaseError as e:
             print(f"Error retrieving push review logs: {e}")
+            return pd.DataFrame()
+
+    @staticmethod
+    def insert_svn_review_log(entity: SvnReviewEntity):
+        """插入SVN审核日志"""
+        try:
+            with sqlite3.connect(ReviewService.DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO svn_review_log (project_name, author, revision, svn_path, updated_at, commit_messages, score, review_result, additions, deletions, trigger_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                               (entity.project_name, entity.author, entity.revision,
+                                entity.svn_path, entity.updated_at, entity.commit_messages, entity.score,
+                                entity.review_result, entity.additions, entity.deletions, entity.trigger_type))
+                conn.commit()
+        except sqlite3.DatabaseError as e:
+            print(f"Error inserting svn review log: {e}")
+
+    @staticmethod
+    def insert_svn_review_log_with_details(entity: SvnReviewEntity, file_details=None):
+        """插入SVN审核日志，支持结构化diff存储"""
+        try:
+            with sqlite3.connect(ReviewService.DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO svn_review_log (project_name, author, revision, svn_path, updated_at, commit_messages, score, review_result, additions, deletions, file_details, trigger_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                               (entity.project_name, entity.author, entity.revision,
+                                entity.svn_path, entity.updated_at, entity.commit_messages, entity.score,
+                                entity.review_result, entity.additions, entity.deletions, file_details, entity.trigger_type))
+                conn.commit()
+        except sqlite3.DatabaseError as e:
+            print(f"Error inserting svn review log: {e}")
+
+    @staticmethod
+    def get_svn_review_logs(authors: list = None, project_names: list = None, revisions: list = None,
+                             updated_at_gte: int = None, updated_at_lte: int = None) -> pd.DataFrame:
+        """获取符合条件的SVN审核日志"""
+        try:
+            with sqlite3.connect(ReviewService.DB_FILE) as conn:
+                query = """
+                    SELECT project_name, author, revision, svn_path, updated_at, commit_messages, score, review_result, additions, deletions, trigger_type
+                    FROM svn_review_log
+                    WHERE 1=1
+                """
+                params = []
+                if authors:
+                    placeholders = ','.join(['?'] * len(authors))
+                    query += f" AND author IN ({placeholders})"
+                    params.extend(authors)
+                if project_names:
+                    placeholders = ','.join(['?'] * len(project_names))
+                    query += f" AND project_name IN ({placeholders})"
+                    params.extend(project_names)
+                if revisions:
+                    placeholders = ','.join(['?'] * len(revisions))
+                    query += f" AND revision IN ({placeholders})"
+                    params.extend(revisions)
+                if updated_at_gte is not None:
+                    query += " AND updated_at >= ?"
+                    params.append(updated_at_gte)
+                if updated_at_lte is not None:
+                    query += " AND updated_at <= ?"
+                    params.append(updated_at_lte)
+                query += " ORDER BY updated_at DESC"
+                df = pd.read_sql_query(sql=query, con=conn, params=params)
+                return df
+        except sqlite3.DatabaseError as e:
+            print(f"Error retrieving svn review logs: {e}")
             return pd.DataFrame()
 
     @staticmethod
@@ -467,7 +555,6 @@ class ReviewService:
         
         from biz.utils.code_reviewer import CodeReviewer
         from biz.event.event_manager import on_merge_request_reviewed, on_push_reviewed, on_svn_reviewed
-        from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity, SvnReviewEntity
         import json
         import time
         
