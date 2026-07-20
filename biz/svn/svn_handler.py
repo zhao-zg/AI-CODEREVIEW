@@ -407,11 +407,13 @@ class SVNHandler:
 
         # 执行 svn diff -c {revision} 一次性获取整个提交的 diff
         command = ['svn', 'diff', '-c', revision, self.svn_repo_root_url]
-        stdout, stderr, returncode = self._run_svn_command(command, cwd=None)
+        stdout, stderr, returncode = self._run_svn_command(command, cwd=self.svn_local_path)
 
         if returncode != 0:
-            logger.error(f"批量获取SVN diff失败 (r{revision}): {stderr}")
-            return []
+            error_msg = f"批量获取SVN diff失败 (r{revision}): {stderr}"
+            logger.error(error_msg)
+            # 抛出异常让上游捕获并发送通知，而非静默返回空列表
+            raise RuntimeError(error_msg)
 
         if not stdout.strip():
             logger.info(f'r{revision} diff 为空')
