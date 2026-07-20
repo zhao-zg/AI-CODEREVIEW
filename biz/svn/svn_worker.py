@@ -448,7 +448,6 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                 commit_date=commit['date'],
                 additions_count=additions,
                 deletions_count=deletions,
-                file_details=json.dumps(files_json, ensure_ascii=False) if files_json else None
             )
             if is_api_error_message(review_result):
                 logger.info(f'SVN版本 r{revision} AI审查失败，已记录到版本追踪以防止重复推送（可在UI手动重试）。')
