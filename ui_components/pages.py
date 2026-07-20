@@ -867,7 +867,8 @@ def env_management_page():
                 import yaml
                 prompt_templates_file = "conf/prompt_templates.yml"
                 current_prompt_config = {}
-                
+                formatted_prompt_config = ""  # 兜底默认值
+
                 try:
                     if os.path.exists(prompt_templates_file):
                         with open(prompt_templates_file, 'r', encoding='utf-8') as f:
@@ -891,17 +892,44 @@ def env_management_page():
     提交历史：
     {commits_text}"""
                 
-                # 显示当前配置统计
-                col_stats1, col_stats2, col_stats3 = st.columns(3)
-                with col_stats1:
-                    system_prompt_len = len(current_prompt_config.get('code_review_prompt', {}).get('system_prompt', ''))
-                    st.metric("系统Prompt长度", f"{system_prompt_len}字符")
-                with col_stats2:
-                    user_prompt_len = len(current_prompt_config.get('code_review_prompt', {}).get('user_prompt', ''))
-                    st.metric("用户Prompt长度", f"{user_prompt_len}字符")
-                with col_stats3:
-                    has_templates = bool(system_prompt_len and user_prompt_len)
-                    st.metric("配置状态", "✅ 完整" if has_templates else "⚠️ 不完整")
+                # 显示当前配置统计（3个Prompt）
+                prompts_status = {}
+                for pkey in ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']:
+                    cfg = current_prompt_config.get(pkey, {})
+                    sys_len = len(cfg.get('system_prompt', ''))
+                    usr_len = len(cfg.get('user_prompt', ''))
+                    prompts_status[pkey] = {
+                        'sys_len': sys_len,
+                        'usr_len': usr_len,
+                        'ok': bool(sys_len and usr_len)
+                    }
+
+                # 第1行：主审查 Prompt
+                col1a, col1b, col1c = st.columns(3)
+                with col1a:
+                    st.metric("📌 主审查·系统Prompt", f"{prompts_status['code_review_prompt']['sys_len']}字符")
+                with col1b:
+                    st.metric("📌 主审查·用户Prompt", f"{prompts_status['code_review_prompt']['usr_len']}字符")
+                with col1c:
+                    st.metric("主审查状态", "✅ 完整" if prompts_status['code_review_prompt']['ok'] else "⚠️ 不完整")
+
+                # 第2行：分批审查 Prompt
+                col2a, col2b, col2c = st.columns(3)
+                with col2a:
+                    st.metric("📦 分批审查·系统Prompt", f"{prompts_status['code_review_batch_prompt']['sys_len']}字符")
+                with col2b:
+                    st.metric("📦 分批审查·用户Prompt", f"{prompts_status['code_review_batch_prompt']['usr_len']}字符")
+                with col2c:
+                    st.metric("分批审查状态", "✅ 完整" if prompts_status['code_review_batch_prompt']['ok'] else "⚠️ 不完整")
+
+                # 第3行：合并报告 Prompt
+                col3a, col3b, col3c = st.columns(3)
+                with col3a:
+                    st.metric("🔗 合并报告·系统Prompt", f"{prompts_status['code_review_merge_prompt']['sys_len']}字符")
+                with col3b:
+                    st.metric("🔗 合并报告·用户Prompt", f"{prompts_status['code_review_merge_prompt']['usr_len']}字符")
+                with col3c:
+                    st.metric("合并报告状态", "✅ 完整" if prompts_status['code_review_merge_prompt']['ok'] else "⚠️ 不完整")
                 
                 # YAML配置编辑器
                 prompt_config_text = st.text_area(
@@ -913,22 +941,39 @@ def env_management_page():
                 )
 
                 # 配置验证和预览
+                required_prompts = ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']
                 if prompt_config_text.strip():
                     try:
                         parsed_prompt_config = yaml.safe_load(prompt_config_text)
-                        if isinstance(parsed_prompt_config, dict) and 'code_review_prompt' in parsed_prompt_config:
-                            st.success("✅ Prompt配置YAML格式正确")
-                            
-                            # 显示配置预览
-                            code_review = parsed_prompt_config['code_review_prompt']
-                            if 'system_prompt' in code_review and 'user_prompt' in code_review:
-                                st.markdown("**📋 配置预览：**")
-                                st.caption(f"• 系统Prompt: {len(code_review['system_prompt'])}字符")
-                                st.caption(f"• 用户Prompt: {len(code_review['user_prompt'])}字符")
+                        if isinstance(parsed_prompt_config, dict):
+                            # 检查所有3个必需Prompt
+                            missing = [p for p in required_prompts if p not in parsed_prompt_config]
+                            if missing:
+                                st.error(f"❌ 缺少以下Prompt配置: {', '.join(missing)}")
                             else:
-                                st.warning("⚠️ 缺少必要的prompt字段")
+                                st.success("✅ Prompt配置YAML格式正确")
+
+                                # 显示所有Prompt配置预览
+                                st.markdown("**📋 配置预览：**")
+                                for pkey in required_prompts:
+                                    cfg = parsed_prompt_config[pkey]
+                                    has_sys = 'system_prompt' in cfg
+                                    has_usr = 'user_prompt' in cfg
+                                    sys_len = len(cfg.get('system_prompt', ''))
+                                    usr_len = len(cfg.get('user_prompt', ''))
+                                    icon = "✅" if (has_sys and has_usr) else "⚠️"
+                                    label_map = {
+                                        'code_review_prompt': '📌 主审查',
+                                        'code_review_batch_prompt': '📦 分批审查',
+                                        'code_review_merge_prompt': '🔗 合并报告'
+                                    }
+                                    st.caption(
+                                        f"{icon} {label_map.get(pkey, pkey)} — "
+                                        f"系统Prompt: {sys_len}字符, 用户Prompt: {usr_len}字符"
+                                        + (" (缺少字段!)" if not (has_sys and has_usr) else "")
+                                    )
                         else:
-                            st.error("❌ 配置必须包含code_review_prompt字段")
+                            st.error("❌ 配置格式错误，必须为YAML字典")
                     except yaml.YAMLError as e:
                         st.error(f"❌ YAML格式错误: {str(e)}")
                 else:
@@ -1073,7 +1118,8 @@ def env_management_page():
                         try:
                             # 验证YAML格式
                             parsed_prompt = yaml.safe_load(prompt_config_text)
-                            if isinstance(parsed_prompt, dict) and 'code_review_prompt' in parsed_prompt:
+                            required_keys = ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']
+                            if isinstance(parsed_prompt, dict) and all(k in parsed_prompt for k in required_keys):
                                 # 直接保存YAML文本到文件
                                 prompt_templates_file = "conf/prompt_templates.yml"
                                 
@@ -1083,30 +1129,37 @@ def env_management_page():
                                 with open(prompt_templates_file, 'w', encoding='utf-8') as f:
                                     f.write(prompt_config_text)
                             else:
-                                st.error("❌ Prompt配置必须包含code_review_prompt字段")
+                                missing = [k for k in required_keys if k not in (parsed_prompt if isinstance(parsed_prompt, dict) else {})]
+                                st.error(f"❌ Prompt配置缺少字段: {', '.join(missing) if missing else '配置格式错误'}")
                                 prompt_save_success = False
                         except yaml.YAMLError as e:
                             st.error(f"❌ Prompt配置YAML格式错误: {e}")
                             prompt_save_success = False
                     else:
-                        # 配置为空，创建默认配置
-                        default_prompt_config = """code_review_prompt:
-  system_prompt: |-
-    你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。
-  user_prompt: |-
-    以下是代码变更，请进行审查：
-    
-    结构化diff JSON内容：
-    {diffs_text}
-    
-    提交历史：
-    {commits_text}"""
+                        # 配置为空，读取当前磁盘上的配置文件作为默认值回显
+                        try:
+                            default_config_path = "conf/prompt_templates.yml"
+                            if os.path.exists(default_config_path):
+                                with open(default_config_path, 'r', encoding='utf-8') as f:
+                                    default_prompt_config = f.read()
+                            else:
+                                # 磁盘也没有，使用 conf_templates 下的模板
+                                template_path = "conf_templates/prompt_templates.yml"
+                                if os.path.exists(template_path):
+                                    with open(template_path, 'r', encoding='utf-8') as f:
+                                        default_prompt_config = f.read()
+                                else:
+                                    default_prompt_config = ""
+                        except Exception:
+                            default_prompt_config = ""
                         
-                        prompt_templates_file = "conf/prompt_templates.yml"
-                        os.makedirs(os.path.dirname(prompt_templates_file), exist_ok=True)
-                        
-                        with open(prompt_templates_file, 'w', encoding='utf-8') as f:
-                            f.write(default_prompt_config)
+                        if default_prompt_config.strip():
+                            prompt_templates_file = "conf/prompt_templates.yml"
+                            os.makedirs(os.path.dirname(prompt_templates_file), exist_ok=True)
+                            with open(prompt_templates_file, 'w', encoding='utf-8') as f:
+                                f.write(default_prompt_config)
+                        else:
+                            st.warning("⚠️ 未找到默认Prompt模板，已跳过")
                     
                 except Exception as e:
                     st.error(f"❌ Prompt模板保存失败: {e}")
