@@ -405,8 +405,8 @@ class SVNHandler:
         revision = commit['revision']
         logger.info(f'批量获取 SVN diff: r{revision}')
 
-        # 执行 svn diff -c {revision} 一次性获取整个提交的 diff
-        command = ['svn', 'diff', '-c', revision, self.svn_repo_root_url]
+        # 执行 svn diff -c {revision}，在工作副本目录下执行，利用本地缓存的凭证
+        command = ['svn', 'diff', '-c', revision]
         stdout, stderr, returncode = self._run_svn_command(command, cwd=self.svn_local_path)
 
         if returncode != 0:
