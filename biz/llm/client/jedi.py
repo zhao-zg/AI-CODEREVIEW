@@ -76,15 +76,12 @@ class JediClient(BaseClient):
             # 根据内容长度判断复杂度并调整参数，但不能超过系统限制
             if total_content_length < 400:  # 简单请求
                 max_tokens = min(4000, system_max_tokens)
-                thinking = False
                 complexity_level = "simple"
             elif total_content_length < 1000:  # 中等复杂度
                 max_tokens = min(10000, system_max_tokens)
-                thinking = False
                 complexity_level = "medium"
             else:  # 复杂请求
                 max_tokens = system_max_tokens
-                thinking = True
                 complexity_level = "complex"
                 
             logger.info(f"请求复杂度: {complexity_level}, 内容长度: {total_content_length}, 最大tokens: {max_tokens}, 系统限制: {system_max_tokens}, 超时: {timeout}秒, 最大重试: {max_retries}次")
@@ -99,8 +96,7 @@ class JediClient(BaseClient):
                     "presence_penalty": 0,
                     "max_tokens": max_tokens,
                     "top_p": 1,
-                    "seed": 42,
-                    "thinking": thinking
+                    "seed": 42
                 },
                 "stream": False
             }
