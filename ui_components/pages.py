@@ -1120,6 +1120,22 @@ def env_management_page():
                             parsed_prompt = yaml.safe_load(prompt_config_text)
                             required_keys = ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']
                             if isinstance(parsed_prompt, dict) and all(k in parsed_prompt for k in required_keys):
+                                # 校验每个 prompt 必须有 system_prompt 和 user_prompt
+                                missing_fields = []
+                                for pkey in required_keys:
+                                    pval = parsed_prompt.get(pkey, {})
+                                    if not isinstance(pval, dict):
+                                        missing_fields.append(f"{pkey}(不是字典)")
+                                    else:
+                                        if 'system_prompt' not in pval:
+                                            missing_fields.append(f"{pkey}.system_prompt")
+                                        if 'user_prompt' not in pval:
+                                            missing_fields.append(f"{pkey}.user_prompt")
+                                if missing_fields:
+                                    st.error(f"❌ Prompt配置结构不完整，缺少: {', '.join(missing_fields)}")
+                                    prompt_save_success = False
+                                    st.stop()
+
                                 # 直接保存YAML文本到文件
                                 prompt_templates_file = "conf/prompt_templates.yml"
                                 

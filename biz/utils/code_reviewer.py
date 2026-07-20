@@ -127,7 +127,21 @@ class BaseReviewer(abc.ABC):
         try:
             # 在打开 YAML 文件时显式指定编码为 UTF-8，避免使用系统默认的 GBK 编码。
             with open(prompt_templates_file, "r", encoding="utf-8") as file:
-                prompts = yaml.safe_load(file).get(prompt_key, {})
+                full_config = yaml.safe_load(file)
+                if not isinstance(full_config, dict):
+                    raise ValueError(f"配置文件格式错误，期望YAML字典，实际: {type(full_config).__name__}")
+
+                prompts = full_config.get(prompt_key)
+                if prompts is None:
+                    raise KeyError(f"配置文件中未找到 '{prompt_key}'，可用的key: {list(full_config.keys())}")
+
+                if not isinstance(prompts, dict):
+                    raise ValueError(f"'{prompt_key}' 的值不是字典，实际: {type(prompts).__name__}")
+
+                if 'system_prompt' not in prompts:
+                    raise KeyError(f"'{prompt_key}' 缺少 system_prompt 字段")
+                if 'user_prompt' not in prompts:
+                    raise KeyError(f"'{prompt_key}' 缺少 user_prompt 字段")
 
                 # 使用Jinja2渲染模板
                 def render_template(template_str: str) -> str:
@@ -140,8 +154,8 @@ class BaseReviewer(abc.ABC):
                     "system_message": {"role": "system", "content": system_prompt},
                     "user_message": {"role": "user", "content": user_prompt},
                 }
-        except (FileNotFoundError, KeyError, yaml.YAMLError) as e:
-            logger.error(f"加载提示词配置失败: {e}")
+        except (FileNotFoundError, KeyError, ValueError, yaml.YAMLError) as e:
+            logger.error(f"加载提示词配置失败 (key={prompt_key}): {e}")
             raise Exception(f"提示词配置加载失败: {e}")
 
     def call_llm(self, messages: List[Dict[str, Any]]) -> str:

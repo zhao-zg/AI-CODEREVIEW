@@ -9,6 +9,20 @@ import sys
 import shutil
 from pathlib import Path
 
+
+def _deep_merge(template: dict, current: dict) -> dict:
+    """深度合并两个字典：保留 current 中的值，补全 template 中有但 current 没有的 key"""
+    merged = {}
+    all_keys = set(template.keys()) | set(current.keys())
+    for k in all_keys:
+        if k in current:
+            # current 中有值，保留
+            merged[k] = current[k]
+        elif k in template:
+            # current 中没有，从 template 取
+            merged[k] = template[k]
+    return merged
+
 def ensure_config_files():
     """确保所有必要的配置文件都存在"""
     
@@ -47,25 +61,46 @@ def ensure_config_files():
                 missing_files.append((filename, description))
                 print(f"[ERROR] 缺失: {filename} ({description}) - 模板文件也不存在")
         else:
-            print(f"[OK] 存在: {filename} ({description})")
-    
+            # 文件已存在，针对 YAML 配置文件尝试增量合并模板中新增的 key
+            if template_file.exists() and filename.endswith('.yml'):
+                try:
+                    import yaml
+                    with open(config_file, 'r', encoding='utf-8') as f:
+                        curr = yaml.safe_load(f) or {}
+                    with open(template_file, 'r', encoding='utf-8') as f:
+                        tmpl = yaml.safe_load(f) or {}
+                    # 深度合并：保留现有值，补全模板中有但当前文件中没有的 key
+                    merged = _deep_merge(tmpl, curr)
+                    if merged != curr:
+                        with open(config_file, 'w', encoding='utf-8') as f:
+                            yaml.dump(merged, f, allow_unicode=True, default_flow_style=False)
+                        print(f"[合并] {filename}: 已从模板补全新增配置项")
+                    else:
+                        print(f"[OK] 存在: {filename} ({description})")
+                except ImportError:
+                    print(f"[OK] 存在: {filename} ({description}) - yaml 模块不可用，跳过合并检查")
+                except Exception as e:
+                    print(f"[WARN] {filename} 合并检查失败: {e}，保留现有文件")
+            else:
+                print(f"[OK] 存在: {filename} ({description})")
+
     if missing_files:
         print(f"\n[WARNING] 发现 {len(missing_files)} 个无法从模板复制的配置文件")
         print("[INFO] 这些文件可能需要手动创建或检查模板目录")
         for filename, description in missing_files:
             print(f"   - {filename}: {description}")
-    
+
     print("\n[OK] 配置文件初始化完成")
-    
+
     # 特殊处理 .env 文件
     env_file = conf_dir / '.env'
     env_dist_file = template_dir / '.env.dist'
-    
+
     if not env_file.exists() and env_dist_file.exists():
         print("从 conf_templates/.env.dist 创建默认 .env 文件...")
         shutil.copy2(env_dist_file, env_file)
         print("[OK] 已创建默认 .env 文件")
-    
+
     return True
 
 def setup_supervisord_config():
