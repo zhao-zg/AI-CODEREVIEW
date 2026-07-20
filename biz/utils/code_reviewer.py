@@ -133,7 +133,16 @@ class BaseReviewer(abc.ABC):
 
                 prompts = full_config.get(prompt_key)
                 if prompts is None:
-                    raise KeyError(f"配置文件中未找到 '{prompt_key}'，可用的key: {list(full_config.keys())}")
+                    # 尝试从模板文件兜底
+                    template_file = "conf_templates/prompt_templates.yml"
+                    if os.path.exists(template_file):
+                        with open(template_file, "r", encoding="utf-8") as tf:
+                            tmpl_config = yaml.safe_load(tf)
+                            if isinstance(tmpl_config, dict) and prompt_key in tmpl_config:
+                                prompts = tmpl_config[prompt_key]
+                                logger.info(f"'{prompt_key}' 从模板文件 conf_templates/prompt_templates.yml 自动加载（当前配置文件缺少此 key）")
+                    if prompts is None:
+                        raise KeyError(f"配置文件中未找到 '{prompt_key}'，可用的key: {list(full_config.keys())}")
 
                 if not isinstance(prompts, dict):
                     raise ValueError(f"'{prompt_key}' 的值不是字典，实际: {type(prompts).__name__}")
