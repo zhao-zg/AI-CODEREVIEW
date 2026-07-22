@@ -116,8 +116,9 @@ def handle_review_detail_request(query_params):
     
     # 返回主页面按钮
     if st.button("🏠 返回主页面"):
-        # 清除URL参数
+        # 清除URL参数和查询参数检测状态
         st.query_params.clear()
+        st.session_state.pop("_last_query_params_key", None)
         st.rerun()
 
 def show_mr_detail(review_id):
@@ -209,17 +210,16 @@ def show_svn_detail(revision):
     try:
         conn = sqlite3.connect(ReviewService.DB_FILE)
         cursor = conn.cursor()
-        # 查找SVN版本记录
-        cursor.execute("SELECT * FROM version_tracker WHERE commit_sha=? OR version_hash LIKE ?", 
-                      (revision, f"%{revision}%"))
+        # 从 svn_review_log 表查询（不是 version_tracker）
+        cursor.execute("SELECT * FROM svn_review_log WHERE revision=?", (revision,))
         row = cursor.fetchone()
         conn.close()
         
         if row:
-            # 解构数据库字段
-            (id_, project_name, version_hash, commit_sha, author, branch, file_paths, changes_hash,
-             review_type_db, reviewed_at, review_result, score, created_at, commit_message, 
-             commit_date, additions_count, deletions_count, file_details) = row
+            # 解构数据库字段（svn_review_log 表结构）
+            (id_, project_name, author, revision_db, svn_path, updated_at,
+             commit_messages, score, review_result, additions, deletions,
+             file_details, trigger_type) = row
             
             st.success(f"✅ 找到SVN r{revision} 的审查记录")
             
@@ -230,13 +230,13 @@ def show_svn_detail(revision):
                 st.metric("提交者", author)
                 st.metric("AI评分", f"{score}分")
             with col2:
-                st.metric("SVN版本", f"r{revision}")
-                st.metric("SVN路径", file_paths or "未知")
-                st.metric("文件变更", f"+{additions_count or 0} -{deletions_count or 0}")
+                st.metric("SVN版本", f"r{revision_db}")
+                st.metric("SVN路径", svn_path or "未知")
+                st.metric("文件变更", f"+{additions or 0} -{deletions or 0}")
             
             # 显示提交信息
             st.subheader("💬 提交信息")
-            st.text(commit_message or "无提交信息")
+            st.text(commit_messages or "无提交信息")
             
             # 显示审查结果
             st.subheader("📝 AI审查结果")
@@ -254,6 +254,15 @@ def main_dashboard():
     
     # 检查URL参数，处理从推送消息进入的详情页面请求
     query_params = st.query_params
+    
+    # 检测 query params 是否发生变化（解决钉钉浏览器缓存导致显示旧数据的问题）
+    current_params_key = str(sorted(query_params.items())) if query_params else ""
+    last_params_key = st.session_state.get("_last_query_params_key", "")
+    if current_params_key and current_params_key != last_params_key:
+        st.session_state["_last_query_params_key"] = current_params_key
+        # 清除所有数据缓存，确保重新从数据库加载最新数据
+        st.cache_data.clear()
+    
     if "review_type" in query_params:
         handle_review_detail_request(query_params)
         return

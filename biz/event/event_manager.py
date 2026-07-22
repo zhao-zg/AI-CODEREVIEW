@@ -1,4 +1,5 @@
 from blinker import Signal
+import time
 
 from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity, SvnReviewEntity
 from biz.service.review_service import ReviewService
@@ -204,7 +205,7 @@ def _generate_mr_notification_content(mr_review_entity: MergeRequestReviewEntity
         mr_id = mr_review_entity.webhook_data.get('object_attributes', {}).get('iid')
     display_id = mr_review_entity.webhook_data.get('object_attributes', {}).get('iid', mr_id) if mr_review_entity.webhook_data else mr_id
     
-    detail_url = f"{server_url}/?review_type=mr&review_id={mr_id}"
+    detail_url = f"{server_url}/?review_type=mr&review_id={mr_id}&_t={int(time.time())}"
     
     if mode == 'simplified':
         # 简化推送模式 - 优化布局
@@ -252,7 +253,7 @@ def _generate_push_notification_content(entity: PushReviewEntity, mode: str):
     # 智能截断提交消息
     short_message = commit_message[:40] + ("..." if len(commit_message) > 40 else "")
     
-    detail_url = f"{server_url}/?review_type=push&commit_sha={commit_sha}"
+    detail_url = f"{server_url}/?review_type=push&commit_sha={commit_sha}&_t={int(time.time())}"
     
     if mode == 'simplified':
         # 简化推送模式 - 优化布局
@@ -312,7 +313,7 @@ def _generate_svn_notification_content(entity: SvnReviewEntity, mode: str):
     # 智能截断提交消息
     short_message = message[:40] + ("..." if len(message) > 40 else "") if message else "无提交消息"
     
-    detail_url = f"{server_url}/?review_type=svn&revision={revision}"
+    detail_url = f"{server_url}/?review_type=svn&revision={revision}&_t={int(time.time())}"
     
     if mode == 'simplified':
         # 简化推送模式 - 优化布局
