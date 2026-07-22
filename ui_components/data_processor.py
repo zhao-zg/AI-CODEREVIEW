@@ -19,6 +19,7 @@ class DataProcessor:
             'svn_date': 'reviewed_at',
             'repository': 'project_name',
             'repo_name': 'project_name',
+            'project': 'project_name',          # MR/Push数据使用 'project' 字段
             'commit_author': 'author',
             'message': 'commit_message',
             'timestamp': 'reviewed_at'
@@ -188,13 +189,22 @@ class DataProcessor:
         if not review_result or pd.isna(review_result):
             return 0
         
-        # 使用正则表达式提取评分
+        # 使用正则表达式提取评分（按优先级排列）
         score_patterns = [
-            r"总分[:：]\s*(\d+)分?",  # 总分：85分 或 总分: 85
-            r"评分[:：]\s*(\d+)分?",  # 评分：85分
-            r"得分[:：]\s*(\d+)分?",  # 得分：85分
-            r"分数[:：]\s*(\d+)分?",  # 分数：85分
-            r"(\d+)\s*分",          # 85分
+            r"总分[:：]\s*(\d+)分?",           # 总分：85分 或 总分: 85
+            r"总得分[:：]\s*(\d+)分?",         # 总得分：85分
+            r"综合评分[:：]\s*(\d+)分?",       # 综合评分：85分
+            r"最终得分[:：]\s*(\d+)分?",       # 最终得分：85分
+            r"评分[:：]\s*(\d+)分?",           # 评分：85分
+            r"得分[:：]\s*(\d+)分?",           # 得分：85分
+            r"分数[:：]\s*(\d+)分?",           # 分数：85分
+            r"本批评分[:：]\s*(\d+)分?",       # 本批评分：85分
+            r"综合得分[:：]\s*(\d+)分?",       # 综合得分：85分
+            r"Score[:：]\s*(\d+)",            # Score: 85
+            r"Total\s*Score[:：]\s*(\d+)",    # Total Score: 85
+            r"加权平均分[:：]\s*(\d+\.?\d*)",  # 加权平均分: 85.5
+            r"平均.*?分[:：]\s*(\d+\.?\d*)",  # 平均评分：85
+            r"(\d+)\s*分",                    # 85分
         ]
         
         for pattern in score_patterns:

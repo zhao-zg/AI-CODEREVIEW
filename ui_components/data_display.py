@@ -74,8 +74,25 @@ class DataDisplayManager:
             # 解析日期范围
             start_date = end_date = None
             if date_range:
-                start_date = date_range[0].strftime('%Y-%m-%d') if date_range[0] else None
-                end_date = date_range[1].strftime('%Y-%m-%d') if date_range[1] else None
+                # date_range[0] might be datetime.date, datetime.datetime, or string
+                # Convert to datetime if needed, get_review_statistics expects datetime with .timestamp()
+                from datetime import datetime as dt, date as d
+                start_val = date_range[0]
+                end_val = date_range[1]
+                
+                if start_val and isinstance(start_val, d):
+                    start_date = dt.combine(start_val, dt.min.time())
+                elif start_val and isinstance(start_val, str):
+                    start_date = dt.strptime(start_val, '%Y-%m-%d')
+                elif start_val:
+                    start_date = start_val
+                
+                if end_val and isinstance(end_val, d):
+                    end_date = dt.combine(end_val, dt.max.time())
+                elif end_val and isinstance(end_val, str):
+                    end_date = dt.strptime(end_val, '%Y-%m-%d')
+                elif end_val:
+                    end_date = end_val
             
             # 获取数据
             result = review_service.get_review_statistics(

@@ -409,8 +409,8 @@ class ReviewService:
         
         Args:
             review_type: 审查类型 ('mr', 'push', 'svn', 'github')
-            start_date: 开始日期
-            end_date: 结束日期  
+            start_date: 开始日期 (datetime/date/str)
+            end_date: 结束日期 (datetime/date/str)
             authors: 作者列表
             projects: 项目列表
             score_range: 分数范围 [min, max]
@@ -418,6 +418,25 @@ class ReviewService:
         Returns:
             dict: 包含success状态和data数据的字典
         """
+        from datetime import datetime as dt, date as d
+        
+        def _to_timestamp(val):
+            """将日期值转换为Unix时间戳"""
+            if val is None:
+                return None
+            if isinstance(val, (int, float)):
+                return int(val)
+            if isinstance(val, dt):
+                return int(val.timestamp())
+            if isinstance(val, d):
+                return int(dt.combine(val, dt.min.time()).timestamp())
+            if isinstance(val, str):
+                try:
+                    return int(dt.strptime(val, '%Y-%m-%d').timestamp())
+                except ValueError:
+                    return None
+            return None
+        
         try:
             data = []            
             if review_type == 'mr' or review_type is None:
@@ -425,8 +444,8 @@ class ReviewService:
                 mr_logs_df = ReviewService.get_mr_review_logs(
                     authors=authors,
                     project_names=projects,
-                    updated_at_gte=int(start_date.timestamp()) if start_date else None,
-                    updated_at_lte=int(end_date.timestamp()) if end_date else None
+                    updated_at_gte=_to_timestamp(start_date),
+                    updated_at_lte=_to_timestamp(end_date)
                 )
                 for _, log in mr_logs_df.iterrows():
                     # 应用分数过滤
@@ -452,8 +471,8 @@ class ReviewService:
                 push_logs_df = ReviewService.get_push_review_logs(
                     authors=authors,
                     project_names=projects,
-                    updated_at_gte=int(start_date.timestamp()) if start_date else None,
-                    updated_at_lte=int(end_date.timestamp()) if end_date else None
+                    updated_at_gte=_to_timestamp(start_date),
+                    updated_at_lte=_to_timestamp(end_date)
                 )
                 for _, log in push_logs_df.iterrows():
                     # 应用分数过滤
@@ -477,8 +496,8 @@ class ReviewService:
                 version_logs_df = ReviewService.get_version_tracking_logs(
                     authors=authors,
                     project_names=projects,
-                    updated_at_gte=int(start_date.timestamp()) if start_date else None,
-                    updated_at_lte=int(end_date.timestamp()) if end_date else None,
+                    updated_at_gte=_to_timestamp(start_date),
+                    updated_at_lte=_to_timestamp(end_date),
                     review_types=[review_type] if review_type else None
                 )
                 for _, log in version_logs_df.iterrows():

@@ -246,6 +246,10 @@ class UIComponents:
         if expand_key not in st.session_state:
             st.session_state[expand_key] = False
         
+        # 格式化评分显示
+        score_val = row.get('score', 0)
+        score_display = f"{int(score_val)}分" if score_val and score_val > 0 else "N/A"
+        
         # 创建可点击的卡片
         with st.container():
             # 卡片内容
@@ -273,7 +277,7 @@ class UIComponents:
                                 {self.theme.ICONS['project']} {row.get('project', row.get('project_name', 'N/A'))}
                             </span>
                             <span style="margin-right: 1rem;">
-                                {self.theme.ICONS['score']} {row.get('score', 'N/A')}
+                                {self.theme.ICONS['score']} {score_display}
                             </span>
                             <span>
                                 {self.theme.ICONS['time']} {self._format_datetime(row.get('timestamp', row.get('datetime', row.get('reviewed_at', 'N/A'))))}
@@ -310,10 +314,12 @@ class UIComponents:
         
         with detail_col1:
             st.markdown("#### 📋 基本信息")
+            score_val = row.get('score', 0)
+            score_display = f"{int(score_val)}分" if score_val and score_val > 0 else "N/A"
             info_data = {
                 "作者": row.get('author', 'N/A'),
                 "项目": row.get('project', row.get('project_name', 'N/A')),
-                "评分": row.get('score', 'N/A'),
+                "评分": score_display,
                 "类型": review_type.upper(),
                 "提交ID": row.get('commit_sha', 'N/A')
             }
