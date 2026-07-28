@@ -113,8 +113,37 @@ class SVNHandler:
         if returncode != 0:
             logger.error(f"SVN更新失败: {stderr}")
             
-            # 如果是E155037错误（需要cleanup），尝试执行cleanup
-            if "svn cleanup" in stderr or "Previous operation has not finished" in stderr:
+            # 检测工作副本锁相关错误：
+            # - "svn cleanup" / "Previous operation has not finished"：E155037，需要cleanup
+            # - "E155004" / "is already locked"：工作副本被锁定（可能是残留的死锁，也可能是
+            #   另一个SVN进程正在访问同一工作副本），例如: 
+            #   svn: E155004: Working copy '...' locked.
+            #   svn: E155004: '...' is already locked.
+            is_locked_error = (
+                "svn cleanup" in stderr
+                or "Previous operation has not finished" in stderr
+                or "E155004" in stderr
+                or "is already locked" in stderr
+            )
+            
+            if is_locked_error:
+                # 先短暂等待后重试几次：如果锁是被另一个仍在运行的SVN进程持有（正常访问冲突），
+                # 等待其结束并自然释放锁，比直接执行破坏性的cleanup/删锁更安全，
+                # 避免干扰正在进行中的其他SVN操作。
+                import time
+                retry_success = False
+                for attempt in range(1, 3):
+                    logger.warning(f"检测到SVN工作副本被锁定，等待2秒后重试更新（第{attempt}次）...")
+                    time.sleep(2)
+                    stdout, stderr, returncode = self._run_svn_command(['svn', 'update', '--ignore-externals'], cwd=self.svn_local_path)
+                    if returncode == 0:
+                        retry_success = True
+                        break
+                
+                if retry_success:
+                    logger.info("SVN工作副本更新成功（等待重试后）")
+                    return True
+                
                 logger.info("检测到SVN工作副本需要清理，正在执行cleanup...")
                 cleanup_success = self._cleanup_working_copy()
                 

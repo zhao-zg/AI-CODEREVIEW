@@ -882,14 +882,15 @@ def start_background_tasks():
     svn_enabled = get_env_bool('SVN_CHECK_ENABLED')
     if svn_enabled:
         try:
-            from biz.svn.svn_worker import main as svn_main
-            
             def svn_worker_thread():
-                """SVN工作线程"""
+                """SVN工作线程：启动时立即执行一次检查
+                注意：必须复用 trigger_svn_check（内部会获取与定时任务相同的互斥锁），
+                避免这个一次性的启动检查与调度器触发的检查并发操作同一个SVN工作副本，
+                否则会出现 'svn: E155004 ... is already locked' 的错误。
+                """
                 try:
-                    logger.info("🚀 启动 SVN 后台任务处理器")
-                    # 只执行一次，由调度器控制频率
-                    svn_main()
+                    logger.info("🚀 启动 SVN 后台任务处理器（首次检查）")
+                    trigger_svn_check()
                 except Exception as e:
                     logger.error(f"❌ SVN 任务执行失败: {e}")
             
@@ -899,8 +900,6 @@ def start_background_tasks():
             background_threads.append(thread)
             logger.info("✅ SVN 后台任务已启动")
             
-        except ImportError as e:
-            logger.error(f"❌ SVN 后台任务启动失败 (缺少依赖): {e}")
         except Exception as e:
             logger.error(f"❌ SVN 后台任务启动失败: {e}")
     else:
@@ -1039,14 +1038,14 @@ if __name__ == '__main__':
         
         check_config()
         
+        # 初始化SVN仓库（必须先于调度器和后台任务执行，避免首次checkout时与后续操作并发竞争导致 "already locked" 错误）
+        initialize_all_svn_repositories()
+        
         # 启动定时任务调度器
         setup_scheduler()
         
         # 启动后台任务
         start_background_tasks()
-        
-        # 初始化SVN仓库
-        initialize_all_svn_repositories()
         
         # 启动Flask API服务
         port = get_env_int('API_PORT')
