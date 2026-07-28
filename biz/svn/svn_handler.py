@@ -81,49 +81,23 @@ class SVNHandler:
             
             logger.info(f"执行SVN命令: {' '.join(command)} in {cwd or 'default cwd'}")
             
-            # 尝试多种编码方式执行命令
-            encodings_to_try = ['utf-8', 'gbk', 'cp936', 'latin1']
+            # 始终以二进制模式执行，再交给 _safe_decode 按多种编码严格尝试解码。
+            # 注意：之前的实现用 text=True + errors='replace' 让 subprocess 直接解码，
+            # 但 errors='replace' 会让解码器遇到非法字节时静默替换为 '�' 而不是抛出
+            # UnicodeDecodeError，导致下面"尝试下一种编码"的回退逻辑永远不会被触发，
+            # 一旦实际编码不是 utf-8（例如 GBK/CP936 环境的中文提交信息或源码），
+            # 内容会被大量替换为 '�'，进而把乱码送进后续的 AI 审查。
+            result = subprocess.run(
+                command,
+                cwd=cwd,
+                capture_output=True,
+                text=False  # 二进制模式，交给 _safe_decode 做严格的多编码尝试
+            )
             
-            for encoding in encodings_to_try:
-                try:
-                    result = subprocess.run(
-                        command,
-                        cwd=cwd,
-                        capture_output=True,
-                        text=True,
-                        encoding=encoding,
-                        errors='replace'  # 遇到无法解码的字符时替换为 �
-                    )
-                    
-                    # 如果成功执行，返回结果
-                    return result.stdout, result.stderr, result.returncode
-                    
-                except UnicodeDecodeError:
-                    logger.warning(f"使用 {encoding} 编码执行SVN命令失败，尝试下一种编码...")
-                    continue
-                except Exception as e:
-                    logger.error(f"执行SVN命令时发生异常 (编码: {encoding}): {e}")
-                    continue
+            stdout = self._safe_decode(result.stdout)
+            stderr = self._safe_decode(result.stderr)
             
-            # 如果所有编码都失败，尝试使用二进制模式
-            logger.warning("所有文本编码都失败，尝试二进制模式...")
-            try:
-                result = subprocess.run(
-                    command,
-                    cwd=cwd,
-                    capture_output=True,
-                    text=False  # 二进制模式
-                )
-                
-                # 尝试解码输出
-                stdout = self._safe_decode(result.stdout)
-                stderr = self._safe_decode(result.stderr)
-                
-                return stdout, stderr, result.returncode
-                
-            except Exception as e:
-                logger.error(f"二进制模式执行SVN命令也失败: {e}")
-                return "", str(e), -1
+            return stdout, stderr, result.returncode
         
         except Exception as e:
             logger.error(f"执行SVN命令失败: {e}")
@@ -406,7 +380,11 @@ class SVNHandler:
         logger.info(f'批量获取 SVN diff: r{revision}')
 
         # 执行 svn diff -c {revision}，在工作副本目录下执行，利用本地缓存的凭证
-        command = ['svn', 'diff', '-c', revision]
+        # -x "-U{N}" 扩大统一 diff 的上下文行数（svn diff 默认仅 3 行），
+        # 上下文太少时 AI 经常因为"看不到全貌"而臆测出并不存在的问题
+        from biz.utils.default_config import get_env_int
+        context_lines = get_env_int('SVN_DIFF_CONTEXT_LINES', 10)
+        command = ['svn', 'diff', '-c', revision, '-x', f'-U{context_lines}']
         stdout, stderr, returncode = self._run_svn_command(command, cwd=self.svn_local_path)
 
         if returncode != 0:
@@ -419,41 +397,58 @@ class SVNHandler:
             logger.info(f'r{revision} diff 为空')
             return []
 
-        # 按 Index: 文件头拆分 svn diff 输出
+        changes = self._parse_diff_output(stdout, include_deleted)
+        logger.info(f'r{revision} 批量 diff 解析完成: {len(changes)} 个文件')
+        return changes
+
+    def _parse_diff_output(self, stdout: str, include_deleted: bool = False) -> List[Dict]:
+        """
+        解析 `svn diff` 的原始文本输出为结构化变更列表。
+        纯字符串处理，不依赖真实 SVN 环境/工作副本，便于单元测试直接调用。
+
+        :param stdout: svn diff 命令的标准输出（可能包含多个文件的 diff）
+        :param include_deleted: 是否包含删除的文件
+        :return: 变更列表，每个元素包含 new_path, diff, action, full_path, additions, deletions
+        """
         changes = []
-        raw_blocks = re.split(r'^Index: ', stdout, flags=re.MULTILINE)
 
-        for block in raw_blocks:
-            if not block.strip():
-                continue
+        # 定位每个文件块的边界：要求 "Index: 文件名" 后紧跟一行 "===...=" 分隔线，
+        # 而不是简单按 "^Index: " 切分——避免某行被增删的代码内容本身以 "Index: " 开头时，
+        # 被误判为新文件块的起点，导致不同文件的 diff 被错误拆分/拼接。
+        header_pattern = re.compile(r'^Index: (?P<path>.+?)\r?\n(?P<sep>=+)\r?\n', re.MULTILINE)
+        matches = list(header_pattern.finditer(stdout))
 
-            lines = block.split('\n')
-            file_path = lines[0].strip()
+        for i, m in enumerate(matches):
+            file_path = m.group('path').strip()
             if not file_path:
                 continue
-            diff_content = '\n'.join(lines[1:]).rstrip('\n')
+
+            block_start = m.end()
+            block_end = matches[i + 1].start() if i + 1 < len(matches) else len(stdout)
+            diff_content = stdout[block_start:block_end].rstrip('\n')
 
             # 跳过二进制文件
             if 'Cannot display: file marked as a binary type' in diff_content:
                 logger.info(f'跳过二进制文件: {file_path}')
                 continue
 
-            # 跳过只有属性变更没有内容 diff 的块
+            # 剥离属性变更段落（"Property changes on: ..."）：svn:eol-style / svn:executable /
+            # svn:mime-type 等属性变更会在代码 diff 后追加这段内容，其中的属性值行（如 "+native"）
+            # 会被误判为代码内容，需要在做内容判断/计数之前先剥离，避免元数据被当成代码送审。
+            prop_marker = re.search(r'\r?\nProperty changes on: ', diff_content)
+            if prop_marker:
+                diff_content = diff_content[:prop_marker.start()].rstrip('\n')
+
+            # 跳过没有真实代码内容 diff 的块（纯属性变更、或内容完全相同只是路径变化等场景）。
+            # 注意：不能用 "是否存在以 +/- 开头的行" 作为辅助判断——unified diff 的
+            # "--- file (revision N)" / "+++ file (revision N)" 头部本身就是以 -/+ 开头，
+            # 会导致这个判断恒为真、形同虚设。真正代表"存在内容变更"的可靠信号是 "@@" hunk 头，
+            # 它必然与真实的 +/- 内容行成对出现。
             has_content_diff = bool(re.search(r'^@@', diff_content, re.MULTILINE))
-            has_add_del = bool(re.search(r'^[+-]', diff_content, re.MULTILINE))
-            if not has_content_diff and not has_add_del:
+            if not has_content_diff:
                 continue
 
-            # 从 diff 内容推断 action（A/M/D）
-            has_dev_null_src = bool(re.search(r'^--- /dev/null', diff_content, re.MULTILINE))
-            has_dev_null_dst = bool(re.search(r'^\+\+\+ /dev/null', diff_content, re.MULTILINE))
-
-            if has_dev_null_src and not has_dev_null_dst:
-                action = 'A'
-            elif has_dev_null_dst and not has_dev_null_src:
-                action = 'D'
-            else:
-                action = 'M'
+            action = self._detect_action(diff_content)
 
             # 删除文件处理
             if action == 'D' and not include_deleted:
@@ -463,8 +458,9 @@ class SVNHandler:
             if not self._is_supported_file(file_path):
                 continue
 
-            # 构建完整的 diff 文本（Index 头让 AI 识别文件路径）
-            diff_text = f"Index: {file_path}\n" + diff_content
+            # 构建完整的 diff 文本（Index 头 + 分隔线，保持和原始 svn diff 输出一致的样式，
+            # 让 AI 能正确识别文件路径）
+            diff_text = f"Index: {file_path}\n{m.group('sep')}\n" + diff_content
 
             change = {
                 'new_path': file_path,
@@ -476,8 +472,32 @@ class SVNHandler:
             }
             changes.append(change)
 
-        logger.info(f'r{revision} 批量 diff 解析完成: {len(changes)} 个文件')
         return changes
+
+    def _detect_action(self, diff_content: str) -> str:
+        """
+        从 diff 内容推断文件的变更类型（A=新增, M=修改, D=删除）。
+
+        注意：SVN 表示"文件在该版本不存在"的写法和 git 不同——不是 `/dev/null`，
+        而是类似 `(nonexistent)` / `(revision 0)` 这样的标注。这里以 SVN 的实际写法
+        为主，同时保留 `/dev/null` 判断作为兼容分支（以防个别环境产生 git 风格 diff）。
+        """
+        src_match = re.search(r'^--- .*$', diff_content, re.MULTILINE)
+        dst_match = re.search(r'^\+\+\+ .*$', diff_content, re.MULTILINE)
+        src_line = src_match.group(0) if src_match else ''
+        dst_line = dst_match.group(0) if dst_match else ''
+
+        missing_suffix = re.compile(r'\((nonexistent|revision 0)\)\s*$')
+
+        src_missing = bool(missing_suffix.search(src_line)) or '/dev/null' in src_line
+        dst_missing = bool(missing_suffix.search(dst_line)) or '/dev/null' in dst_line
+
+        if src_missing and not dst_missing:
+            return 'A'
+        elif dst_missing and not src_missing:
+            return 'D'
+        else:
+            return 'M'
 
     def get_commit_changes(self, commit: Dict, use_batch: bool = True, include_deleted: bool = False) -> List[Dict]:
         """
