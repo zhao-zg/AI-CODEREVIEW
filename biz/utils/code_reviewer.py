@@ -238,11 +238,39 @@ class CodeReviewer(BaseReviewer):
 
     @staticmethod
     def parse_review_score(review_text: str) -> int:
-        """解析 AI 返回的 Review 结果，返回评分"""
+        """解析 AI 返回的 Review 结果，返回评分（支持多种评分格式）"""
         if not review_text:
             return 0
-        match = re.search(r"总分[:：]\s*(\d+)分?", review_text)
-        return int(match.group(1)) if match else 0
+        
+        # 匹配多种评分格式（按优先级排列）
+        score_patterns = [
+            r"总分[:：]\s*(\d+)分?",          # 总分：85分 或 总分: 85
+            r"总得分[:：]\s*(\d+)分?",        # 总得分：85分
+            r"综合评分[:：]\s*(\d+)分?",      # 综合评分：85分
+            r"最终得分[:：]\s*(\d+)分?",      # 最终得分：85分
+            r"评分[:：]\s*(\d+)分?",          # 评分：85分
+            r"得分[:：]\s*(\d+)分?",          # 得分：85分
+            r"分数[:：]\s*(\d+)分?",          # 分数：85分
+            r"本批评分[:：]\s*(\d+)分?",      # 本批评分：85分
+            r"综合得分[:：]\s*(\d+)分?",      # 综合得分：85分
+            r"分值[:：]\s*(\d+)分?",          # 分值：85分
+            r"总分 \(Total Score\)[:：]\s*(\d+)分?",  # 总分 (Total Score): 85
+            r"Score[:：]\s*(\d+)",            # Score: 85
+            r"Total\s*Score[:：]\s*(\d+)",    # Total Score: 85
+        ]
+        
+        for pattern in score_patterns:
+            match = re.search(pattern, review_text)
+            if match:
+                try:
+                    score = int(match.group(1))
+                    # 确保评分在合理范围内
+                    if 0 <= score <= 100:
+                        return score
+                except (ValueError, IndexError):
+                    continue
+        
+        return 0
 
 
 class BatchCodeReviewer(BaseReviewer):

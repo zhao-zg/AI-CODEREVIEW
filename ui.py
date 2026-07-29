@@ -87,6 +87,18 @@ setup_page_config()
 # 应用自定义CSS样式
 apply_custom_css()
 
+class _MockQueryParams:
+    """模拟 st.query_params，从 session_state 缓存的字典构造"""
+    def __init__(self, data: dict):
+        self._data = data
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+    def __contains__(self, key):
+        return key in self._data and self._data[key] is not None
+    def items(self):
+        return [(k, v) for k, v in self._data.items() if v is not None]
+
+
 def handle_review_detail_request(query_params):
     """处理从推送消息进入的审查详情页面请求"""
     review_type = query_params.get("review_type")
@@ -119,6 +131,8 @@ def handle_review_detail_request(query_params):
         # 清除URL参数和查询参数检测状态
         st.query_params.clear()
         st.session_state.pop("_last_query_params_key", None)
+        st.session_state.pop("_cached_query_params", None)
+        st.session_state["_return_to_dashboard"] = True
         st.rerun()
 
 def show_mr_detail(review_id):
@@ -249,11 +263,44 @@ def show_svn_detail(revision):
 def main_dashboard():
     """主仪表板（无首页）"""
     
+    # ===== 关键修复: 在 check_authentication() 之前缓存 query_params =====
+    # 当从钉钉/企微等外部链接直接打开详情页面时，st.query_params 在
+    # check_authentication() 的 st.rerun() 或 Streamlit 内部 rerun 后可能丢失。
+    # 必须在这里（check_authentication 之前）就将参数缓存到 session_state，
+    # 因为 check_authentication 内部可能调用 st.rerun() 导致当前脚本执行中止，
+    # 后续的 query_params 处理代码将不会执行。
+    query_params = st.query_params
+    
+    if "review_type" in query_params:
+        # 首次检测到 review_type 参数，存入 session_state 缓存
+        st.session_state["_cached_query_params"] = {
+            "review_type": query_params.get("review_type"),
+            "review_id": query_params.get("review_id"),
+            "commit_sha": query_params.get("commit_sha"),
+            "revision": query_params.get("revision"),
+        }
+        # 标记为非返回主页状态
+        st.session_state["_return_to_dashboard"] = False
+    elif st.session_state.get("_cached_query_params") and st.session_state.get("_return_to_dashboard") == False:
+        # 如果当前 st.query_params 没有 review_type，但之前缓存过，
+        # 且用户没有点击"返回主页面"，则从缓存恢复参数
+        cached = st.session_state["_cached_query_params"]
+        if cached.get("review_type"):
+            # 用简单对象模拟 QueryParams 行为
+            query_params = _MockQueryParams(cached)
+    
     # 检查并恢复登录状态（支持页面刷新后保持登录）
+    # 注意：此函数内部可能调用 st.rerun() 中止当前脚本执行
     check_authentication()
     
-    # 检查URL参数，处理从推送消息进入的详情页面请求
+    # 重新获取 query_params（check_authentication 的 st.rerun() 后脚本会重头执行）
     query_params = st.query_params
+    
+    # 在 rerun 后的脚本执行中，从缓存恢复参数
+    if "review_type" not in query_params and st.session_state.get("_cached_query_params") and st.session_state.get("_return_to_dashboard") == False:
+        cached = st.session_state["_cached_query_params"]
+        if cached.get("review_type"):
+            query_params = _MockQueryParams(cached)
     
     # 检测 query params 是否发生变化（解决钉钉浏览器缓存导致显示旧数据的问题）
     current_params_key = str(sorted(query_params.items())) if query_params else ""

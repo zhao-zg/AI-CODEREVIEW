@@ -338,7 +338,11 @@ def check_authentication():
                     restored = True
         
         # 如果成功恢复，刷新页面以更新UI
+        # 注意：如果 URL 中包含 review_type 参数（从通知链接进入详情页），
+        # 不触发 rerun，让脚本继续执行到详情页面处理逻辑，避免参数丢失
         if restored:
+            if "review_type" in st.query_params:
+                return True
             st.rerun()
     
     return st.session_state["authenticated"]
