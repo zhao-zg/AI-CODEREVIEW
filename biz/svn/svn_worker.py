@@ -8,6 +8,7 @@ from biz.entity.review_entity import SvnReviewEntity
 from biz.event.event_manager import event_manager
 from biz.svn.svn_handler import SVNHandler, filter_svn_changes
 from biz.utils.code_reviewer import CodeReviewer, BatchCodeReviewer, is_api_error_message
+from biz.utils.agentic_reviewer import AgenticCodeReviewer
 from biz.utils.im import notifier
 from biz.utils.log import logger
 from biz.utils.config_manager import ConfigManager
@@ -384,8 +385,24 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
                     })
                 
                 # 使用 BatchCodeReviewer 进行分批审查（自动处理 token 超限和合并报告）
+                # === Agentic审查集成：审查过程中AI可主动读取工作副本内完整文件/检索代码库，
+                # 补充diff之外的上下文；仅当LLM客户端支持function calling时生效，否则自动降级 ===
                 commits_text = json.dumps(commit_info, ensure_ascii=False, indent=2)
-                review_result = BatchCodeReviewer().review_in_batches(files_json, commits_text)
+                if get_config_bool('AGENTIC_REVIEW_ENABLED', False):
+                    # read_file 绑定当前审查的 revision：工作副本在批量处理多个提交时始终停在
+                    # 最新HEAD，若不绑定revision直接读磁盘，AI可能看到比被审查提交更新的代码状态，
+                    # 从而基于"未来"代码得出错误结论（例如误以为某个函数早已支持某参数）。
+                    tool_context = {
+                        'read_file': lambda file_path: svn_handler.read_working_copy_file(
+                            file_path, revision=commit['revision']
+                        ),
+                        'search_code': svn_handler.search_working_copy,
+                    }
+                    reviewer = AgenticCodeReviewer(tool_context=tool_context)
+                else:
+                    reviewer = BatchCodeReviewer()
+                review_result = reviewer.review_in_batches(files_json, commits_text)
+                # === Agentic审查集成 END ===
                 # 无论审查结果如何（包括错误信息），都记录并处理
                 if review_result and review_result.strip():
                     if is_api_error_message(review_result):

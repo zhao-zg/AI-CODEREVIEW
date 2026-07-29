@@ -600,7 +600,117 @@ class SVNHandler:
         from biz.utils.default_config import get_env_with_default
         supported_extensions = get_env_with_default('SUPPORTED_EXTENSIONS').split(',')
         return any(file_path.endswith(ext) for ext in supported_extensions)
-    
+
+    def _resolve_safe_path(self, file_path: str) -> Optional[str]:
+        """
+        将 AI 审查工具调用传入的相对路径安全解析为工作副本内的绝对路径。
+        拒绝绝对路径、空字节以及任何试图通过 ".." 等方式越权访问工作副本之外文件的路径，
+        防止路径穿越（Path Traversal）。
+        :param file_path: 相对于工作副本根目录的文件路径
+        :return: 安全的绝对路径；如果路径非法/越权则返回 None
+        """
+        if not file_path or os.path.isabs(file_path) or '\x00' in file_path:
+            return None
+        root = os.path.realpath(self.svn_local_path)
+        candidate = os.path.realpath(os.path.join(root, file_path))
+        if candidate != root and not candidate.startswith(root + os.sep):
+            return None
+        return candidate
+
+    def read_working_copy_file(self, file_path: str, max_chars: int = 20000, revision: Optional[str] = None) -> str:
+        """
+        供 AI 审查工具调用：读取某个文件的完整内容，用于补充 diff 之外的上下文
+        （例如完整函数体、类定义、import 列表等 diff 上下文行数之外看不到的信息）。
+        :param file_path: 相对于工作副本根目录的文件路径（与 diff 里的 new_path/full_path 一致）
+        :param max_chars: 返回内容的最大字符数，超出会截断并提示，避免占用过多 token
+        :param revision: 若指定，通过 `svn cat -r <revision>` 从服务端读取该 revision 时刻的文件内容，
+            而不是工作副本当前 HEAD 的内容。批量处理多个提交时工作副本会停在最新 HEAD，若不传
+            revision，读到的可能是比被审查提交更新的代码状态，导致基于"未来"代码得出错误结论；
+            Agentic 审查场景下应始终传入被审查提交自身的 revision。不传则保持旧行为直接读磁盘文件
+            （更快，但可能不是被审查那一刻的状态），供其他非 revision 敏感场景使用。
+        :return: 文件内容，或以"错误:"开头的错误说明（不会抛异常，方便直接回传给 AI）
+        """
+        resolved = self._resolve_safe_path(file_path)
+        if resolved is None:
+            return f"错误: 非法或越权的文件路径 '{file_path}'"
+        if not self._is_supported_file(file_path):
+            return f"错误: 不支持读取该类型的文件 '{file_path}'"
+
+        if revision:
+            # 注意：这里必须用 svn_remote_url（对应工作副本根目录），而不是 svn_repo_root_url
+            # （对应整个仓库根）。file_path 是相对于工作副本根目录的路径，两者拼接基准不同，
+            # 用错会导致 svn cat 404（尤其当 remote_url 只是仓库里的某个子目录如 trunk 时）。
+            target_url = f"{self.svn_remote_url}/{file_path.lstrip('/')}"
+            command = ['svn', 'cat', '-r', str(revision), target_url]
+            stdout, stderr, returncode = self._run_svn_command(command, cwd=None)
+            if returncode != 0:
+                logger.warning(f"AI工具读取文件失败 (r{revision}, {file_path}): {stderr}")
+                return f"错误: 无法获取文件 '{file_path}' 在 r{revision} 时的内容（可能该版本尚不存在此文件，或已被删除/移动）"
+            content = stdout
+        else:
+            if not os.path.isfile(resolved):
+                return f"错误: 文件不存在 '{file_path}'"
+            try:
+                with open(resolved, 'rb') as f:
+                    content = self._safe_decode(f.read())
+            except Exception as e:
+                logger.warning(f"AI工具读取文件失败 ({file_path}): {e}")
+                return f"错误: 读取文件失败 - {e}"
+
+        if len(content) > max_chars:
+            content = content[:max_chars] + f"\n... (文件过大，已截断，仅显示前 {max_chars} 字符)"
+        return content
+
+    def search_working_copy(self, query: str, max_results: int = 20) -> str:
+        """
+        供 AI 审查工具调用：在工作副本内做简单的文本检索（类似 grep），
+        用于查找某个函数/变量/类在其他文件中的引用，判断本次改动的影响范围。
+        :param query: 检索关键字
+        :param max_results: 最多返回的匹配行数（会被限制在 1~50 之间，避免占用过多 token）
+        :return: 形如 "文件路径:行号: 内容" 的匹配列表文本
+        """
+        if not query or not query.strip():
+            return "错误: 检索关键字不能为空"
+        query = query.strip()
+        if len(query) < 2:
+            return "错误: 检索关键字过短，请提供更明确的关键字（至少2个字符）"
+        try:
+            max_results = int(max_results)
+        except (TypeError, ValueError):
+            max_results = 20
+        max_results = max(1, min(max_results, 50))
+
+        results = []
+        root = os.path.realpath(self.svn_local_path)
+        for current_dir, dirs, files in os.walk(root):
+            if '.svn' in dirs:
+                dirs.remove('.svn')  # 跳过 SVN 元数据目录
+            for fname in files:
+                rel_path = os.path.relpath(os.path.join(current_dir, fname), root).replace('\\', '/')
+                if not self._is_supported_file(rel_path):
+                    continue
+                try:
+                    with open(os.path.join(current_dir, fname), 'rb') as f:
+                        text = self._safe_decode(f.read())
+                except Exception:
+                    continue
+                for lineno, line in enumerate(text.splitlines(), start=1):
+                    if query in line:
+                        snippet = line.strip()
+                        if len(snippet) > 200:
+                            snippet = snippet[:200] + '...'
+                        results.append(f"{rel_path}:{lineno}: {snippet}")
+                        if len(results) >= max_results:
+                            break
+                if len(results) >= max_results:
+                    break
+            if len(results) >= max_results:
+                break
+
+        if not results:
+            return f"未找到匹配 '{query}' 的结果"
+        return '\n'.join(results)
+
     def _count_additions(self, diff_content: str) -> int:
         """
         统计新增行数

@@ -60,7 +60,10 @@ class ConfigReloader:
             # 平台配置
             "SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED",
             "GITLAB_URL", "GITLAB_ACCESS_TOKEN", "GITHUB_ACCESS_TOKEN",
-            
+
+            # Agentic审查配置
+            "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
+
             # 系统配置
             "API_PORT", "LOG_LEVEL", "QUEUE_DRIVER",
             "REDIS_HOST", "REDIS_PORT",

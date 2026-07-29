@@ -796,6 +796,31 @@ def env_management_page():
                 
                 st.divider()
                 
+                # Agentic审查（工具调用式审查）配置
+                st.markdown("#### 🤖 Agentic审查（工具调用式审查）配置")
+                st.caption("💡 开启后，AI审查时可以主动读取工作副本内的完整文件、检索代码库，补充只看diff缺失的上下文。"
+                          "openai/deepseek/qwen/zhipuai 使用原生function calling，ollama/jedi 自动降级为文本协议模拟。目前仅SVN审查接入。")
+                col_agentic1, col_agentic2 = st.columns(2)
+                with col_agentic1:
+                    agentic_review_enabled = st.checkbox(
+                        "启用Agentic审查",
+                        value=env_config.get("AGENTIC_REVIEW_ENABLED", "0") == "1",
+                        help="开启后 SVN 审查将使用支持工具调用的 AgenticCodeReviewer 代替普通的 BatchCodeReviewer"
+                    )
+                with col_agentic2:
+                    agentic_max_tool_rounds = st.number_input(
+                        "最大工具调用轮数",
+                        min_value=1, max_value=20,
+                        value=int(env_config.get("AGENTIC_REVIEW_MAX_TOOL_ROUNDS", "5")),
+                        help="防止工具调用死循环/失控导致的API费用或时长飘升，达到上限后强制要求AI直接给出结论"
+                    )
+                if agentic_review_enabled:
+                    st.success("✅ Agentic审查已启用")
+                else:
+                    st.info("⚪ Agentic审查未启用，将使用普通批量审查")
+                
+                st.divider()
+                
                 # 获取当前SVN配置
                 current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
                 
@@ -1046,6 +1071,10 @@ def env_management_page():
                     "USE_ENHANCED_MERGE_DETECTION": "1" if use_enhanced_merge else "0",
                     "MERGE_DETECTION_THRESHOLD": str(merge_threshold),
                     
+                    # Agentic审查（工具调用式审查）配置
+                    "AGENTIC_REVIEW_ENABLED": "1" if agentic_review_enabled else "0",
+                    "AGENTIC_REVIEW_MAX_TOOL_ROUNDS": str(agentic_max_tool_rounds),
+                    
                     # 消息推送配置
                     "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
                     "DINGTALK_WEBHOOK_URL": dingtalk_webhook,
@@ -1287,7 +1316,7 @@ def env_management_page():
                     "📊 报告配置": ["REPORT_CRONTAB_EXPRESSION"],
                     "🔗 GitLab配置": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED", "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED"],
                     "🐙 GitHub配置": ["GITHUB_ACCESS_TOKEN"],
-                    "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES", "USE_ENHANCED_MERGE_DETECTION", "MERGE_DETECTION_THRESHOLD"],
+                    "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES", "USE_ENHANCED_MERGE_DETECTION", "MERGE_DETECTION_THRESHOLD", "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS"],
                     "🔔 消息推送": ["NOTIFICATION_MODE", "DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL", "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL"],
                     "🔗 额外Webhook": ["EXTRA_WEBHOOK_ENABLED", "EXTRA_WEBHOOK_URL"],
                     "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"],
