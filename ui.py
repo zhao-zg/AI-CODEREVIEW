@@ -225,7 +225,10 @@ def show_svn_detail(revision):
         conn = sqlite3.connect(ReviewService.DB_FILE)
         cursor = conn.cursor()
         # 从 svn_review_log 表查询（不是 version_tracker）
-        cursor.execute("SELECT * FROM svn_review_log WHERE revision=?", (revision,))
+        # 按 id 倒序取最新一条：同一 revision 理论上只应有一条记录，但历史上"重新AI评审"
+        # 触发的 on_svn_reviewed() 是新增而非更新，可能残留同一 revision 的多条旧记录，
+        # 不加 ORDER BY 时 fetchone() 会取到最早的一条，显示的就是过时内容。
+        cursor.execute("SELECT * FROM svn_review_log WHERE revision=? ORDER BY id DESC LIMIT 1", (revision,))
         row = cursor.fetchone()
         conn.close()
         

@@ -722,6 +722,22 @@ class ReviewService:
                     try:
                         # 从文件路径中提取SVN版本号
                         svn_revision = commit_sha if commit_sha and commit_sha.isdigit() else "unknown"
+
+                        # === 修复：详情页(show_svn_detail)是从 svn_review_log 表查询的，不是
+                        # version_tracker。上面只更新了 version_tracker，svn_review_log 里的旧记录
+                        # 不会变，而下面 on_svn_reviewed() 触发的是"新增一条记录"而不是"更新"，
+                        # 导致同一 revision 下出现新旧两条记录，详情页按 revision 查询取到的还是
+                        # 旧的那条——这就是"重新审查后网页内容还是老的"的根因。这里显式先把旧记录
+                        # 原地更新掉，跟 mr/push 分支的做法保持一致。
+                        if svn_revision != "unknown":
+                            cursor.execute(
+                                "UPDATE svn_review_log SET review_result=?, score=? WHERE revision=?",
+                                (new_review_result, new_score, svn_revision)
+                            )
+                            conn.commit()
+                        else:
+                            logger.warning(f"SVN {identifier} 无法解析出有效revision，跳过更新 svn_review_log")
+
                         svn_entity = SvnReviewEntity(
                             project_name=project_name,
                             author=author,
