@@ -730,9 +730,9 @@ def env_management_page():
                         )
                         review_max_tokens = st.number_input(
                             "单次审查最大 Token 数",
-                            min_value=1000, max_value=50000, step=1000,
+                            min_value=1000, max_value=100000, step=1000,
                             value=_env_int(env_config, "REVIEW_MAX_TOKENS", 10000),
-                            help="超出后会自动分批审查"
+                            help="超出后会自动分批审查。需不超过所选模型的上下文窗口，否则会被模型截断"
                         )
                     with col_scope2:
                         exclude_patterns = st.text_input(

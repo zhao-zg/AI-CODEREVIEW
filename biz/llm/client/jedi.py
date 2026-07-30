@@ -9,6 +9,11 @@ from biz.llm.types import NotGiven, NOT_GIVEN
 from biz.utils.log import logger
 from biz.utils.default_config import get_env_with_default, get_env_int
 
+# 输出侧 max_tokens 的硬上限。REVIEW_MAX_TOKENS 本意是"送进模型的 diff 输入预算"，
+# 本客户端复用它作为 completion 的 max_tokens，若用户把它调到很大（如 10 万）会超出
+# 模型的单次输出上限、被网关直接拒绝，因此统一收敛到这个值。
+MAX_COMPLETION_TOKENS = 16000
+
 
 class JediClient(BaseClient):
     # 已用真实凭证实测（2026-07-29，official-deepseek-v4-pro）：Jedi网关基于LangChain封装，
@@ -78,7 +83,9 @@ class JediClient(BaseClient):
             total_content_length = sum(len(str(msg.get("content", ""))) for msg in messages)
             
             # 获取系统配置的最大 token 限制
-            system_max_tokens = get_env_int("REVIEW_MAX_TOKENS", 10000)
+            # 注意：REVIEW_MAX_TOKENS 语义是"送进模型的 diff 输入预算"，这里复用作输出 max_tokens，
+            # 因此必须再套一层输出上限，否则把它调大（如 10 万）会导致网关拒绝请求。
+            system_max_tokens = min(get_env_int("REVIEW_MAX_TOKENS", 10000), MAX_COMPLETION_TOKENS)
             
             # 配置：初始超时600秒，最多重试2次，每次重试超时加倍
             timeout = 600
@@ -271,7 +278,7 @@ class JediClient(BaseClient):
                     "temperature": 0.2,
                     "frequency_penalty": 0.1,
                     "presence_penalty": 0,
-                    "max_tokens": get_env_int("REVIEW_MAX_TOKENS", 10000),
+                    "max_tokens": min(get_env_int("REVIEW_MAX_TOKENS", 10000), MAX_COMPLETION_TOKENS),
                     "top_p": 1,
                     "seed": 42
                 },
