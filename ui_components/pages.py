@@ -499,395 +499,549 @@ def _display_detailed_analysis(review_stats, platforms):
                 date_range=processed_date_range,
                 score_range=score_range            )
 
+# 支持的 AI 供应商（与「🤖 AI模型」标签页中的顺序保持一致）
+LLM_PROVIDERS = ["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"]
+
+# 配置总览的分类定义
+CONFIG_CATEGORIES = {
+    "🤖 AI模型": ["LLM_PROVIDER", "DEEPSEEK_API_KEY", "DEEPSEEK_API_BASE_URL", "DEEPSEEK_API_MODEL",
+                "OPENAI_API_KEY", "OPENAI_API_BASE_URL", "OPENAI_API_MODEL",
+                "ZHIPUAI_API_KEY", "ZHIPUAI_API_MODEL",
+                "QWEN_API_KEY", "QWEN_API_BASE_URL", "QWEN_API_MODEL",
+                "JEDI_API_KEY", "JEDI_API_BASE_URL", "JEDI_API_MODEL",
+                "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL"],
+    "🎯 审查设置": ["REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS", "SVN_DIFF_CONTEXT_LINES",
+                "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
+                "VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
+    "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
+    "🔗 GitLab": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED",
+                "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED"],
+    "🐙 GitHub": ["GITHUB_URL", "GITHUB_ACCESS_TOKEN"],
+    "📂 SVN": ["SVN_REVIEW_ENABLED", "SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REPOSITORIES",
+             "USE_ENHANCED_MERGE_DETECTION", "MERGE_DETECTION_THRESHOLD"],
+    "🔔 通知推送": ["NOTIFICATION_MODE", "DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL",
+                "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL",
+                "EXTRA_WEBHOOK_ENABLED", "EXTRA_WEBHOOK_URL"],
+    "🖥️ 系统运行": ["API_PORT", "API_URL", "UI_PORT", "UI_URL", "TZ", "LOG_LEVEL", "LOG_FILE",
+                 "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER", "REDIS_HOST", "REDIS_PORT",
+                 "REPORT_CRONTAB_EXPRESSION"],
+    "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"],
+}
+
+# 需要在界面上打码的配置项关键字
+SENSITIVE_KEY_HINTS = ("PASSWORD", "TOKEN", "KEY", "SECRET", "WEBHOOK")
+
+# 环境快速配置模板（只覆盖列出的配置项）
+ENV_TEMPLATES = {
+    "🔧 开发环境": {
+        "LLM_PROVIDER": "deepseek",
+        "LOG_LEVEL": "DEBUG",
+        "SVN_CHECK_ENABLED": "1",
+        "GITLAB_ENABLED": "1",
+        "GITHUB_ENABLED": "1",
+        "DINGTALK_ENABLED": "0",
+        "WECOM_ENABLED": "0",
+        "FEISHU_ENABLED": "0",
+    },
+    "🚀 生产环境": {
+        "LLM_PROVIDER": "openai",
+        "LOG_LEVEL": "INFO",
+        "SVN_CHECK_ENABLED": "1",
+        "GITLAB_ENABLED": "1",
+        "GITHUB_ENABLED": "1",
+        "DINGTALK_ENABLED": "1",
+        "WECOM_ENABLED": "1",
+        "FEISHU_ENABLED": "1",
+    },
+    "🧪 测试环境": {
+        "LLM_PROVIDER": "ollama",
+        "LOG_LEVEL": "DEBUG",
+        "SVN_CHECK_ENABLED": "1",
+        "GITLAB_ENABLED": "1",
+        "GITHUB_ENABLED": "0",
+        "DINGTALK_ENABLED": "0",
+        "WECOM_ENABLED": "0",
+        "FEISHU_ENABLED": "0",
+    },
+}
+
+
+def _is_sensitive_key(key):
+    """判断配置项是否为敏感信息"""
+    return any(hint in key.upper() for hint in SENSITIVE_KEY_HINTS)
+
+
+def _env_int(env_config, key, default):
+    """安全地把配置项解析为整数，解析失败时回退默认值，避免脏配置导致配置页无法打开"""
+    try:
+        return int(str(env_config.get(key, "")).strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(env_config, key, default):
+    """安全地把配置项解析为浮点数，解析失败时回退默认值"""
+    try:
+        return float(str(env_config.get(key, "")).strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _mask_value(value):
+    """对敏感配置值打码，仅保留末尾4位便于核对"""
+    if not value:
+        return "未设置"
+    return "••••••••" + value[-4:] if len(value) > 4 else "••••••••"
+
+
+def _render_config_summary(env_config):
+    """渲染配置页顶部的状态摘要"""
+    enabled_platforms = [
+        name for key, name in (
+            ("SVN_CHECK_ENABLED", "SVN"),
+            ("GITLAB_ENABLED", "GitLab"),
+            ("GITHUB_ENABLED", "GitHub"),
+        ) if env_config.get(key, "0") == "1"
+    ]
+    enabled_channels = [
+        name for key, name in (
+            ("DINGTALK_ENABLED", "钉钉"),
+            ("WECOM_ENABLED", "企业微信"),
+            ("FEISHU_ENABLED", "飞书"),
+            ("EXTRA_WEBHOOK_ENABLED", "自定义"),
+        ) if env_config.get(key, "0") == "1"
+    ]
+    configured_count = len([v for v in env_config.values() if v and str(v).strip()])
+    total_count = len(env_config)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("当前AI供应商", env_config.get("LLM_PROVIDER") or "未配置")
+    col2.metric("已启用平台", "、".join(enabled_platforms) if enabled_platforms else "无")
+    col3.metric("通知渠道", "、".join(enabled_channels) if enabled_channels else "无")
+    col4.metric("配置完成度", f"{configured_count}/{total_count}" if total_count else "0/0")
+
+
+def _save_env_config(config_manager, updates):
+    """保存环境配置：与磁盘上的现有配置合并后整体写回
+
+    ConfigManager.save_env_config 会整体重写 conf/.env，若只传入表单字段，
+    界面上没有覆盖到的配置项（如 SVN_CHECK_CRONTAB 等）会被静默丢弃，因此先合并。
+    """
+    merged = config_manager.get_env_config() or {}
+    merged.update({key: ("" if value is None else str(value)) for key, value in updates.items()})
+    return config_manager.save_env_config(merged)
+
+
 def env_management_page():
     """配置管理页面"""
-    import json
-    import datetime
-    from dotenv import load_dotenv
     import pandas as pd
-    
-    # 确保在函数作用域内导入 ConfigManager
-    from biz.utils.config_manager import ConfigManager
-    
+
     st.markdown("""
-    <div style="text-align: center; padding: 1.5rem; 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                border-radius: 15px; margin-bottom: 2rem; color: white; box-shadow: 0 8px 32px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 2.2rem;">⚙️ 系统配置管理</h1>
-        <p style="margin: 0.5rem 0 0 0; font-size: 1.1rem; opacity: 0.9;">集中管理所有系统配置，让部署更简单</p>
+    <div class="config-card">
+        <h2 style="margin: 0; text-align: center;">⚙️ 系统配置管理</h2>
+        <p style="margin: 0.5rem 0 0 0; text-align: center; font-size: 1.05rem;">按模块分组管理系统配置，保存后自动重载生效</p>
     </div>
     """, unsafe_allow_html=True)
-    
+
     try:
-        # 安全地创建 ConfigManager 实例，添加错误处理
         config_manager = ConfigManager()
+        env_config = config_manager.get_env_config() or {}
     except Exception as e:
         st.error(f"❌ 初始化配置管理器失败: {e}")
-        st.info("请检查以下问题：\n1. 确保 biz.utils.config_manager 模块存在\n2. 确保 ConfigManager 类正确定义\n3. 检查文件权限和路径")
+        st.caption("请确认 conf/ 目录存在，且 conf/.env、conf_templates/.env.dist 可读写。")
         return
-    # 创建选项卡
-    tab1, tab2, tab3 = st.tabs(["🎛️ 系统配置", "📋 配置总览", "🔧 配置模板"])
-    
-    with tab1:
-        st.markdown("### 🎛️ 系统配置编辑")
-        st.markdown("📝 **配置您的AI代码审查系统**，支持多种AI模型和代码托管平台。")
-        
-        # 配置进度指示器
-        try:
-            env_config = config_manager.get_env_config()
-            configured_count = len([v for v in env_config.values() if v and v.strip()])
-            total_count = len(env_config)
-            progress = configured_count / total_count if total_count > 0 else 0
-            
-            col_progress1, col_progress2, col_progress3 = st.columns([1, 2, 1])
-            with col_progress2:
-                st.metric("配置完成度", f"{configured_count}/{total_count}", f"{progress:.1%}")
-                st.progress(progress)
-        except:
-            env_config = {}
-        
-        st.markdown("---")
-        
-        # 配置编辑表单 - 重新组织排版
-        with st.form("env_config_form"):
-            # 第一部分：基础核心配置（少量配置项）
-            st.markdown("#### 🎯 核心配置")
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                llm_provider = st.selectbox(
-                    "AI模型供应商", 
-                    ["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"],
-                    index=["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"].index(env_config.get("LLM_PROVIDER", "deepseek"))
-                )
-                timezone = st.text_input("时区", value=env_config.get("TZ", "Asia/Shanghai"))
-            with col2:
-                api_port = st.text_input("API端口（容器可以使用映射修改）", value=env_config.get("API_PORT", "5001"))
-                api_url = st.text_input("API地址（外部地址）", value=env_config.get("API_URL", "http://localhost:5001"), 
-                                        help="API服务地址，用于内部API调用，如: http://yourserver.com:5001")
-                ui_port = st.text_input("UI端口（容器可以使用映射修改）", value=env_config.get("UI_PORT", "5002"))
-                ui_url = st.text_input("UI地址（外部地址）", value=env_config.get("UI_URL", "http://localhost:5002"), 
-                                         help="用于推送消息中的详情页面链接，如: http://yourserver.com:5002")
-            # 第二部分：平台开关配置（少量配置项）
-            st.markdown("#### 🔀 平台开关配置")
-            col_platform1, col_platform2, col_platform3 = st.columns(3)
-            
-            with col_platform1:
-                svn_enabled = st.checkbox("启用SVN支持", value=env_config.get("SVN_CHECK_ENABLED", "0") == "1", 
-                                        help="启用后将在数据分析中显示SVN相关数据")
-            
-            with col_platform2:
-                gitlab_enabled = st.checkbox("启用GitLab支持", value=env_config.get("GITLAB_ENABLED", "1") == "1",
-                                           help="启用后将在数据分析中显示GitLab相关数据")
-            
-            with col_platform3:
-                github_enabled = st.checkbox("启用GitHub支持", value=env_config.get("GITHUB_ENABLED", "1") == "1",
-                                            help="启用后将在数据分析中显示GitHub相关数据")
-            
-            # 第三部分：版本控制配置（少量配置项）
-            st.markdown("#### 📋 版本控制配置")
-            col_version1, col_version2 = st.columns(2)
-            
-            with col_version1:
-                version_tracking_enabled = st.checkbox("启用版本追踪", value=env_config.get("VERSION_TRACKING_ENABLED", "1") == "1")
-                reuse_previous_review = st.checkbox("复用之前审查结果", value=env_config.get("REUSE_PREVIOUS_REVIEW_RESULT", "1") == "1")
-            
-            with col_version2:
-                retention_days = st.number_input("版本记录保留天数", 
-                                               min_value=1, max_value=365, 
-                                               value=int(env_config.get("VERSION_TRACKING_RETENTION_DAYS", "30") or "30"))
-                review_max_tokens = st.number_input("Review最大Token数", 
-                                                  min_value=1000, max_value=50000, 
-                                                  value=int(env_config.get("REVIEW_MAX_TOKENS", "10000")))
-            
-            # 第四部分：用户权限配置（少量配置项）
-            st.markdown("#### 👤 用户权限配置")
-            col12, col13 = st.columns(2)
-            
-            with col12:
-                dashboard_user = st.text_input("Dashboard用户名", value=env_config.get("DASHBOARD_USER", "admin"))
-            
-            with col13:
-                dashboard_password = st.text_input("Dashboard密码", value=env_config.get("DASHBOARD_PASSWORD", "admin"), type="password")
-            
-            # 分隔线
-            st.markdown("---")
-            
-            # 第五部分：AI模型详细配置（多配置项，折叠显示）
-            with st.expander("🤖 AI模型详细配置", expanded=False):
-                col_ai1, col_ai2 = st.columns(2)
-                
-                with col_ai1:
-                    st.markdown("**DeepSeek 配置**")
-                    deepseek_key = st.text_input("DeepSeek API Key", value=env_config.get("DEEPSEEK_API_KEY", ""), type="password")
-                    deepseek_base = st.text_input("DeepSeek API Base", value=env_config.get("DEEPSEEK_API_BASE_URL", "https://api.deepseek.com"))
-                    deepseek_model = st.text_input("DeepSeek Model", value=env_config.get("DEEPSEEK_API_MODEL", "deepseek-chat"))
-                    
-                    st.markdown("**OpenAI 配置**")
-                    openai_key = st.text_input("OpenAI API Key", value=env_config.get("OPENAI_API_KEY", ""), type="password")
-                    openai_base = st.text_input("OpenAI API Base", value=env_config.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1"))
-                    openai_model = st.text_input("OpenAI Model", value=env_config.get("OPENAI_API_MODEL", "gpt-4o-mini"))
-                    
-                    st.markdown("**智谱AI 配置**")
-                    zhipuai_key = st.text_input("智谱AI API Key", value=env_config.get("ZHIPUAI_API_KEY", ""), type="password")
-                    zhipuai_model = st.text_input("智谱AI Model", value=env_config.get("ZHIPUAI_API_MODEL", "GLM-4-Flash"))
-                
-                with col_ai2:
-                    st.markdown("**Jedi 配置**")
-                    jedi_key = st.text_input("Jedi API Key", value=env_config.get("JEDI_API_KEY", ""), type="password")
-                    jedi_base = st.text_input("Jedi API Base", value=env_config.get("JEDI_API_BASE_URL", "https://jedi-jp-prd-ai-tools.bekko.com:30001/chat_completion_api"))
-                    jedi_model = st.text_input("Jedi Model", value=env_config.get("JEDI_API_MODEL", "official-deepseek-r1"))
-                    
-                    st.markdown("**Qwen 配置**")
-                    qwen_key = st.text_input("Qwen API Key", value=env_config.get("QWEN_API_KEY", ""), type="password")
-                    qwen_base = st.text_input("Qwen API Base", value=env_config.get("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
-                    qwen_model = st.text_input("Qwen Model", value=env_config.get("QWEN_API_MODEL", "qwen-coder-plus"))
-                    
-                    st.markdown("**Ollama 配置**")
-                    ollama_base = st.text_input("Ollama Base URL", value=env_config.get("OLLAMA_API_BASE_URL", "http://host.docker.internal:11434"))
-                    ollama_model = st.text_input("Ollama Model", value=env_config.get("OLLAMA_API_MODEL", "deepseek-r1:latest"))
-            
-            # 第六部分：系统详细配置（多配置项，折叠显示）
-            with st.expander("🏠 系统详细配置", expanded=False):
-                col3, col4 = st.columns(2)
-                
-                with col3:
-                    log_level = st.selectbox("日志级别", 
-                                           ["DEBUG", "INFO", "WARNING", "ERROR"],
-                                           index=["DEBUG", "INFO", "WARNING", "ERROR"].index(env_config.get("LOG_LEVEL", "DEBUG")))
-                    queue_driver = st.selectbox("队列驱动", 
-                                              ["async", "memory"],
-                                              index=0 if env_config.get("QUEUE_DRIVER", "async") == "async" else 1)
-                    log_file = st.text_input("日志文件路径", value=env_config.get("LOG_FILE", "log/app.log"))
-                
-                with col4:
-                    supported_extensions = st.text_input("支持的文件扩展名", 
-                                                       value=env_config.get("SUPPORTED_EXTENSIONS", ".py,.js,.java,.cpp,.c,.h"))
-                    exclude_patterns = st.text_input("排除的文件路径模式（逗号分隔，支持通配符*）",
-                                                    value=env_config.get("EXCLUDE_PATTERNS", ""),
-                                                    help="匹配到的文件不进行审查。例如：*.pb.go,vendor/*,node_modules/*,*.min.js")
-                    log_max_bytes = st.number_input("日志文件最大字节数", 
-                                                  min_value=1024, max_value=104857600, 
-                                                  value=int(env_config.get("LOG_MAX_BYTES", "10485760") or "10485760"))
-                    log_backup_count = st.number_input("日志备份文件数量", 
-                                                     min_value=1, max_value=10, 
-                                                     value=int(env_config.get("LOG_BACKUP_COUNT", "3") or "3"))
-                    report_cron = st.text_input("工作日报发送时间(Cron)", 
-                                              value=env_config.get("REPORT_CRONTAB_EXPRESSION", "0 18 * * 1-5"))
-                
-                # Redis配置（仅在队列驱动为rq时显示）
-                if queue_driver == "rq":
-                    st.markdown("**Redis配置**")
-                    col_redis1, col_redis2 = st.columns(2)
-                    
-                    with col_redis1:
-                        redis_host = st.text_input("Redis主机", value=env_config.get("REDIS_HOST", "127.0.0.1"))
-                    
-                    with col_redis2:
-                        redis_port = st.number_input("Redis端口", 
-                                                   min_value=1, max_value=65535, 
-                                                   value=int(env_config.get("REDIS_PORT", "6379") or "6379"))
-                else:
-                    redis_host = env_config.get("REDIS_HOST", "127.0.0.1")
-                    redis_port = int(env_config.get("REDIS_PORT", "6379") or "6379")
-            
-            # 第七部分：消息推送配置（多配置项，默认展开便于用户配置）
-            with st.expander("🔔 消息推送配置", expanded=False):
-                col9, col10, col11 = st.columns(3)
-                
-                with col9:
-                    st.markdown("**钉钉通知**")
-                    dingtalk_enabled = st.checkbox("启用钉钉通知", value=env_config.get("DINGTALK_ENABLED", "0") == "1")
-                    dingtalk_webhook = st.text_input("钉钉Webhook URL", value=env_config.get("DINGTALK_WEBHOOK_URL", ""), type="password")
-                
-                with col10:
-                    st.markdown("**企业微信通知**")
-                    wecom_enabled = st.checkbox("启用企业微信通知", value=env_config.get("WECOM_ENABLED", "0") == "1")
-                    wecom_webhook = st.text_input("企业微信Webhook URL", value=env_config.get("WECOM_WEBHOOK_URL", ""), type="password")
-                
-                with col11:
-                    st.markdown("**飞书通知**")
-                    feishu_enabled = st.checkbox("启用飞书通知", value=env_config.get("FEISHU_ENABLED", "0") == "1")
-                    feishu_webhook = st.text_input("飞书Webhook URL", value=env_config.get("FEISHU_WEBHOOK_URL", ""), type="password")
-                
-                # 额外Webhook配置
-                st.markdown("**额外Webhook配置**")
-                col_webhook1, col_webhook2 = st.columns(2)
-                
-                with col_webhook1:
-                    extra_webhook_enabled = st.checkbox("启用额外Webhook", value=env_config.get("EXTRA_WEBHOOK_ENABLED", "0") == "1")
-                
-                with col_webhook2:
-                    extra_webhook_url = st.text_input("额外Webhook URL", value=env_config.get("EXTRA_WEBHOOK_URL", ""), type="password")
-                
-                st.markdown("**推送消息模式配置**")
-                col_mode1, col_mode2 = st.columns(2)
-                
-                with col_mode1:
-                    current_mode = env_config.get("NOTIFICATION_MODE", "detailed")
-                    notification_mode = st.selectbox(
-                        "消息推送模式",
-                        options=["detailed", "simplified"],
-                        index=0 if current_mode == "detailed" else 1,
-                        help="detailed=详细推送(包含完整审查结果)，simplified=简化推送(仅关键信息)"
-                    )
-                
-                with col_mode2:
-                    mode_description = {
-                        "detailed": "📄 **详细模式**：包含完整的AI审查结果、提交列表等详细信息",
-                        "simplified": "📋 **简化模式**：仅显示关键信息和简要评论，消息更简洁"
-                    }
-                    st.info(mode_description.get(notification_mode, ""))
-            
-            # 第八部分：代码仓库配置（合并GitLab、GitHub、SVN）
-            with st.expander("🏛️ 代码仓库配置", expanded=False):
-                st.markdown("🔧 **统一管理所有代码仓库平台的访问配置**")
-                
-                # GitLab配置子区域
-                st.markdown("### 🔗 GitLab配置")
-                col_gitlab1, col_gitlab2 = st.columns(2)
-                with col_gitlab1:
-                    gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""), placeholder="https://gitlab.example.com")
-                    gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password", placeholder="glpat-xxxxxxxxxxxxxxxxxxxx")
-                with col_gitlab2:
-                    push_review_enabled = st.checkbox("启用Push审查", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
-                    merge_protected_only = st.checkbox("仅审查受保护分支的MR", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "1") == "1")
-                
-                st.divider()
-                
-                # GitHub配置子区域
-                st.markdown("### 🐙 GitHub配置")
-                github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
-                
-                st.divider()
-                
-                # SVN配置子区域
-                st.markdown("### 📂 SVN仓库配置")
-                st.caption("💡 通过JSON文本编辑器配置SVN仓库，支持多个仓库的统一管理")
-                
-                # SVN增强merge检测配置
-                st.markdown("#### 🔍 增强Merge检测配置")
-                col_merge1, col_merge2, col_merge3 = st.columns(3)
-                with col_merge1:
-                    use_enhanced_merge = st.checkbox(
-                        "启用增强Merge检测", 
-                        value=env_config.get("USE_ENHANCED_MERGE_DETECTION", "0") == "1",
-                        help="启用多维度merge检测算法，相比传统基于消息的检测，准确率更高"
-                    )
-                with col_merge2:
-                    merge_threshold = st.slider(
-                        "检测置信度阈值", 
-                        min_value=0.1, max_value=1.0, 
-                        value=float(env_config.get("MERGE_DETECTION_THRESHOLD", "0.45")),
-                        step=0.05,
-                        help="阈值越高检测越严格，越低检测越宽松。推荐值: 0.4-0.5"
-                    )
-                with col_merge3:
-                    # 显示检测模式信息
-                    if use_enhanced_merge:
-                        if merge_threshold <= 0.4:
-                            st.info("🔍 宽松模式")
-                        elif merge_threshold <= 0.6:
-                            st.success("⚖️ 平衡模式")
-                        else:
-                            st.warning("🎯 严格模式")
-                    else:
-                        st.info("📝 传统模式")
-                
-                st.divider()
-                
-                # Agentic审查（工具调用式审查）配置
-                st.markdown("#### 🤖 Agentic审查（工具调用式审查）配置")
-                st.caption("💡 开启后，AI审查时可以主动读取工作副本内的完整文件、检索代码库，补充只看diff缺失的上下文。"
-                          "openai/deepseek/qwen/zhipuai 使用原生function calling，ollama/jedi 自动降级为文本协议模拟。目前仅SVN审查接入。")
-                col_agentic1, col_agentic2 = st.columns(2)
-                with col_agentic1:
-                    agentic_review_enabled = st.checkbox(
-                        "启用Agentic审查",
-                        value=env_config.get("AGENTIC_REVIEW_ENABLED", "0") == "1",
-                        help="开启后 SVN 审查将使用支持工具调用的 AgenticCodeReviewer 代替普通的 BatchCodeReviewer"
-                    )
-                with col_agentic2:
-                    agentic_max_tool_rounds = st.number_input(
-                        "最大工具调用轮数",
-                        min_value=1, max_value=20,
-                        value=int(env_config.get("AGENTIC_REVIEW_MAX_TOOL_ROUNDS", "5")),
-                        help="防止工具调用死循环/失控导致的API费用或时长飘升，达到上限后强制要求AI直接给出结论"
-                    )
-                if agentic_review_enabled:
-                    st.success("✅ Agentic审查已启用")
-                else:
-                    st.info("⚪ Agentic审查未启用，将使用普通批量审查")
-                
-                st.divider()
-                
-                # 获取当前SVN配置
-                current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
-                
-                # 解析并格式化显示
-                try:
-                    if current_svn_config and current_svn_config.strip():
-                        svn_repos = json.loads(current_svn_config)
-                        formatted_config = json.dumps(svn_repos, indent=2, ensure_ascii=False)
-                    else:
-                        svn_repos = []
-                        formatted_config = "[]"
-                except json.JSONDecodeError:
-                    svn_repos = []
-                    formatted_config = "[]"
-                
-                # 显示当前仓库统计
-                col_svn_stats1, col_svn_stats2, col_svn_stats3 = st.columns(3)
-                with col_svn_stats1:
-                    st.metric("SVN仓库数量", len(svn_repos))
-                with col_svn_stats2:
-                    if svn_repos:
-                        enabled_count = sum(1 for repo in svn_repos if repo.get('enable_merge_review', True))
-                        st.metric("启用Merge审查", f"{enabled_count}/{len(svn_repos)}")
-                    else:
-                        st.metric("启用Merge审查", "0/0")
-                with col_svn_stats3:
-                    if svn_repos:
-                        avg_hours = sum(repo.get('check_hours', 24) for repo in svn_repos) / len(svn_repos)
-                        st.metric("平均检查间隔", f"{avg_hours:.1f}h")
-                    else:
-                        st.metric("平均检查间隔", "N/A")
-                
-                # JSON配置编辑器
-                svn_config_text = st.text_area(
-                    "SVN仓库配置 (JSON格式)",
-                    value=formatted_config,
-                    height=200,
-                    help="请使用有效的JSON格式配置SVN仓库",
-                    key="svn_config_editor"
-                )
-                
-                # 配置验证和预览
-                if svn_config_text.strip() and svn_config_text != "[]":
-                    try:
-                        parsed_svn_config = json.loads(svn_config_text)
-                        if isinstance(parsed_svn_config, list):
-                            st.success(f"✅ SVN配置格式正确，包含 {len(parsed_svn_config)} 个仓库")
-                            
-                            # 显示仓库列表预览
-                            if parsed_svn_config:
-                                st.markdown("**📋 仓库列表预览：**")
-                                for i, repo in enumerate(parsed_svn_config[:3]):  # 只显示前3个
-                                    merge_status = "✅" if repo.get('enable_merge_review', True) else "❌"
-                                    st.caption(f"{i+1}. {repo.get('name', 'Unnamed')} {merge_status} - {repo.get('remote_url', 'No URL')}")
-                                if len(parsed_svn_config) > 3:
-                                    st.caption(f"... 还有 {len(parsed_svn_config) - 3} 个仓库")
-                        else:
-                            st.error("❌ SVN配置必须是一个数组格式")
-                    except json.JSONDecodeError as e:
-                        st.error(f"❌ SVN配置JSON格式错误: {str(e)}")
-                else:
-                    st.info("💡 SVN配置为空，将不会监控任何SVN仓库")
 
-            # 第九部分：Prompt模板配置
-            with st.expander("📝 Prompt模板配置", expanded=False):
-                st.markdown("🎨 **通过YAML文本编辑器自定义AI代码审查的Prompt模板**")
-                
+    _render_config_summary(env_config)
+    st.markdown("---")
+
+    tab1, tab2, tab3 = st.tabs(["🎛️ 系统配置", "📋 配置总览", "🔧 配置模板"])
+
+    with tab1:
+        st.caption("配置按模块分组，在下方标签页中填写，完成后点击底部「💾 保存系统配置」统一保存并生效。")
+
+        # 配置编辑表单 - 按模块分组，避免单页长滚动
+        # 注意：下方各 with 块的书写顺序与标签展示顺序不一致（Streamlit 按 tab 对象归属渲染，不按代码顺序）
+        with st.form("env_config_form"):
+            t_basic, t_review, t_ai, t_repo, t_notify, t_system, t_prompt = st.tabs([
+                "🚀 基础", "🎯 审查设置", "🤖 AI模型", "🏛️ 代码平台",
+                "🔔 通知推送", "🖥️ 系统运行", "📝 Prompt模板",
+            ])
+
+            # ------------------------------ 基础 ------------------------------
+            with t_basic:
+                with st.container(border=True):
+                    st.markdown("**🧠 AI 供应商**")
+                    col_basic1, col_basic2 = st.columns(2)
+                    with col_basic1:
+                        current_provider = env_config.get("LLM_PROVIDER", "deepseek")
+                        llm_provider = st.selectbox(
+                            "使用的AI供应商",
+                            LLM_PROVIDERS,
+                            index=LLM_PROVIDERS.index(current_provider) if current_provider in LLM_PROVIDERS else 0,
+                            help="所选供应商的 API Key / 地址 / 模型在「🤖 AI模型」标签页中填写"
+                        )
+                    with col_basic2:
+                        timezone = st.text_input("时区", value=env_config.get("TZ", "Asia/Shanghai"))
+
+                with st.container(border=True):
+                    st.markdown("**🔀 平台开关**")
+                    st.caption("关闭的平台不参与代码审查，其数据也不会出现在数据分析页面；详细参数在「🏛️ 代码平台」标签页配置。")
+                    col_platform1, col_platform2, col_platform3 = st.columns(3)
+                    with col_platform1:
+                        svn_enabled = st.checkbox("启用 SVN", value=env_config.get("SVN_CHECK_ENABLED", "0") == "1")
+                    with col_platform2:
+                        gitlab_enabled = st.checkbox("启用 GitLab", value=env_config.get("GITLAB_ENABLED", "1") == "1")
+                    with col_platform3:
+                        github_enabled = st.checkbox("启用 GitHub", value=env_config.get("GITHUB_ENABLED", "1") == "1")
+
+                with st.container(border=True):
+                    st.markdown("**🌐 服务地址**")
+                    col_addr1, col_addr2 = st.columns(2)
+                    with col_addr1:
+                        api_port = st.text_input("API 端口", value=env_config.get("API_PORT", "5001"),
+                                                 help="容器部署时可通过端口映射修改")
+                        api_url = st.text_input("API 外部地址", value=env_config.get("API_URL", "http://localhost:5001"),
+                                                help="用于内部API调用，如: http://yourserver.com:5001")
+                    with col_addr2:
+                        ui_port = st.text_input("UI 端口", value=env_config.get("UI_PORT", "5002"),
+                                                help="容器部署时可通过端口映射修改")
+                        ui_url = st.text_input("UI 外部地址", value=env_config.get("UI_URL", "http://localhost:5002"),
+                                               help="用于推送消息中的详情页链接，如: http://yourserver.com:5002")
+
+                with st.container(border=True):
+                    st.markdown("**👤 管理员账号**")
+                    col_user1, col_user2 = st.columns(2)
+                    with col_user1:
+                        dashboard_user = st.text_input("Dashboard 用户名", value=env_config.get("DASHBOARD_USER", "admin"))
+                    with col_user2:
+                        dashboard_password = st.text_input("Dashboard 密码", value=env_config.get("DASHBOARD_PASSWORD", "admin"),
+                                                           type="password")
+
+            # ---------------------------- 审查设置 ----------------------------
+            with t_review:
+                with st.container(border=True):
+                    st.markdown("**🎯 审查范围与限制**")
+                    col_scope1, col_scope2 = st.columns(2)
+                    with col_scope1:
+                        supported_extensions = st.text_input(
+                            "参与审查的文件扩展名",
+                            value=env_config.get("SUPPORTED_EXTENSIONS", ".py,.js,.java,.cpp,.c,.h"),
+                            help="逗号分隔，例如：.py,.java,.ts"
+                        )
+                        review_max_tokens = st.number_input(
+                            "单次审查最大 Token 数",
+                            min_value=1000, max_value=50000, step=1000,
+                            value=_env_int(env_config, "REVIEW_MAX_TOKENS", 10000),
+                            help="超出后会自动分批审查"
+                        )
+                    with col_scope2:
+                        exclude_patterns = st.text_input(
+                            "排除的文件路径模式",
+                            value=env_config.get("EXCLUDE_PATTERNS", ""),
+                            help="逗号分隔，支持通配符 *。例如：*.pb.go,vendor/*,node_modules/*,*.min.js"
+                        )
+                        svn_diff_context_lines = st.number_input(
+                            "SVN diff 上下文行数",
+                            min_value=0, max_value=100,
+                            value=_env_int(env_config, "SVN_DIFF_CONTEXT_LINES", 10),
+                            help="对应 svn diff -U 参数，调大可让AI看到更完整的函数体"
+                        )
+
+                with st.container(border=True):
+                    st.markdown("**🤖 Agentic 审查（工具调用式审查）**")
+                    st.caption("开启后AI可在审查过程中主动读取完整文件、检索代码库，补足只看 diff 缺失的上下文。"
+                               "openai/deepseek/qwen/zhipuai 走原生 function calling，ollama/jedi 自动降级为文本协议模拟。目前仅 SVN 审查链路接入。")
+                    col_agentic1, col_agentic2 = st.columns(2)
+                    with col_agentic1:
+                        agentic_review_enabled = st.checkbox(
+                            "启用 Agentic 审查",
+                            value=env_config.get("AGENTIC_REVIEW_ENABLED", "0") == "1"
+                        )
+                    with col_agentic2:
+                        agentic_max_tool_rounds = st.number_input(
+                            "最大工具调用轮数",
+                            min_value=1, max_value=20,
+                            value=_env_int(env_config, "AGENTIC_REVIEW_MAX_TOOL_ROUNDS", 5),
+                            help="防止工具调用失控导致费用与耗时飙升，达到上限后强制要求AI直接给出结论"
+                        )
+
+                with st.container(border=True):
+                    st.markdown("**♻️ 结果复用与版本追踪**")
+                    col_version1, col_version2, col_version3 = st.columns(3)
+                    with col_version1:
+                        version_tracking_enabled = st.checkbox(
+                            "启用版本追踪",
+                            value=env_config.get("VERSION_TRACKING_ENABLED", "1") == "1"
+                        )
+                    with col_version2:
+                        reuse_previous_review = st.checkbox(
+                            "复用历史审查结果",
+                            value=env_config.get("REUSE_PREVIOUS_REVIEW_RESULT", "1") == "1",
+                            help="内容未变化时直接复用上次审查结果，避免重复调用AI"
+                        )
+                    with col_version3:
+                        retention_days = st.number_input(
+                            "版本记录保留天数",
+                            min_value=1, max_value=365,
+                            value=_env_int(env_config, "VERSION_TRACKING_RETENTION_DAYS", 30)
+                        )
+
+            # ----------------------------- AI模型 -----------------------------
+            with t_ai:
+                st.caption(f"各供应商的配置互相独立且都会保留，切换供应商无需重填。当前生效：**{env_config.get('LLM_PROVIDER', '未配置')}**")
+
+                col_ai1, col_ai2, col_ai3 = st.columns(3)
+
+                with col_ai1:
+                    with st.container(border=True):
+                        st.markdown("**DeepSeek**")
+                        deepseek_key = st.text_input("DeepSeek API Key", value=env_config.get("DEEPSEEK_API_KEY", ""), type="password")
+                        deepseek_base = st.text_input("DeepSeek API Base", value=env_config.get("DEEPSEEK_API_BASE_URL", "https://api.deepseek.com"))
+                        deepseek_model = st.text_input("DeepSeek 模型", value=env_config.get("DEEPSEEK_API_MODEL", "deepseek-chat"))
+
+                with col_ai2:
+                    with st.container(border=True):
+                        st.markdown("**OpenAI（兼容网关）**")
+                        openai_key = st.text_input("OpenAI API Key", value=env_config.get("OPENAI_API_KEY", ""), type="password")
+                        openai_base = st.text_input("OpenAI API Base", value=env_config.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1"))
+                        openai_model = st.text_input("OpenAI 模型", value=env_config.get("OPENAI_API_MODEL", "gpt-4o-mini"))
+
+                with col_ai3:
+                    with st.container(border=True):
+                        st.markdown("**智谱AI**")
+                        zhipuai_key = st.text_input("智谱AI API Key", value=env_config.get("ZHIPUAI_API_KEY", ""), type="password")
+                        st.caption("使用官方默认地址，无需配置 API Base")
+                        zhipuai_model = st.text_input("智谱AI 模型", value=env_config.get("ZHIPUAI_API_MODEL", "GLM-4-Flash"))
+
+                col_ai4, col_ai5, col_ai6 = st.columns(3)
+
+                with col_ai4:
+                    with st.container(border=True):
+                        st.markdown("**通义千问 Qwen**")
+                        qwen_key = st.text_input("Qwen API Key", value=env_config.get("QWEN_API_KEY", ""), type="password")
+                        qwen_base = st.text_input("Qwen API Base", value=env_config.get("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
+                        qwen_model = st.text_input("Qwen 模型", value=env_config.get("QWEN_API_MODEL", "qwen-coder-plus"))
+
+                with col_ai5:
+                    with st.container(border=True):
+                        st.markdown("**Jedi**")
+                        jedi_key = st.text_input("Jedi API Key", value=env_config.get("JEDI_API_KEY", ""), type="password")
+                        jedi_base = st.text_input("Jedi API Base", value=env_config.get("JEDI_API_BASE_URL", "https://jedi-jp-prd-ai-tools.bekko.com:30001/chat_completion_api"))
+                        jedi_model = st.text_input("Jedi 模型", value=env_config.get("JEDI_API_MODEL", "official-deepseek-r1"))
+
+                with col_ai6:
+                    with st.container(border=True):
+                        st.markdown("**Ollama（本地）**")
+                        st.caption("本地部署，无需 API Key")
+                        ollama_base = st.text_input("Ollama API Base", value=env_config.get("OLLAMA_API_BASE_URL", "http://host.docker.internal:11434"))
+                        ollama_model = st.text_input("Ollama 模型", value=env_config.get("OLLAMA_API_MODEL", "deepseek-r1:latest"))
+            
+            # ---------------------------- 系统运行 ----------------------------
+            with t_system:
+                with st.container(border=True):
+                    st.markdown("**📜 日志**")
+                    col_log1, col_log2 = st.columns(2)
+                    with col_log1:
+                        log_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+                        current_log_level = env_config.get("LOG_LEVEL", "DEBUG")
+                        log_level = st.selectbox(
+                            "日志级别", log_levels,
+                            index=log_levels.index(current_log_level) if current_log_level in log_levels else 0
+                        )
+                        log_file = st.text_input("日志文件路径", value=env_config.get("LOG_FILE", "log/app.log"))
+                    with col_log2:
+                        log_max_bytes = st.number_input(
+                            "单个日志文件最大字节数",
+                            min_value=1024, max_value=104857600,
+                            value=_env_int(env_config, "LOG_MAX_BYTES", 10485760)
+                        )
+                        log_backup_count = st.number_input(
+                            "日志备份文件数量",
+                            min_value=1, max_value=10,
+                            value=_env_int(env_config, "LOG_BACKUP_COUNT", 3)
+                        )
+
+                with st.container(border=True):
+                    st.markdown("**🧵 队列与 Redis**")
+                    st.caption("Redis 仅在队列驱动为 rq 时使用；async / memory 模式下无需 Redis 服务。")
+                    col_queue1, col_queue2, col_queue3 = st.columns(3)
+                    with col_queue1:
+                        queue_options = ["async", "memory", "rq"]
+                        current_queue = env_config.get("QUEUE_DRIVER", "async")
+                        queue_driver = st.selectbox(
+                            "队列驱动", queue_options,
+                            index=queue_options.index(current_queue) if current_queue in queue_options else 0
+                        )
+                    with col_queue2:
+                        redis_host = st.text_input("Redis 主机", value=env_config.get("REDIS_HOST", "127.0.0.1"))
+                    with col_queue3:
+                        redis_port = st.number_input(
+                            "Redis 端口",
+                            min_value=1, max_value=65535,
+                            value=_env_int(env_config, "REDIS_PORT", 6379)
+                        )
+
+                with st.container(border=True):
+                    st.markdown("**⏰ 定时任务**")
+                    report_cron = st.text_input(
+                        "工作日报发送时间 (Cron)",
+                        value=env_config.get("REPORT_CRONTAB_EXPRESSION", "0 18 * * 1-5"),
+                        help="标准 5 段 cron 表达式，例如 0 18 * * 1-5 表示工作日 18:00 发送"
+                    )
+            
+            # ---------------------------- 通知推送 ----------------------------
+            with t_notify:
+                with st.container(border=True):
+                    st.markdown("**📮 推送模式**")
+                    col_mode1, col_mode2 = st.columns([1, 2])
+                    with col_mode1:
+                        notification_modes = ["detailed", "simplified"]
+                        current_mode = env_config.get("NOTIFICATION_MODE", "detailed")
+                        notification_mode = st.selectbox(
+                            "消息推送模式",
+                            options=notification_modes,
+                            index=notification_modes.index(current_mode) if current_mode in notification_modes else 0
+                        )
+                    with col_mode2:
+                        st.caption("📄 **detailed 详细模式**：包含完整的AI审查结果、提交列表等详细信息")
+                        st.caption("📋 **simplified 简化模式**：仅显示关键信息和简要评论，消息更简洁")
+
+                st.markdown("**📢 通知渠道**")
+                col9, col10, col11 = st.columns(3)
+
+                with col9:
+                    with st.container(border=True):
+                        st.markdown("**钉钉**")
+                        dingtalk_enabled = st.checkbox("启用钉钉通知", value=env_config.get("DINGTALK_ENABLED", "0") == "1")
+                        dingtalk_webhook = st.text_input("钉钉 Webhook URL", value=env_config.get("DINGTALK_WEBHOOK_URL", ""), type="password")
+
+                with col10:
+                    with st.container(border=True):
+                        st.markdown("**企业微信**")
+                        wecom_enabled = st.checkbox("启用企业微信通知", value=env_config.get("WECOM_ENABLED", "0") == "1")
+                        wecom_webhook = st.text_input("企业微信 Webhook URL", value=env_config.get("WECOM_WEBHOOK_URL", ""), type="password")
+
+                with col11:
+                    with st.container(border=True):
+                        st.markdown("**飞书**")
+                        feishu_enabled = st.checkbox("启用飞书通知", value=env_config.get("FEISHU_ENABLED", "0") == "1")
+                        feishu_webhook = st.text_input("飞书 Webhook URL", value=env_config.get("FEISHU_WEBHOOK_URL", ""), type="password")
+
+                with st.container(border=True):
+                    st.markdown("**🪝 自定义 Webhook**")
+                    st.caption("审查完成后额外向该地址推送一份结果，便于对接自建系统。")
+                    col_webhook1, col_webhook2 = st.columns([1, 2])
+                    with col_webhook1:
+                        extra_webhook_enabled = st.checkbox("启用自定义 Webhook", value=env_config.get("EXTRA_WEBHOOK_ENABLED", "0") == "1")
+                    with col_webhook2:
+                        extra_webhook_url = st.text_input("自定义 Webhook URL", value=env_config.get("EXTRA_WEBHOOK_URL", ""), type="password")
+            
+            # ---------------------------- 代码平台 ----------------------------
+            with t_repo:
+                st.caption("平台的启用/停用开关在「🚀 基础」标签页设置，这里配置各平台的访问凭证与审查参数。")
+
+                col_repo1, col_repo2 = st.columns(2)
+                with col_repo1:
+                    with st.container(border=True):
+                        st.markdown("**🔗 GitLab**")
+                        gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""), placeholder="https://gitlab.example.com")
+                        gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password", placeholder="glpat-xxxxxxxxxxxxxxxxxxxx")
+                        push_review_enabled = st.checkbox("启用 Push 审查", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
+                        merge_protected_only = st.checkbox("仅审查受保护分支的 MR", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "1") == "1")
+
+                with col_repo2:
+                    with st.container(border=True):
+                        st.markdown("**🐙 GitHub**")
+                        github_url = st.text_input("GitHub URL", value=env_config.get("GITHUB_URL", "https://github.com"),
+                                                   help="GitHub Enterprise 用户请填写自建地址")
+                        github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
+
+                with st.container(border=True):
+                    st.markdown("**📂 SVN**")
+                    col_svn1, col_svn2, col_svn3 = st.columns(3)
+                    with col_svn1:
+                        svn_review_enabled = st.checkbox(
+                            "启用 SVN 代码审查",
+                            value=env_config.get("SVN_REVIEW_ENABLED", "1") == "1",
+                            help="关闭后仅记录提交信息，不调用AI审查"
+                        )
+                    with col_svn2:
+                        svn_check_crontab = st.text_input(
+                            "默认检查周期 (Cron)",
+                            value=env_config.get("SVN_CHECK_CRONTAB", "*/30 * * * *"),
+                            help="仓库未单独配置 check_crontab 时使用该默认值"
+                        )
+                    with col_svn3:
+                        svn_check_limit = st.number_input(
+                            "单次检查最大提交数",
+                            min_value=1, max_value=1000,
+                            value=_env_int(env_config, "SVN_CHECK_LIMIT", 100)
+                        )
+
+                    st.markdown("**🔍 增强 Merge 检测**")
+                    col_merge1, col_merge2 = st.columns([1, 2])
+                    with col_merge1:
+                        use_enhanced_merge = st.checkbox(
+                            "启用增强 Merge 检测",
+                            value=env_config.get("USE_ENHANCED_MERGE_DETECTION", "0") == "1",
+                            help="多维度检测算法，比仅匹配提交信息关键字更准确"
+                        )
+                    with col_merge2:
+                        merge_threshold = st.slider(
+                            "检测置信度阈值",
+                            min_value=0.1, max_value=1.0,
+                            value=_env_float(env_config, "MERGE_DETECTION_THRESHOLD", 0.45),
+                            step=0.05,
+                            help="≤0.4 宽松 / 0.4~0.6 平衡 / >0.6 严格，推荐 0.4~0.5"
+                        )
+
+                    # 解析已保存的SVN仓库配置
+                    current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
+                    try:
+                        parsed_repos = json.loads(current_svn_config) if current_svn_config and current_svn_config.strip() else []
+                        formatted_config = json.dumps(parsed_repos, indent=2, ensure_ascii=False)
+                        svn_repos = [repo for repo in parsed_repos if isinstance(repo, dict)] if isinstance(parsed_repos, list) else []
+                    except json.JSONDecodeError:
+                        svn_repos = []
+                        formatted_config = current_svn_config or "[]"
+
+                    st.markdown("**📋 仓库列表**")
+                    col_svn_stats1, col_svn_stats2, col_svn_stats3 = st.columns(3)
+                    with col_svn_stats1:
+                        st.metric("已配置仓库", len(svn_repos))
+                    with col_svn_stats2:
+                        if svn_repos:
+                            enabled_count = sum(1 for repo in svn_repos if repo.get('enable_merge_review', True))
+                            st.metric("启用Merge审查", f"{enabled_count}/{len(svn_repos)}")
+                        else:
+                            st.metric("启用Merge审查", "0/0")
+                    with col_svn_stats3:
+                        if svn_repos:
+                            avg_hours = sum(repo.get('check_hours', 24) for repo in svn_repos) / len(svn_repos)
+                            st.metric("平均检查间隔", f"{avg_hours:.1f}h")
+                        else:
+                            st.metric("平均检查间隔", "N/A")
+
+                    if svn_repos:
+                        for index, repo in enumerate(svn_repos[:5], start=1):
+                            merge_status = "✅" if repo.get('enable_merge_review', True) else "❌"
+                            st.caption(f"{index}. {repo.get('name', 'Unnamed')} {merge_status} — {repo.get('remote_url', 'No URL')}")
+                        if len(svn_repos) > 5:
+                            st.caption(f"... 还有 {len(svn_repos) - 5} 个仓库")
+                    else:
+                        st.caption("暂未配置任何SVN仓库，保存空数组表示不监控任何仓库。")
+
+                    svn_config_text = st.text_area(
+                        "仓库配置 (JSON 数组)",
+                        value=formatted_config,
+                        height=220,
+                        help="保存时会校验 JSON 格式；每个元素支持 name / remote_url / local_path / username / password / check_crontab / check_limit / enable_merge_review 等字段"
+                    )
+
+            # --------------------------- Prompt模板 ---------------------------
+            with t_prompt:
+                st.caption("通过 YAML 编辑器自定义 AI 代码审查的 Prompt 模板，保存后写入 conf/prompt_templates.yml。")
+
                 # 读取当前prompt模板
                 import yaml
                 prompt_templates_file = "conf/prompt_templates.yml"
@@ -917,92 +1071,33 @@ def env_management_page():
     提交历史：
     {commits_text}"""
                 
-                # 显示当前配置统计（3个Prompt）
-                prompts_status = {}
-                for pkey in ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']:
-                    cfg = current_prompt_config.get(pkey, {})
-                    sys_len = len(cfg.get('system_prompt', ''))
-                    usr_len = len(cfg.get('user_prompt', ''))
-                    prompts_status[pkey] = {
-                        'sys_len': sys_len,
-                        'usr_len': usr_len,
-                        'ok': bool(sys_len and usr_len)
-                    }
+                # 当前模板状态概览
+                prompt_labels = {
+                    'code_review_prompt': '📌 主审查',
+                    'code_review_batch_prompt': '📦 分批审查',
+                    'code_review_merge_prompt': '🔗 合并报告',
+                }
+                prompt_status_rows = []
+                for pkey, plabel in prompt_labels.items():
+                    cfg = current_prompt_config.get(pkey) or {}
+                    sys_len = len(cfg.get('system_prompt', '') or '')
+                    usr_len = len(cfg.get('user_prompt', '') or '')
+                    prompt_status_rows.append({
+                        "模板": plabel,
+                        "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
+                        "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
+                        "状态": "✅ 完整" if (sys_len and usr_len) else "⚠️ 不完整",
+                    })
+                st.dataframe(pd.DataFrame(prompt_status_rows), use_container_width=True, hide_index=True)
 
-                # 第1行：主审查 Prompt
-                col1a, col1b, col1c = st.columns(3)
-                with col1a:
-                    st.metric("📌 主审查·系统Prompt", f"{prompts_status['code_review_prompt']['sys_len']}字符")
-                with col1b:
-                    st.metric("📌 主审查·用户Prompt", f"{prompts_status['code_review_prompt']['usr_len']}字符")
-                with col1c:
-                    st.metric("主审查状态", "✅ 完整" if prompts_status['code_review_prompt']['ok'] else "⚠️ 不完整")
-
-                # 第2行：分批审查 Prompt
-                col2a, col2b, col2c = st.columns(3)
-                with col2a:
-                    st.metric("📦 分批审查·系统Prompt", f"{prompts_status['code_review_batch_prompt']['sys_len']}字符")
-                with col2b:
-                    st.metric("📦 分批审查·用户Prompt", f"{prompts_status['code_review_batch_prompt']['usr_len']}字符")
-                with col2c:
-                    st.metric("分批审查状态", "✅ 完整" if prompts_status['code_review_batch_prompt']['ok'] else "⚠️ 不完整")
-
-                # 第3行：合并报告 Prompt
-                col3a, col3b, col3c = st.columns(3)
-                with col3a:
-                    st.metric("🔗 合并报告·系统Prompt", f"{prompts_status['code_review_merge_prompt']['sys_len']}字符")
-                with col3b:
-                    st.metric("🔗 合并报告·用户Prompt", f"{prompts_status['code_review_merge_prompt']['usr_len']}字符")
-                with col3c:
-                    st.metric("合并报告状态", "✅ 完整" if prompts_status['code_review_merge_prompt']['ok'] else "⚠️ 不完整")
-                
                 # YAML配置编辑器
                 prompt_config_text = st.text_area(
-                    "Prompt模板配置 (YAML格式)",
+                    "Prompt模板配置 (YAML)",
                     value=formatted_prompt_config,
-                    height=400,
-                    help="使用YAML格式配置Prompt模板，支持系统Prompt和用户Prompt",
-                    key="prompt_config_editor"
+                    height=420,
+                    help="保存时会校验 YAML 格式，并要求三个模板都包含 system_prompt 与 user_prompt"
                 )
-
-                # 配置验证和预览
-                required_prompts = ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']
-                if prompt_config_text.strip():
-                    try:
-                        parsed_prompt_config = yaml.safe_load(prompt_config_text)
-                        if isinstance(parsed_prompt_config, dict):
-                            # 检查所有3个必需Prompt
-                            missing = [p for p in required_prompts if p not in parsed_prompt_config]
-                            if missing:
-                                st.error(f"❌ 缺少以下Prompt配置: {', '.join(missing)}")
-                            else:
-                                st.success("✅ Prompt配置YAML格式正确")
-
-                                # 显示所有Prompt配置预览
-                                st.markdown("**📋 配置预览：**")
-                                for pkey in required_prompts:
-                                    cfg = parsed_prompt_config[pkey]
-                                    has_sys = 'system_prompt' in cfg
-                                    has_usr = 'user_prompt' in cfg
-                                    sys_len = len(cfg.get('system_prompt', ''))
-                                    usr_len = len(cfg.get('user_prompt', ''))
-                                    icon = "✅" if (has_sys and has_usr) else "⚠️"
-                                    label_map = {
-                                        'code_review_prompt': '📌 主审查',
-                                        'code_review_batch_prompt': '📦 分批审查',
-                                        'code_review_merge_prompt': '🔗 合并报告'
-                                    }
-                                    st.caption(
-                                        f"{icon} {label_map.get(pkey, pkey)} — "
-                                        f"系统Prompt: {sys_len}字符, 用户Prompt: {usr_len}字符"
-                                        + (" (缺少字段!)" if not (has_sys and has_usr) else "")
-                                    )
-                        else:
-                            st.error("❌ 配置格式错误，必须为YAML字典")
-                    except yaml.YAMLError as e:
-                        st.error(f"❌ YAML格式错误: {str(e)}")
-                else:
-                    st.info("💡 Prompt配置为空，将使用默认模板")
+                st.caption("⚠️ 三个模板需保持同一套评分标准与「总分: XX分」输出格式，否则评分会解析失败。")
 
             # 保存系统配置按钮
             if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
@@ -1023,121 +1118,89 @@ def env_management_page():
                         st.stop()
                 
                 new_config = {
-                    # AI模型配置
+                    # AI模型
                     "LLM_PROVIDER": llm_provider,
-                    # "REVIEW_STYLE": review_style,  # 已去除风格
+                    "DEEPSEEK_API_KEY": deepseek_key,
+                    "DEEPSEEK_API_BASE_URL": deepseek_base,
+                    "DEEPSEEK_API_MODEL": deepseek_model,
+                    "OPENAI_API_KEY": openai_key,
+                    "OPENAI_API_BASE_URL": openai_base,
+                    "OPENAI_API_MODEL": openai_model,
+                    "ZHIPUAI_API_KEY": zhipuai_key,
+                    "ZHIPUAI_API_MODEL": zhipuai_model,
+                    "QWEN_API_KEY": qwen_key,
+                    "QWEN_API_BASE_URL": qwen_base,
+                    "QWEN_API_MODEL": qwen_model,
+                    "JEDI_API_KEY": jedi_key,
+                    "JEDI_API_BASE_URL": jedi_base,
+                    "JEDI_API_MODEL": jedi_model,
+                    "OLLAMA_API_BASE_URL": ollama_base,
+                    "OLLAMA_API_MODEL": ollama_model,
+
+                    # 审查设置
                     "REVIEW_MAX_TOKENS": str(review_max_tokens),
                     "SUPPORTED_EXTENSIONS": supported_extensions,
                     "EXCLUDE_PATTERNS": exclude_patterns,
-                    
-                    # 平台开关配置
-                    "SVN_CHECK_ENABLED": "1" if svn_enabled else "0",
-                    "GITLAB_ENABLED": "1" if gitlab_enabled else "0",
-                    "GITHUB_ENABLED": "1" if github_enabled else "0",
-                    
-                    # 版本追踪配置
+                    "SVN_DIFF_CONTEXT_LINES": str(svn_diff_context_lines),
+                    "AGENTIC_REVIEW_ENABLED": "1" if agentic_review_enabled else "0",
+                    "AGENTIC_REVIEW_MAX_TOOL_ROUNDS": str(agentic_max_tool_rounds),
                     "VERSION_TRACKING_ENABLED": "1" if version_tracking_enabled else "0",
                     "REUSE_PREVIOUS_REVIEW_RESULT": "1" if reuse_previous_review else "0",
                     "VERSION_TRACKING_RETENTION_DAYS": str(retention_days),
-                    
-                    # 系统配置
-                    "API_PORT": api_port,
-                    "API_URL": api_url,
-                    "UI_PORT": ui_port,
-                    "UI_URL": ui_url,
-                    "TZ": timezone,
-                    "LOG_LEVEL": log_level,
-                    "QUEUE_DRIVER": queue_driver,
-                    "LOG_FILE": log_file,
-                    "LOG_MAX_BYTES": str(log_max_bytes),
-                    "LOG_BACKUP_COUNT": str(log_backup_count),
-                    
-                    # 报告配置
-                    "REPORT_CRONTAB_EXPRESSION": report_cron,
-                    
-                    # GitLab配置
+
+                    # 平台开关
+                    "SVN_CHECK_ENABLED": "1" if svn_enabled else "0",
+                    "GITLAB_ENABLED": "1" if gitlab_enabled else "0",
+                    "GITHUB_ENABLED": "1" if github_enabled else "0",
+
+                    # GitLab
                     "GITLAB_URL": gitlab_url,
                     "GITLAB_ACCESS_TOKEN": gitlab_token,
                     "PUSH_REVIEW_ENABLED": "1" if push_review_enabled else "0",
                     "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED": "1" if merge_protected_only else "0",
-                    
-                    # GitHub配置
+
+                    # GitHub
+                    "GITHUB_URL": github_url,
                     "GITHUB_ACCESS_TOKEN": github_token,
-                    
-                    # SVN配置
+
+                    # SVN
+                    "SVN_REVIEW_ENABLED": "1" if svn_review_enabled else "0",
+                    "SVN_CHECK_CRONTAB": svn_check_crontab,
+                    "SVN_CHECK_LIMIT": str(svn_check_limit),
                     "SVN_REPOSITORIES": svn_config_final,
-                    
-                    # SVN增强merge检测配置
                     "USE_ENHANCED_MERGE_DETECTION": "1" if use_enhanced_merge else "0",
-                    "MERGE_DETECTION_THRESHOLD": str(merge_threshold),
-                    
-                    # Agentic审查（工具调用式审查）配置
-                    "AGENTIC_REVIEW_ENABLED": "1" if agentic_review_enabled else "0",
-                    "AGENTIC_REVIEW_MAX_TOOL_ROUNDS": str(agentic_max_tool_rounds),
-                    
-                    # 消息推送配置
+                    "MERGE_DETECTION_THRESHOLD": str(round(merge_threshold, 2)),
+
+                    # 通知推送
+                    "NOTIFICATION_MODE": notification_mode,
                     "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
                     "DINGTALK_WEBHOOK_URL": dingtalk_webhook,
                     "WECOM_ENABLED": "1" if wecom_enabled else "0",
                     "WECOM_WEBHOOK_URL": wecom_webhook,
                     "FEISHU_ENABLED": "1" if feishu_enabled else "0",
                     "FEISHU_WEBHOOK_URL": feishu_webhook,
-                    
-                    # 额外Webhook配置
                     "EXTRA_WEBHOOK_ENABLED": "1" if extra_webhook_enabled else "0",
                     "EXTRA_WEBHOOK_URL": extra_webhook_url,
-                    
-                    # 推送消息模式配置
-                    "NOTIFICATION_MODE": notification_mode,
-                    
-                    # Dashboard配置
+
+                    # 系统运行
+                    "API_PORT": api_port,
+                    "API_URL": api_url,
+                    "UI_PORT": ui_port,
+                    "UI_URL": ui_url,
+                    "TZ": timezone,
+                    "LOG_LEVEL": log_level,
+                    "LOG_FILE": log_file,
+                    "LOG_MAX_BYTES": str(log_max_bytes),
+                    "LOG_BACKUP_COUNT": str(log_backup_count),
+                    "QUEUE_DRIVER": queue_driver,
+                    "REDIS_HOST": redis_host,
+                    "REDIS_PORT": str(redis_port),
+                    "REPORT_CRONTAB_EXPRESSION": report_cron,
+
+                    # Dashboard
                     "DASHBOARD_USER": dashboard_user,
-                    "DASHBOARD_PASSWORD": dashboard_password
+                    "DASHBOARD_PASSWORD": dashboard_password,
                 }
-                
-                # Redis配置（如果使用rq队列）
-                if queue_driver == "rq":
-                    new_config.update({
-                        "REDIS_HOST": redis_host,
-                        "REDIS_PORT": str(redis_port)
-                    })
-                else:
-                    # 即使不使用rq，也保留Redis配置
-                    new_config.update({
-                        "REDIS_HOST": redis_host,
-                        "REDIS_PORT": str(redis_port)
-                    })
-                
-                # 保存所有AI模型配置
-                new_config.update({
-                    # DeepSeek配置
-                    "DEEPSEEK_API_KEY": deepseek_key,
-                    "DEEPSEEK_API_BASE_URL": deepseek_base,
-                    "DEEPSEEK_API_MODEL": deepseek_model,
-                    
-                    # OpenAI配置
-                    "OPENAI_API_KEY": openai_key,
-                    "OPENAI_API_BASE_URL": openai_base,
-                    "OPENAI_API_MODEL": openai_model,
-                    
-                    # 智谱AI配置
-                    "ZHIPUAI_API_KEY": zhipuai_key,
-                    "ZHIPUAI_API_MODEL": zhipuai_model,
-                    
-                    # Qwen配置
-                    "QWEN_API_KEY": qwen_key,
-                    "QWEN_API_BASE_URL": qwen_base,
-                    "QWEN_API_MODEL": qwen_model,
-                    
-                    # Jedi配置
-                    "JEDI_API_KEY": jedi_key,
-                    "JEDI_API_BASE_URL": jedi_base,
-                    "JEDI_API_MODEL": jedi_model,
-                    
-                    # Ollama配置
-                    "OLLAMA_API_BASE_URL": ollama_base,
-                    "OLLAMA_API_MODEL": ollama_model
-                })
                 
                 # 保存Prompt模板配置
                 prompt_save_success = True
@@ -1212,53 +1275,26 @@ def env_management_page():
                 
                 # 保存环境配置
                 try:
-                    from biz.utils.config_manager import ConfigManager
-                    config_manager = ConfigManager()
-                    env_save_success = config_manager.save_env_config(new_config)
-                    
-                    # 综合判断保存结果
-                    overall_success = env_save_success and prompt_save_success
-                    
-                    if overall_success:
-                        st.success("✅ 系统配置和Prompt模板已保存成功！")
-                        st.balloons()
-                        
-                        # 显示保存详情
-                        save_details = []
-                        if env_save_success:
-                            save_details.append("✅ 环境配置保存成功")
-                        if prompt_save_success:
-                            save_details.append("✅ Prompt模板保存成功")
-                        
-                        for detail in save_details:
-                            st.info(detail)
-                        
-                        # 自动重载配置
-                        st.info("� 正在自动重载配置...")
+                    env_save_success = _save_env_config(config_manager, new_config)
+
+                    if env_save_success and prompt_save_success:
+                        st.success("✅ 系统配置与Prompt模板已保存")
                         try:
-                            reload_success = apply_config_changes()
-                            if reload_success:
-                                st.success("✅ 配置保存并重载成功！")
+                            if apply_config_changes():
+                                st.success("✅ 配置已重载生效")
                             else:
-                                st.warning("⚠️ 配置已保存，但重载部分成功，建议检查服务状态")
-                                st.info("💡 可以点击下方'🔄 立即重载配置'按钮手动重试")
+                                st.warning("⚠️ 配置已保存，但重载未完全成功，可点击下方「🔄 立即重载配置」重试")
                         except Exception as e:
                             st.warning(f"⚠️ 配置已保存，但自动重载失败: {e}")
-                            st.info("💡 可以点击下方'🔄 立即重载配置'按钮手动重载")
                     else:
-                        error_details = []
                         if not env_save_success:
-                            error_details.append("❌ 环境配置保存失败")
+                            st.error("❌ 环境配置保存失败，请检查 conf/.env 的写入权限")
                         if not prompt_save_success:
-                            error_details.append("❌ Prompt模板保存失败")
-                        
-                        st.error("❌ 配置保存部分失败：")
-                        for error in error_details:
-                            st.error(error)
+                            st.error("❌ Prompt模板保存失败")
                 except Exception as e:
                     st.error(f"❌ 保存配置时出现错误: {str(e)}")
 
-        # 添加配置测试按钮 - 移出form范围
+        # 配置操作按钮 - 移出form范围
         st.markdown("---")
         col1, col2, col3 = st.columns(3)
         
@@ -1293,244 +1329,160 @@ def env_management_page():
                         st.error(f"状态检查失败: {e}")
     
     with tab2:
-        st.markdown("### 📋 配置总览")
-        st.markdown("查看系统的所有配置项及其当前状态。")
-        
+        st.caption("查看所有配置项及其当前状态，敏感信息（密钥 / Token / Webhook）已自动打码。")
+
         try:
-            current_config = config_manager.get_env_config()
-            
-            if current_config:
-                # 按类别分组显示
-                categories = {
-                    "🤖 AI模型配置": ["LLM_PROVIDER", "DEEPSEEK_API_KEY", "DEEPSEEK_API_BASE_URL", "DEEPSEEK_API_MODEL", 
-                                   "OPENAI_API_KEY", "OPENAI_API_BASE_URL", "OPENAI_API_MODEL",
-                                   "ZHIPUAI_API_KEY", "ZHIPUAI_API_MODEL", 
-                                   "QWEN_API_KEY", "QWEN_API_BASE_URL", "QWEN_API_MODEL",
-                                   "JEDI_API_KEY", "JEDI_API_BASE_URL", "JEDI_API_MODEL",
-                                   "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL",
-                                   "REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS"],
-                    "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
-                    "📋 版本追踪配置": ["VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
-                    "🏠 系统配置": ["API_PORT", "API_URL", "UI_PORT", "UI_URL", "TZ", "LOG_LEVEL", "LOG_FILE", "LOG_MAX_BYTES", "LOG_BACKUP_COUNT", "QUEUE_DRIVER"],
-                    "⚡ Redis配置": ["REDIS_HOST", "REDIS_PORT"],
-                    "📊 报告配置": ["REPORT_CRONTAB_EXPRESSION"],
-                    "🔗 GitLab配置": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED", "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED"],
-                    "🐙 GitHub配置": ["GITHUB_ACCESS_TOKEN"],
-                    "📂 SVN配置": ["SVN_CHECK_CRONTAB", "SVN_CHECK_LIMIT", "SVN_REVIEW_ENABLED", "SVN_REPOSITORIES", "USE_ENHANCED_MERGE_DETECTION", "MERGE_DETECTION_THRESHOLD", "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS"],
-                    "🔔 消息推送": ["NOTIFICATION_MODE", "DINGTALK_ENABLED", "DINGTALK_WEBHOOK_URL", "WECOM_ENABLED", "WECOM_WEBHOOK_URL", "FEISHU_ENABLED", "FEISHU_WEBHOOK_URL"],
-                    "🔗 额外Webhook": ["EXTRA_WEBHOOK_ENABLED", "EXTRA_WEBHOOK_URL"],
-                    "👤 Dashboard": ["DASHBOARD_USER", "DASHBOARD_PASSWORD"],
-                    "📝 Prompt模板": ["PROMPT_TEMPLATES_STATUS"]  # 特殊处理的配置项
-                }
-                
-                for category, keys in categories.items():
-                    st.markdown(f"#### {category}")
-                    
-                    # 特殊处理Prompt模板配置
-                    if category == "📝 Prompt模板":
-                        prompt_data = []
-                        try:
-                            # 读取prompt模板文件
-                            import yaml
-                            prompt_templates_file = "conf/prompt_templates.yml"
-                            
-                            if os.path.exists(prompt_templates_file):
-                                with open(prompt_templates_file, 'r', encoding='utf-8') as f:
-                                    prompt_config = yaml.safe_load(f) or {}
-                                
-                                code_review_prompt = prompt_config.get('code_review_prompt', {})
-                                system_prompt = code_review_prompt.get('system_prompt', '')
-                                user_prompt = code_review_prompt.get('user_prompt', '')
-                                
-                                prompt_data.append({
-                                    "配置项": "系统Prompt模板",
-                                    "当前值": f"{len(system_prompt)}字符" if system_prompt else "未设置",
-                                    "状态": "✅ 已配置" if system_prompt else "⚠️ 未配置"
-                                })
-                                
-                                prompt_data.append({
-                                    "配置项": "用户Prompt模板",
-                                    "当前值": f"{len(user_prompt)}字符" if user_prompt else "未设置",
-                                    "状态": "✅ 已配置" if user_prompt else "⚠️ 未配置"
-                                })
-                                
-                                prompt_data.append({
-                                    "配置项": "模板文件状态",
-                                    "当前值": "文件存在",
-                                    "状态": "✅ 正常"
-                                })
-                            else:
-                                prompt_data.append({
-                                    "配置项": "模板文件状态",
-                                    "当前值": "文件不存在",
-                                    "状态": "⚠️ 未配置"
-                                })
-                                
-                        except Exception as e:
-                            prompt_data.append({
-                                "配置项": "模板读取状态",
-                                "当前值": f"读取失败: {str(e)[:50]}...",
-                                "状态": "❌ 错误"
-                            })
-                        
-                        if prompt_data:
-                            df = pd.DataFrame(prompt_data)
-                            st.dataframe(df, use_container_width=True, hide_index=True)
-                        
-                    else:
-                        # 处理其他常规配置
-                        category_data = []
-                        for key in keys:
-                            if key in current_config:
-                                value = current_config[key]
-                                # 隐藏敏感信息
-                                if any(sensitive in key.upper() for sensitive in ["PASSWORD", "TOKEN", "KEY", "SECRET", "WEBHOOK"]):
-                                    if value:
-                                        display_value = "••••••••" + value[-4:] if len(value) > 4 else "••••••••"
-                                    else:
-                                        display_value = "未设置"
-                                else:
-                                    display_value = value if value else "未设置"
-                                
-                                category_data.append({
-                                    "配置项": key,
-                                    "当前值": display_value,
-                                    "状态": "✅ 已配置" if value else "⚠️ 未配置"
-                                })
-                        
-                        if category_data:
-                            df = pd.DataFrame(category_data)
-                            st.dataframe(df, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("该类别暂无配置项")
-                    
-                    st.markdown("---")
-                
-                # 配置统计
-                total_items = len(current_config)
-                configured_items = len([v for v in current_config.values() if v])
-                st.markdown("#### 📊 配置统计")
-                
-                col_stat1, col_stat2, col_stat3 = st.columns(3)
-                with col_stat1:
-                    st.metric("总配置项", total_items)
-                with col_stat2:
-                    st.metric("已配置项", configured_items)
-                with col_stat3:
-                    completion_rate = (configured_items / total_items * 100) if total_items > 0 else 0
-                    st.metric("配置完成度", f"{completion_rate:.1f}%")
-                    
-            else:
-                st.warning("⚠️ 无法读取环境变量配置")
-                
+            current_config = config_manager.get_env_config() or {}
         except Exception as e:
             st.error(f"❌ 读取配置失败: {e}")
+            current_config = {}
+
+        if not current_config:
+            st.warning("⚠️ 无法读取环境变量配置")
+        else:
+            key_to_category = {
+                key: category
+                for category, keys in CONFIG_CATEGORIES.items()
+                for key in keys
+            }
+
+            overview_rows = []
+            for key, value in current_config.items():
+                raw_value = str(value) if value else ""
+                overview_rows.append({
+                    "分类": key_to_category.get(key, "🧩 其他"),
+                    "配置项": key,
+                    "当前值": _mask_value(raw_value) if _is_sensitive_key(key) else (raw_value or "未设置"),
+                    "状态": "✅ 已配置" if raw_value.strip() else "⚠️ 未配置",
+                })
+            overview_df = pd.DataFrame(overview_rows).sort_values(["分类", "配置项"])
+
+            total_items = len(overview_df)
+            configured_items = int((overview_df["状态"] == "✅ 已配置").sum())
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            col_stat1.metric("总配置项", total_items)
+            col_stat2.metric("已配置项", configured_items)
+            col_stat3.metric("配置完成度", f"{(configured_items / total_items * 100) if total_items else 0:.1f}%")
+
+            col_filter1, col_filter2, col_filter3 = st.columns([2, 2, 1])
+            with col_filter1:
+                category_options = ["全部"] + sorted(overview_df["分类"].unique().tolist())
+                selected_category = st.selectbox("按分类筛选", category_options, key="overview_category")
+            with col_filter2:
+                keyword = st.text_input("搜索配置项", placeholder="输入配置项名称关键字", key="overview_keyword")
+            with col_filter3:
+                only_unconfigured = st.checkbox("仅看未配置", key="overview_only_unconfigured")
+
+            filtered_df = overview_df
+            if selected_category != "全部":
+                filtered_df = filtered_df[filtered_df["分类"] == selected_category]
+            if keyword.strip():
+                filtered_df = filtered_df[filtered_df["配置项"].str.contains(keyword.strip(), case=False, na=False, regex=False)]
+            if only_unconfigured:
+                filtered_df = filtered_df[filtered_df["状态"] == "⚠️ 未配置"]
+
+            if filtered_df.empty:
+                st.info("没有符合筛选条件的配置项")
+            else:
+                st.dataframe(filtered_df, use_container_width=True, hide_index=True, height=460)
+
+            with st.expander("📝 Prompt 模板文件状态", expanded=False):
+                import yaml
+                prompt_templates_file = "conf/prompt_templates.yml"
+                try:
+                    if os.path.exists(prompt_templates_file):
+                        with open(prompt_templates_file, 'r', encoding='utf-8') as f:
+                            prompt_config = yaml.safe_load(f) or {}
+                        prompt_rows = []
+                        for pkey, plabel in (
+                            ('code_review_prompt', '📌 主审查'),
+                            ('code_review_batch_prompt', '📦 分批审查'),
+                            ('code_review_merge_prompt', '🔗 合并报告'),
+                        ):
+                            cfg = prompt_config.get(pkey) or {}
+                            sys_len = len(cfg.get('system_prompt', '') or '')
+                            usr_len = len(cfg.get('user_prompt', '') or '')
+                            prompt_rows.append({
+                                "模板": plabel,
+                                "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
+                                "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
+                                "状态": "✅ 完整" if (sys_len and usr_len) else "⚠️ 不完整",
+                            })
+                        st.dataframe(pd.DataFrame(prompt_rows), use_container_width=True, hide_index=True)
+                    else:
+                        st.warning(f"⚠️ 模板文件不存在: {prompt_templates_file}")
+                except Exception as e:
+                    st.error(f"❌ 读取Prompt模板失败: {e}")
     
     with tab3:
-        st.markdown("### 🔧 配置模板管理")
-        st.markdown("🚀 **快速部署配置模板**，根据不同环境选择最佳配置组合。")
-        
+        st.caption("快速套用常见环境的配置组合，或对当前配置做导出、重置等维护操作。")
+
         col_template1, col_template2 = st.columns(2)
-        
+
         with col_template1:
-            st.markdown("#### 🔧 环境模板")
-            
-            templates = {
-                "🔧 开发环境": {
-                    "LLM_PROVIDER": "deepseek",
-                    "LOG_LEVEL": "DEBUG",
-                    "SVN_CHECK_ENABLED": "1",
-                    "GITLAB_ENABLED": "1",
-                    "GITHUB_ENABLED": "1",
-                    "DINGTALK_ENABLED": "0",
-                    "WECOM_ENABLED": "0",
-                    "FEISHU_ENABLED": "0"
-                },
-                "🚀 生产环境": {
-                    "LLM_PROVIDER": "openai",
-                    "LOG_LEVEL": "INFO",
-                    "SVN_CHECK_ENABLED": "1",
-                    "GITLAB_ENABLED": "1",
-                    "GITHUB_ENABLED": "1",
-                    "DINGTALK_ENABLED": "1",
-                    "WECOM_ENABLED": "1",
-                    "FEISHU_ENABLED": "1"
-                },
-                "🧪 测试环境": {
-                    "LLM_PROVIDER": "ollama",
-                    "LOG_LEVEL": "DEBUG",
-                    "SVN_CHECK_ENABLED": "1",
-                    "GITLAB_ENABLED": "1",
-                    "GITHUB_ENABLED": "0",
-                    "DINGTALK_ENABLED": "0",
-                    "WECOM_ENABLED": "0",
-                    "FEISHU_ENABLED": "0"
-                }
-            }
-            
-            selected_template = st.selectbox("选择模板", list(templates.keys()))
-            
-            if selected_template:
-                st.markdown(f"**{selected_template}配置预览:**")
-                template_config = templates[selected_template]
-                
-                for key, value in template_config.items():
-                    st.text(f"{key}: {value}")
-                
-                if st.button(f"应用{selected_template}模板", key="apply_template", help=f"将当前配置替换为{selected_template}模板配置"):
+            with st.container(border=True):
+                st.markdown("**🔧 环境模板**")
+                st.caption("模板只覆盖下表列出的配置项，其余配置保持不变。")
+
+                selected_template = st.selectbox("选择模板", list(ENV_TEMPLATES.keys()), key="env_template_select")
+                template_config = ENV_TEMPLATES[selected_template]
+
+                st.dataframe(
+                    pd.DataFrame([
+                        {"配置项": key, "模板值": value, "当前值": env_config.get(key, "未设置")}
+                        for key, value in template_config.items()
+                    ]),
+                    use_container_width=True, hide_index=True
+                )
+
+                if st.button(f"应用「{selected_template}」模板", key="apply_template", use_container_width=True):
                     try:
-                        current_config = config_manager.get_env_config()
-                        current_config.update(template_config)
-                        
-                        if config_manager.save_env_config(current_config):
-                            st.success(f"✅ {selected_template}模板已应用！")
-                            st.info("💡 请重启应用程序使配置生效。")
+                        if _save_env_config(config_manager, template_config):
+                            st.success(f"✅ 已应用「{selected_template}」模板")
+                            if apply_config_changes():
+                                st.success("✅ 配置已重载生效")
+                            else:
+                                st.warning("⚠️ 配置已保存，但重载未完全成功，建议检查服务状态")
                         else:
                             st.error("❌ 应用模板失败")
                     except Exception as e:
                         st.error(f"❌ 应用模板失败: {e}")
-        
+
         with col_template2:
-            st.markdown("#### 🔄 配置操作")
-            
-            # 重置配置
-            if st.button("🔄 重置为默认配置", key="reset_config", help="将所有配置重置为系统默认值"):
-                try:
-                    if config_manager.reset_env_config():
-                        st.success("✅ 配置已重置为默认值！")
-                        st.info("💡 请重启应用程序使配置生效。")
-                    else:
-                        st.error("❌ 重置配置失败")
-                except Exception as e:
-                    st.error(f"❌ 重置配置失败: {e}")
-            
-            st.markdown("---")
-              # 导出配置
-            if st.button("📥 导出当前配置", key="export_config", help="将当前配置导出为环境变量文件"):
-                try:
-                    current_config = config_manager.get_env_config()
-                    if current_config:
-                        # 创建导出内容
-                        export_content = "# AI代码审查系统配置文件\n"
-                        export_content += f"# 导出时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-                        
-                        # 导入ConfigManager来安全处理环境变量
-                        from biz.utils.config_manager import ConfigManager
-                        
-                        for key, value in current_config.items():
-                            escaped_value = ConfigManager._escape_env_value(value)
-                            export_content += f"{key}={escaped_value}\n"
-                        
+            with st.container(border=True):
+                st.markdown("**📥 导出配置**")
+                st.caption("⚠️ 导出内容包含 API Key、Webhook 等明文敏感信息，勾选后才会生成下载数据。")
+                export_confirmed = st.checkbox("我确认要导出含明文密钥的配置", key="export_config_confirm")
+                if export_confirmed:
+                    try:
+                        export_lines = ["# AI代码审查系统配置文件",
+                                        f"# 导出时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", ""]
+                        for key, value in (config_manager.get_env_config() or {}).items():
+                            export_lines.append(f"{key}={ConfigManager._escape_env_value(value)}")
                         st.download_button(
-                            label="下载配置文件",
-                            data=export_content,
+                            label="下载 .env 配置文件",
+                            data="\n".join(export_lines) + "\n",
                             file_name=f"env_config_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.env",
-                            mime="text/plain"
+                            mime="text/plain",
+                            use_container_width=True,
+                            key="export_config"
                         )
-                    else:
-                        st.error("❌ 无法读取当前配置")
-                except Exception as e:
-                    st.error(f"❌ 导出配置失败: {e}")
+                    except Exception as e:
+                        st.error(f"❌ 导出配置失败: {e}")
+
+            with st.container(border=True):
+                st.markdown("**🔄 重置配置**")
+                st.caption("⚠️ 会把 conf/.env 恢复为默认模板，已填写的密钥、仓库配置都将丢失。")
+                reset_confirmed = st.checkbox("我确认要重置全部配置", key="reset_config_confirm")
+                if st.button("重置为默认配置", key="reset_config",
+                             disabled=not reset_confirmed, use_container_width=True):
+                    try:
+                        if config_manager.reset_env_config():
+                            st.success("✅ 配置已重置为默认值，请重启应用使配置完全生效")
+                        else:
+                            st.error("❌ 重置配置失败")
+                    except Exception as e:
+                        st.error(f"❌ 重置配置失败: {e}")
 
 def check_service_status():
     """检查各个服务的运行状态（单服务架构）"""
