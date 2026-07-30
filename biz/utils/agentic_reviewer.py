@@ -19,7 +19,7 @@ import json
 import re
 from typing import Any, Callable, Dict, List, Optional
 
-from biz.utils.code_reviewer import BatchCodeReviewer
+from biz.utils.code_reviewer import BatchCodeReviewer, is_api_error_message
 from biz.utils.default_config import get_env_with_default, get_env_int
 from biz.utils.log import logger
 
@@ -103,6 +103,15 @@ class AgenticCodeReviewer(BatchCodeReviewer):
         return self._review_with_text_protocol(diffs_text, commits_text)
 
     def _review_with_native_tools(self, diffs_text: str, commits_text: str) -> str:
+        """原生 function calling 路径；最终仍失败（如返回API错误消息）时降级为不带工具调用的
+        普通审查，保证本次提交至少能拿到一次正常审查结果，而不是让整次审查彻底失败。"""
+        result = self._run_native_tools_loop(diffs_text, commits_text)
+        if is_api_error_message(result):
+            logger.warning("原生工具调用审查最终失败，降级为不带工具调用的普通审查，确保本次提交仍能拿到审查结果")
+            return super().review_code(diffs_text, commits_text)
+        return result
+
+    def _run_native_tools_loop(self, diffs_text: str, commits_text: str) -> str:
         """原生 function calling 路径（openai/deepseek/qwen/zhipuai 等 supports_tools=True 的客户端）。"""
         messages: List[Dict[str, Any]] = [
             self.prompts["system_message"],
@@ -140,6 +149,19 @@ class AgenticCodeReviewer(BatchCodeReviewer):
         return response.get("content") or ""
 
     def _review_with_text_protocol(self, diffs_text: str, commits_text: str) -> str:
+        """纯文本协议模拟路径；最终仍失败时同样降级为不带工具调用的普通审查。
+
+        实测发现（2026-07-30 生产日志）：像多文件Java diff这类内容容易让模型在推理末尾
+        自行决定"该调用工具了"，从而触发它自己内置的原生工具调用倾向（即使我们从未通过
+        API传过tools参数），导致网关返回不完整响应；这种情况对同一份diff可能连续多次复现
+        （温度较低，推理路径相近），单纯重试未必能解决，所以必须有这道最终兜底。"""
+        result = self._run_text_protocol_loop(diffs_text, commits_text)
+        if is_api_error_message(result):
+            logger.warning("文本协议模拟审查最终失败，降级为不带工具调用的普通审查，确保本次提交仍能拿到审查结果")
+            return super().review_code(diffs_text, commits_text)
+        return result
+
+    def _run_text_protocol_loop(self, diffs_text: str, commits_text: str) -> str:
         """
         纯文本协议模拟路径（ollama/jedi 等不支持原生 function calling 的客户端）。
         通过普通的 completions() 调用 + 文本约定来模拟工具调用，兼容任何只接受
