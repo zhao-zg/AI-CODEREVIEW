@@ -292,11 +292,14 @@ class BatchCodeReviewer(BaseReviewer):
             合并后的审查报告
         """
         review_max_tokens = get_env_int("REVIEW_MAX_TOKENS", 10000)
+        batch_max_files = get_env_int("REVIEW_BATCH_MAX_FILES", 10)
 
         if not files_json:
             return "无需要审查的文件"
 
-        batches = self._pack_batches(files_json, review_max_tokens)
+        batches = self._pack_batches(files_json, review_max_tokens, batch_max_files)
+        logger.info(f'待审查文件数: {len(files_json)}, 按 token({review_max_tokens}) '
+                    f'与文件数({batch_max_files}) 上限打包为 {len(batches)} 批')
 
         if len(batches) == 1:
             # 单批直接审查
@@ -341,8 +344,19 @@ class BatchCodeReviewer(BaseReviewer):
 
         return self._merge_reviews(batch_results, batch_scores, commits_text, failed_batches)
 
-    def _pack_batches(self, files_json: List[Dict], max_tokens: int) -> List[List[Dict]]:
-        """将文件列表按 token 上限贪心打包为多批"""
+    def _pack_batches(self, files_json: List[Dict], max_tokens: int,
+                      max_files: int = 0) -> List[List[Dict]]:
+        """
+        将文件列表贪心打包为多批。
+
+        除 token 上限外还受每批文件数上限约束：即使一批文件的 diff 总量没超过 token 预算，
+        文件太多时 LLM 也难以逐个详述，容易只覆盖靠前的少数文件。
+
+        Args:
+            files_json: 文件变更列表
+            max_tokens: 每批 diff 的 token 上限
+            max_files: 每批文件数上限，<=0 表示不限制
+        """
         batches = []
         current_batch = []
         current_tokens = 0
@@ -367,7 +381,9 @@ class BatchCodeReviewer(BaseReviewer):
                 batches.append([file_copy])
                 continue
 
-            if current_tokens + file_tokens > max_tokens:
+            exceeds_tokens = current_tokens + file_tokens > max_tokens
+            exceeds_files = 0 < max_files <= len(current_batch)
+            if current_batch and (exceeds_tokens or exceeds_files):
                 batches.append(current_batch)
                 current_batch = []
                 current_tokens = 0
@@ -412,7 +428,11 @@ class BatchCodeReviewer(BaseReviewer):
         result = result.strip()
         if result.startswith("```markdown") and result.endswith("```"):
             result = result[11:-3].strip()
-        return result
+
+        # 附加各批原始详述：合并阶段的 LLM 输出长度有限，文件较多时无法逐个复述，
+        # 直接保留各批原文可确保每个被审查文件的详细意见都不会丢失。
+        details = '\n\n'.join(batch_results)
+        return f"{result}\n\n---\n\n# 各批原始审查详情（共 {len(batch_results)} 批）\n\n{details}"
 
     def review_code(self, diffs_text: str, commits_text: str = "") -> str:
         """审查一批代码"""

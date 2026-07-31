@@ -510,7 +510,8 @@ CONFIG_CATEGORIES = {
                 "QWEN_API_KEY", "QWEN_API_BASE_URL", "QWEN_API_MODEL",
                 "JEDI_API_KEY", "JEDI_API_BASE_URL", "JEDI_API_MODEL",
                 "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL"],
-    "🎯 审查设置": ["REVIEW_MAX_TOKENS", "SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS", "SVN_DIFF_CONTEXT_LINES",
+    "🎯 审查设置": ["REVIEW_MAX_TOKENS", "REVIEW_BATCH_MAX_FILES", "SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS",
+                "SVN_DIFF_CONTEXT_LINES",
                 "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
                 "VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
     "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
@@ -739,6 +740,13 @@ def env_management_page():
                             "排除的文件路径模式",
                             value=env_config.get("EXCLUDE_PATTERNS", ""),
                             help="逗号分隔，支持通配符 *。例如：*.pb.go,vendor/*,node_modules/*,*.min.js"
+                        )
+                        review_batch_max_files = st.number_input(
+                            "每批最多审查文件数",
+                            min_value=0, max_value=100,
+                            value=_env_int(env_config, "REVIEW_BATCH_MAX_FILES", 10),
+                            help="0 表示不限制（仅受 Token 限制）。一次提交文件很多时，即使总 Token 没超限，"
+                                 "AI 也难以在单次回复里逐个详述，调小可避免靠后的文件被忽略"
                         )
                         svn_diff_context_lines = st.number_input(
                             "SVN diff 上下文行数",
@@ -1139,6 +1147,7 @@ def env_management_page():
 
                     # 审查设置
                     "REVIEW_MAX_TOKENS": str(review_max_tokens),
+                    "REVIEW_BATCH_MAX_FILES": str(review_batch_max_files),
                     "SUPPORTED_EXTENSIONS": supported_extensions,
                     "EXCLUDE_PATTERNS": exclude_patterns,
                     "SVN_DIFF_CONTEXT_LINES": str(svn_diff_context_lines),
