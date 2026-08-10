@@ -592,7 +592,117 @@ class SVNHandler:
         lines = stdout.split('\n')
         diff_lines = [f"+{line}" for line in lines]
         return '\n'.join(diff_lines)
-    
+
+    def svn_cat_bytes(self, file_path: str, revision: str) -> Optional[bytes]:
+        """以原始字节获取指定 revision 的文件内容，用于读取二进制文件（如 Excel 配置表）。
+
+        与 `_get_file_content`/`read_working_copy_file` 不同：这两个方法走 `_run_svn_command`，
+        其 `_safe_decode` 会把二进制字节按文本编码尝试解码，二进制 .xlsx 会被损坏成乱码。
+        本方法直接拿 `svn cat` 的 stdout 原始字节，不做任何解码，调用方自行处理（如写临时文件后交给 pandas 解析）。
+        :param file_path: 文件路径（从仓库根起，含 /trunk/ 等前缀，与 svn log 的 paths 一致）
+        :param revision: 版本号
+        :return: 文件原始字节；失败返回 None
+        """
+        target_url = f"{self.svn_repo_root_url}{file_path}"
+        command = [
+            'svn', 'cat',
+            '-r', str(revision),
+            target_url,
+        ]
+        try:
+            if self.svn_username and self.svn_password:
+                command.extend(['--username', self.svn_username, '--password', self.svn_password])
+            command.extend(['--non-interactive', '--trust-server-cert-failures=unknown-ca,cn-mismatch,expired,not-yet-valid,other'])
+            result = subprocess.run(command, cwd=None, capture_output=True, text=False)
+            if result.returncode != 0:
+                stderr_text = self._safe_decode(result.stderr)
+                logger.warning(f"svn cat 获取文件字节失败 ({target_url}, r{revision}): {stderr_text}")
+                return None
+            return result.stdout
+        except Exception as e:
+            logger.error(f"svn cat 获取文件字节异常 ({target_url}, r{revision}): {e}")
+            return None
+
+    def _workcopy_path_to_repo_path(self, file_path: str) -> str:
+        """把工作副本根相对路径（如 config/item.xlsx）转换为仓库根相对路径（如 /trunk/config/item.xlsx）。
+
+        svn_cat_bytes 需要"仓库根 URL + 仓库根相对路径"（与 svn log paths 格式一致）；
+        而 AI 工具的 file_path 通常是相对于工作副本根目录的路径（与 diff 的 full_path 一致），
+        两者基准不同，需通过 svn_remote_url 与 svn_repo_root_url 的差集补回前缀。
+        同时容忍 AI 已按"仓库根相对"传入带前缀的路径（如 trunk/config/item.xlsx），避免
+        双重拼接出 /trunk/trunk/... 导致 svn cat 404。
+        """
+        file_path = file_path.lstrip('/')
+        prefix = ''
+        if self.svn_repo_root_url and self.svn_remote_url.startswith(self.svn_repo_root_url) \
+                and self.svn_remote_url != self.svn_repo_root_url:
+            prefix = self.svn_remote_url[len(self.svn_repo_root_url):]
+            prefix_rel = prefix.lstrip('/')
+            # 已带前缀：直接按仓库根相对路径返回
+            if prefix_rel and (file_path == prefix_rel or file_path.startswith(prefix_rel + '/')):
+                return f"/{file_path}"
+        return f"{prefix}/{file_path}"
+
+    def read_excel_table(self, file_path: str, sheet: Optional[str] = None,
+                         max_rows: int = 100, revision: Optional[str] = None) -> str:
+        """供 AI 审查工具调用：读取同仓库另一个 Excel 配置表的指定 Sheet 内容（跨表引用验证）。
+
+        :param file_path: 相对于工作副本根目录的表格文件路径（如 config/item.xlsx）
+        :param sheet: 要读取的 Sheet 名（可选，默认输出第一个 Sheet）
+        :param max_rows: 最多返回的数据行数（会限制在 1~500）
+        :param revision: 指定 revision 时从服务端（svn cat）读取该版本的字节；批量处理多提交时工作副本停在
+            最新 HEAD，若审查的是历史提交需传入该提交的 revision，避免读到"未来"的配置内容；
+            不传则读取工作副本磁盘当前内容（HEAD，更快，但可能不是被审查提交那一刻的状态）
+        :return: markdown 表格文本，或"错误:"开头的错误说明（不抛异常，方便直接回传给 AI）
+        """
+        try:
+            max_rows = int(max_rows)
+        except (TypeError, ValueError):
+            max_rows = 100
+        max_rows = max(1, min(max_rows, 500))
+
+        repo_path = self._workcopy_path_to_repo_path(file_path)
+        if revision:
+            data = self.svn_cat_bytes(repo_path, str(revision))
+        else:
+            # 未指定 revision：读工作副本磁盘当前内容（HEAD）。AI 可能传入带仓库根前缀的路径
+            # （如 trunk/config/item.xlsx），先剥掉前缀再按工作副本相对路径安全解析。
+            disk_path = file_path.lstrip('/')
+            prefix_rel = ''
+            if self.svn_repo_root_url and self.svn_remote_url.startswith(self.svn_repo_root_url) \
+                    and self.svn_remote_url != self.svn_repo_root_url:
+                prefix_rel = self.svn_remote_url[len(self.svn_repo_root_url):].lstrip('/')
+                if prefix_rel and (disk_path == prefix_rel or disk_path.startswith(prefix_rel + '/')):
+                    disk_path = disk_path[len(prefix_rel):].lstrip('/')
+            resolved = self._resolve_safe_path(disk_path)
+            if resolved is None:
+                return f"错误: 非法或越权的文件路径 '{file_path}'"
+            try:
+                with open(resolved, 'rb') as f:
+                    data = f.read()
+            except FileNotFoundError:
+                data = None
+            except Exception as e:
+                logger.warning(f"AI工具读取 Excel 配置表失败 ({file_path}): {e}")
+                return f"错误: 读取文件失败 - {e}"
+        if data is None:
+            return f"错误: 无法获取文件 '{file_path}' 的内容（可能该版本尚不存在此文件，或已被删除/移动）"
+        try:
+            from biz.excel.excel_reader import parse_workbook, workbook_to_text, WorkbookData
+            wb = parse_workbook(data, file_path)
+            if wb.error:
+                return f"错误: 解析失败 - {wb.error}"
+            if sheet:
+                sheets = [s for s in wb.sheets if s.name == sheet]
+                if not sheets:
+                    available = "、".join(s.name for s in wb.sheets) or "无"
+                    return f"错误: Sheet '{sheet}' 不存在，可用 Sheet: {available}"
+                wb = WorkbookData(file_name=wb.file_name, sheets=sheets)
+            return workbook_to_text(wb, max_rows=max_rows, max_sheets=1)
+        except Exception as e:
+            logger.warning(f"AI工具读取 Excel 配置表失败 ({file_path}): {e}")
+            return f"错误: 读取 Excel 配置表失败 - {e}"
+
     def _is_supported_file(self, file_path: str) -> bool:
         """
         检查文件类型是否受支持

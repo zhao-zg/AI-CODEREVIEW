@@ -513,6 +513,8 @@ CONFIG_CATEGORIES = {
     "🎯 审查设置": ["REVIEW_MAX_TOKENS", "REVIEW_BATCH_MAX_FILES", "SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS",
                 "SVN_DIFF_CONTEXT_LINES",
                 "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
+                "EXCEL_REVIEW_ENABLED", "EXCEL_SUPPORTED_EXTENSIONS",
+                "EXCEL_REVIEW_MAX_ROWS", "EXCEL_REVIEW_MAX_SHEETS", "EXCEL_REVIEW_MAX_FILES",
                 "VERSION_TRACKING_ENABLED", "REUSE_PREVIOUS_REVIEW_RESULT", "VERSION_TRACKING_RETENTION_DAYS"],
     "🔀 平台开关": ["SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED"],
     "🔗 GitLab": ["GITLAB_URL", "GITLAB_ACCESS_TOKEN", "PUSH_REVIEW_ENABLED",
@@ -633,6 +635,109 @@ def _save_env_config(config_manager, updates):
     return config_manager.save_env_config(merged)
 
 
+# ============================ Prompt 模板管理 ============================
+
+PROMPT_TEMPLATES_FILE = "conf/prompt_templates.yml"
+PROMPT_TEMPLATES_DIST_FILE = "conf_templates/prompt_templates.yml"
+
+# 各模板 user_prompt 的必填占位符（user_prompt 运行时走 str.format()，缺失会抛 KeyError 导致审查失败）
+PROMPT_REQUIRED_PLACEHOLDERS = {
+    "code_review_prompt": ("diffs_text", "commits_text"),
+    "code_review_batch_prompt": ("diffs_text", "commits_text"),
+    "code_review_merge_prompt": ("batch_results", "commits_text"),
+    "code_review_agentic_prompt": ("diffs_text", "commits_text"),
+    "excel_review_prompt": ("commits_text", "change_summary", "rule_issues", "table_content", "table_statistics"),
+}
+
+# 模板展示名（未列出的模板用原始 key 展示）
+PROMPT_LABELS = {
+    "code_review_prompt": "📌 主审查",
+    "code_review_batch_prompt": "📦 分批审查",
+    "code_review_merge_prompt": "🔗 合并报告",
+    "code_review_agentic_prompt": "🤖 Agentic 审查",
+    "excel_review_prompt": "📊 Excel 配置表审查",
+}
+
+
+def _load_prompt_templates():
+    """读取 conf/prompt_templates.yml；不存在/解析失败时回退 conf_templates/ 默认模板"""
+    import yaml
+    for path in (PROMPT_TEMPLATES_FILE, PROMPT_TEMPLATES_DIST_FILE):
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            continue
+    return {}
+
+
+def _scan_prompt_keys(prompt_config):
+    """动态扫描所有顶层 *_prompt 模板 key（保持文件中的出现顺序）"""
+    return [k for k in prompt_config.keys() if isinstance(k, str) and k.endswith("_prompt")]
+
+
+def _check_prompt_template(pkey, cfg):
+    """校验单个模板完整性，返回 (状态, 问题列表)"""
+    issues = []
+    if not isinstance(cfg, dict):
+        return "⚠️ 格式错误", [f"{pkey} 不是字典"]
+    sys_prompt = cfg.get("system_prompt") or ""
+    usr_prompt = cfg.get("user_prompt") or ""
+    if not str(sys_prompt).strip():
+        issues.append("缺少 system_prompt")
+    if not str(usr_prompt).strip():
+        issues.append("缺少 user_prompt")
+    # user_prompt 走 str.format()：检查必填占位符
+    for ph in PROMPT_REQUIRED_PLACEHOLDERS.get(pkey, ()):
+        if "{" + ph + "}" not in str(usr_prompt):
+            issues.append(f"user_prompt 缺少占位符 {{{ph}}}")
+    # user_prompt 花括号必须配对（str.format() 会解析）；system_prompt 走 Jinja2 不检查
+    if str(usr_prompt).count("{") != str(usr_prompt).count("}"):
+        issues.append("user_prompt 花括号不配对（str.format() 会解析失败）")
+    status = "✅ 完整" if not issues else "⚠️ 需检查"
+    return status, issues
+
+
+def _save_prompt_template(pkey, system_text, user_text):
+    """merge 语义保存单个模板：只更新该模板，其余模板/字段原样保留；写盘前自动备份"""
+    import shutil
+    import yaml
+    data = _load_prompt_templates()
+    data[pkey] = {"system_prompt": system_text, "user_prompt": user_text}
+    os.makedirs(os.path.dirname(PROMPT_TEMPLATES_FILE), exist_ok=True)
+    if os.path.exists(PROMPT_TEMPLATES_FILE):
+        shutil.copy2(PROMPT_TEMPLATES_FILE, PROMPT_TEMPLATES_FILE + ".backup")
+    with open(PROMPT_TEMPLATES_FILE, "w", encoding="utf-8") as f:
+        yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    return True
+
+
+def _restore_prompt_template(pkey):
+    """从 conf_templates/ 恢复单个模板为默认内容（merge 写回），返回 (成功, 错误信息)"""
+    import yaml
+    if not os.path.exists(PROMPT_TEMPLATES_DIST_FILE):
+        return False, "未找到默认模板文件 conf_templates/prompt_templates.yml"
+    try:
+        with open(PROMPT_TEMPLATES_DIST_FILE, "r", encoding="utf-8") as f:
+            dist_data = yaml.safe_load(f) or {}
+    except Exception as e:
+        return False, f"读取默认模板文件失败: {e}"
+    dcfg = dist_data.get(pkey)
+    if not isinstance(dcfg, dict):
+        return False, f"默认模板中未找到 {pkey}"
+    _save_prompt_template(pkey, dcfg.get("system_prompt", "") or "", dcfg.get("user_prompt", "") or "")
+    return True, ""
+
+
+def _clear_prompt_editor_state():
+    """切换模板时清空编辑区草稿，强制下次渲染使用新模板的 value（保留 selectbox 自身的 key）"""
+    for k in [k for k in st.session_state.keys() if k.startswith("prompt_editor_") and k != "prompt_editor_select"]:
+        del st.session_state[k]
+
+
 def env_management_page():
     """配置管理页面"""
     import pandas as pd
@@ -663,9 +768,9 @@ def env_management_page():
         # 配置编辑表单 - 按模块分组，避免单页长滚动
         # 注意：下方各 with 块的书写顺序与标签展示顺序不一致（Streamlit 按 tab 对象归属渲染，不按代码顺序）
         with st.form("env_config_form"):
-            t_basic, t_review, t_ai, t_repo, t_notify, t_system, t_prompt = st.tabs([
+            t_basic, t_review, t_ai, t_repo, t_notify, t_system = st.tabs([
                 "🚀 基础", "🎯 审查设置", "🤖 AI模型", "🏛️ 代码平台",
-                "🔔 通知推送", "🖥️ 系统运行", "📝 Prompt模板",
+                "🔔 通知推送", "🖥️ 系统运行",
             ])
 
             # ------------------------------ 基础 ------------------------------
@@ -771,6 +876,41 @@ def env_management_page():
                             min_value=1, max_value=20,
                             value=_env_int(env_config, "AGENTIC_REVIEW_MAX_TOOL_ROUNDS", 5),
                             help="防止工具调用失控导致费用与耗时飙升，达到上限后强制要求AI直接给出结论"
+                        )
+
+                with st.container(border=True):
+                    st.markdown("**📊 Excel 配置表审查**")
+                    st.caption("策划通过 SVN 上传的 Excel 配置表（.xlsx/.xls/.csv）自动执行：格式合规检查、异常数值检查、"
+                               "AI 语义检查（枚举值合法性 / 跨表引用一致性 / 逻辑矛盾）。启用 Agentic 审查时，"
+                               "AI 可跨表读取同仓库其他配置表验证引用。")
+                    col_excel1, col_excel2 = st.columns(2)
+                    with col_excel1:
+                        excel_review_enabled = st.checkbox(
+                            "启用 Excel 配置表审查",
+                            value=env_config.get("EXCEL_REVIEW_ENABLED", "1") == "1"
+                        )
+                        excel_supported_extensions = st.text_input(
+                            "Excel 文件扩展名",
+                            value=env_config.get("EXCEL_SUPPORTED_EXTENSIONS", ".xlsx,.xls,.csv"),
+                            help="逗号分隔，例如：.xlsx,.xls,.csv"
+                        )
+                    with col_excel2:
+                        excel_review_max_files = st.number_input(
+                            "单次提交最多审查文件数",
+                            min_value=0, max_value=50,
+                            value=_env_int(env_config, "EXCEL_REVIEW_MAX_FILES", 5),
+                            help="0 表示不限制"
+                        )
+                        excel_review_max_rows = st.number_input(
+                            "单文件最多展示数据行数",
+                            min_value=1, max_value=10000, step=100,
+                            value=_env_int(env_config, "EXCEL_REVIEW_MAX_ROWS", 500),
+                            help="超出的行截断，避免超出模型上下文"
+                        )
+                        excel_review_max_sheets = st.number_input(
+                            "单文件最多展示 Sheet 数",
+                            min_value=1, max_value=100,
+                            value=_env_int(env_config, "EXCEL_REVIEW_MAX_SHEETS", 20)
                         )
 
                 with st.container(border=True):
@@ -1046,67 +1186,6 @@ def env_management_page():
                         help="保存时会校验 JSON 格式；每个元素支持 name / remote_url / local_path / username / password / check_crontab / check_limit / enable_merge_review 等字段"
                     )
 
-            # --------------------------- Prompt模板 ---------------------------
-            with t_prompt:
-                st.caption("通过 YAML 编辑器自定义 AI 代码审查的 Prompt 模板，保存后写入 conf/prompt_templates.yml。")
-
-                # 读取当前prompt模板
-                import yaml
-                prompt_templates_file = "conf/prompt_templates.yml"
-                current_prompt_config = {}
-                formatted_prompt_config = ""  # 兜底默认值
-
-                try:
-                    if os.path.exists(prompt_templates_file):
-                        with open(prompt_templates_file, 'r', encoding='utf-8') as f:
-                            current_prompt_config = yaml.safe_load(f) or {}
-                            # 直接读取原始YAML内容
-                        with open(prompt_templates_file, 'r', encoding='utf-8') as f:
-                            formatted_prompt_config = f.read()
-                except Exception as e:
-                    st.warning(f"⚠️ 读取Prompt模板文件失败: {e}")
-                    current_prompt_config = {}
-                    formatted_prompt_config = """code_review_prompt:
-  system_prompt: |-
-    你是一位资深的软件开发工程师，专注于代码的规范性、功能性、安全性和稳定性。
-    审查风格：{{ style }}
-  user_prompt: |-
-    以下是代码变更，请以{{ style }}风格审查：
-    
-    结构化diff JSON内容：
-    {diffs_text}
-    
-    提交历史：
-    {commits_text}"""
-                
-                # 当前模板状态概览
-                prompt_labels = {
-                    'code_review_prompt': '📌 主审查',
-                    'code_review_batch_prompt': '📦 分批审查',
-                    'code_review_merge_prompt': '🔗 合并报告',
-                }
-                prompt_status_rows = []
-                for pkey, plabel in prompt_labels.items():
-                    cfg = current_prompt_config.get(pkey) or {}
-                    sys_len = len(cfg.get('system_prompt', '') or '')
-                    usr_len = len(cfg.get('user_prompt', '') or '')
-                    prompt_status_rows.append({
-                        "模板": plabel,
-                        "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
-                        "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
-                        "状态": "✅ 完整" if (sys_len and usr_len) else "⚠️ 不完整",
-                    })
-                st.dataframe(pd.DataFrame(prompt_status_rows), use_container_width=True, hide_index=True)
-
-                # YAML配置编辑器
-                prompt_config_text = st.text_area(
-                    "Prompt模板配置 (YAML)",
-                    value=formatted_prompt_config,
-                    height=420,
-                    help="保存时会校验 YAML 格式，并要求三个模板都包含 system_prompt 与 user_prompt"
-                )
-                st.caption("⚠️ 三个模板需保持同一套评分标准与「总分: XX分」输出格式，否则评分会解析失败。")
-
             # 保存系统配置按钮
             if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
                 # 处理SVN配置（从文本编辑器读取）
@@ -1153,6 +1232,11 @@ def env_management_page():
                     "SVN_DIFF_CONTEXT_LINES": str(svn_diff_context_lines),
                     "AGENTIC_REVIEW_ENABLED": "1" if agentic_review_enabled else "0",
                     "AGENTIC_REVIEW_MAX_TOOL_ROUNDS": str(agentic_max_tool_rounds),
+                    "EXCEL_REVIEW_ENABLED": "1" if excel_review_enabled else "0",
+                    "EXCEL_SUPPORTED_EXTENSIONS": excel_supported_extensions,
+                    "EXCEL_REVIEW_MAX_ROWS": str(excel_review_max_rows),
+                    "EXCEL_REVIEW_MAX_SHEETS": str(excel_review_max_sheets),
+                    "EXCEL_REVIEW_MAX_FILES": str(excel_review_max_files),
                     "VERSION_TRACKING_ENABLED": "1" if version_tracking_enabled else "0",
                     "REUSE_PREVIOUS_REVIEW_RESULT": "1" if reuse_previous_review else "0",
                     "VERSION_TRACKING_RETENTION_DAYS": str(retention_days),
@@ -1211,83 +1295,11 @@ def env_management_page():
                     "DASHBOARD_PASSWORD": dashboard_password,
                 }
                 
-                # 保存Prompt模板配置
-                prompt_save_success = True
-                try:
-                    # 处理Prompt配置（从YAML文本编辑器读取）
-                    if prompt_config_text and prompt_config_text.strip():
-                        try:
-                            # 验证YAML格式
-                            parsed_prompt = yaml.safe_load(prompt_config_text)
-                            required_keys = ['code_review_prompt', 'code_review_batch_prompt', 'code_review_merge_prompt']
-                            if isinstance(parsed_prompt, dict) and all(k in parsed_prompt for k in required_keys):
-                                # 校验每个 prompt 必须有 system_prompt 和 user_prompt
-                                missing_fields = []
-                                for pkey in required_keys:
-                                    pval = parsed_prompt.get(pkey, {})
-                                    if not isinstance(pval, dict):
-                                        missing_fields.append(f"{pkey}(不是字典)")
-                                    else:
-                                        if 'system_prompt' not in pval:
-                                            missing_fields.append(f"{pkey}.system_prompt")
-                                        if 'user_prompt' not in pval:
-                                            missing_fields.append(f"{pkey}.user_prompt")
-                                if missing_fields:
-                                    st.error(f"❌ Prompt配置结构不完整，缺少: {', '.join(missing_fields)}")
-                                    prompt_save_success = False
-                                    st.stop()
-
-                                # 直接保存YAML文本到文件
-                                prompt_templates_file = "conf/prompt_templates.yml"
-                                
-                                # 确保目录存在
-                                os.makedirs(os.path.dirname(prompt_templates_file), exist_ok=True)
-                                
-                                with open(prompt_templates_file, 'w', encoding='utf-8') as f:
-                                    f.write(prompt_config_text)
-                            else:
-                                missing = [k for k in required_keys if k not in (parsed_prompt if isinstance(parsed_prompt, dict) else {})]
-                                st.error(f"❌ Prompt配置缺少字段: {', '.join(missing) if missing else '配置格式错误'}")
-                                prompt_save_success = False
-                        except yaml.YAMLError as e:
-                            st.error(f"❌ Prompt配置YAML格式错误: {e}")
-                            prompt_save_success = False
-                    else:
-                        # 配置为空，读取当前磁盘上的配置文件作为默认值回显
-                        try:
-                            default_config_path = "conf/prompt_templates.yml"
-                            if os.path.exists(default_config_path):
-                                with open(default_config_path, 'r', encoding='utf-8') as f:
-                                    default_prompt_config = f.read()
-                            else:
-                                # 磁盘也没有，使用 conf_templates 下的模板
-                                template_path = "conf_templates/prompt_templates.yml"
-                                if os.path.exists(template_path):
-                                    with open(template_path, 'r', encoding='utf-8') as f:
-                                        default_prompt_config = f.read()
-                                else:
-                                    default_prompt_config = ""
-                        except Exception:
-                            default_prompt_config = ""
-                        
-                        if default_prompt_config.strip():
-                            prompt_templates_file = "conf/prompt_templates.yml"
-                            os.makedirs(os.path.dirname(prompt_templates_file), exist_ok=True)
-                            with open(prompt_templates_file, 'w', encoding='utf-8') as f:
-                                f.write(default_prompt_config)
-                        else:
-                            st.warning("⚠️ 未找到默认Prompt模板，已跳过")
-                    
-                except Exception as e:
-                    st.error(f"❌ Prompt模板保存失败: {e}")
-                    prompt_save_success = False
-                
-                # 保存环境配置
+                # 保存环境配置（Prompt 模板在下方独立管理区保存）
                 try:
                     env_save_success = _save_env_config(config_manager, new_config)
-
-                    if env_save_success and prompt_save_success:
-                        st.success("✅ 系统配置与Prompt模板已保存")
+                    if env_save_success:
+                        st.success("✅ 系统配置已保存")
                         try:
                             if apply_config_changes():
                                 st.success("✅ 配置已重载生效")
@@ -1296,12 +1308,109 @@ def env_management_page():
                         except Exception as e:
                             st.warning(f"⚠️ 配置已保存，但自动重载失败: {e}")
                     else:
-                        if not env_save_success:
-                            st.error("❌ 环境配置保存失败，请检查 conf/.env 的写入权限")
-                        if not prompt_save_success:
-                            st.error("❌ Prompt模板保存失败")
+                        st.error("❌ 环境配置保存失败，请检查 conf/.env 的写入权限")
                 except Exception as e:
                     st.error(f"❌ 保存配置时出现错误: {str(e)}")
+
+        # --------------------------- Prompt 模板管理（独立于 env form，单独保存） ---------------------------
+        st.markdown("---")
+        with st.container(border=True):
+            st.markdown("**📝 Prompt 模板管理**")
+            st.caption("每个模板独立编辑、独立保存：只更新当前模板，其余模板原样保留。保存前自动备份到 prompt_templates.yml.backup。")
+
+            prompt_config = _load_prompt_templates()
+            prompt_keys = _scan_prompt_keys(prompt_config)
+
+            # 状态总览（动态扫描所有 *_prompt key，不硬编码模板数量）
+            status_rows = []
+            for pkey in prompt_keys:
+                cfg = prompt_config.get(pkey) or {}
+                sys_len = len(cfg.get("system_prompt", "") or "")
+                usr_len = len(cfg.get("user_prompt", "") or "")
+                status, _ = _check_prompt_template(pkey, cfg)
+                status_rows.append({
+                    "模板": PROMPT_LABELS.get(pkey, pkey),
+                    "Key": pkey,
+                    "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
+                    "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
+                    "状态": status,
+                })
+            st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+
+            if not prompt_keys:
+                st.warning("⚠️ 未找到任何 Prompt 模板，请检查 conf/prompt_templates.yml 文件是否存在且格式正确。")
+            else:
+                selected_key = st.selectbox(
+                    "选择要编辑的模板",
+                    prompt_keys,
+                    format_func=lambda k: PROMPT_LABELS.get(k, k),
+                    key="prompt_editor_select",
+                    on_change=_clear_prompt_editor_state,
+                    help="切换模板后编辑区自动加载该模板内容（未保存的修改会丢弃）"
+                )
+                cfg = prompt_config.get(selected_key) or {}
+
+                # 当前模板必填占位符提示
+                required = PROMPT_REQUIRED_PLACEHOLDERS.get(selected_key, ())
+                if required:
+                    st.caption(
+                        "必填占位符（user_prompt 运行时 str.format() 替换，缺失会导致审查失败）："
+                        + "、".join(f"`{{{p}}}`" for p in required)
+                    )
+
+                col_edit1, col_edit2 = st.columns(2)
+                with col_edit1:
+                    editor_sys = st.text_area(
+                        "系统 Prompt（Jinja2 模板）",
+                        value=cfg.get("system_prompt", "") or "",
+                        height=320,
+                        key=f"prompt_editor_{selected_key}_system",
+                        help="支持 Jinja2 变量如 {{ style }}"
+                    )
+                with col_edit2:
+                    editor_usr = st.text_area(
+                        "用户 Prompt（str.format 模板）",
+                        value=cfg.get("user_prompt", "") or "",
+                        height=320,
+                        key=f"prompt_editor_{selected_key}_user",
+                        help="运行时用 str.format() 填充占位符：花括号必须配对，且需包含上方列出的必填占位符；"
+                             "不要使用 {{ }} 双花括号（会被 Jinja2 渲染处理，不是 str.format() 占位符）"
+                    )
+
+                col_save1, col_save2, col_save3 = st.columns([2, 2, 3])
+                with col_save1:
+                    if st.button("💾 保存当前模板", type="primary", use_container_width=True, key="prompt_editor_save_btn"):
+                        # 保存前校验
+                        issues = []
+                        if not (editor_sys or "").strip():
+                            issues.append("system_prompt 不能为空")
+                        if not (editor_usr or "").strip():
+                            issues.append("user_prompt 不能为空")
+                        for ph in required:
+                            if "{" + ph + "}" not in (editor_usr or ""):
+                                issues.append(f"user_prompt 缺少占位符 {{{ph}}}")
+                        if (editor_usr or "").count("{") != (editor_usr or "").count("}"):
+                            issues.append("user_prompt 花括号不配对（str.format() 会解析失败）")
+                        if issues:
+                            st.error("❌ 校验未通过：\n- " + "\n- ".join(issues))
+                        else:
+                            try:
+                                _save_prompt_template(selected_key, editor_sys or "", editor_usr or "")
+                                st.success(f"✅ 已保存模板「{PROMPT_LABELS.get(selected_key, selected_key)}」，旧文件已备份")
+                                _clear_prompt_editor_state()
+                            except Exception as e:
+                                st.error(f"❌ 模板保存失败: {e}")
+                with col_save2:
+                    if st.button("🔄 恢复默认模板", use_container_width=True, key="prompt_editor_restore_btn",
+                                 help="从 conf_templates/prompt_templates.yml 恢复该模板的默认内容"):
+                        ok, msg = _restore_prompt_template(selected_key)
+                        if ok:
+                            st.success(f"✅ 已恢复「{PROMPT_LABELS.get(selected_key, selected_key)}」为默认内容")
+                            _clear_prompt_editor_state()
+                        else:
+                            st.error(f"❌ 恢复失败: {msg}")
+                with col_save3:
+                    st.caption("保存只写当前模板，不影响其他模板；恢复默认从 conf_templates/prompt_templates.yml 读取。")
 
         # 配置操作按钮 - 移出form范围
         st.markdown("---")
@@ -1396,30 +1505,30 @@ def env_management_page():
                 st.dataframe(filtered_df, use_container_width=True, hide_index=True, height=460)
 
             with st.expander("📝 Prompt 模板文件状态", expanded=False):
-                import yaml
-                prompt_templates_file = "conf/prompt_templates.yml"
                 try:
-                    if os.path.exists(prompt_templates_file):
-                        with open(prompt_templates_file, 'r', encoding='utf-8') as f:
-                            prompt_config = yaml.safe_load(f) or {}
+                    prompt_config = _load_prompt_templates()
+                    prompt_keys = _scan_prompt_keys(prompt_config)
+                    if not prompt_keys:
+                        st.warning("⚠️ 未找到任何 Prompt 模板，请检查 conf/prompt_templates.yml 文件是否存在且格式正确。")
+                    else:
                         prompt_rows = []
-                        for pkey, plabel in (
-                            ('code_review_prompt', '📌 主审查'),
-                            ('code_review_batch_prompt', '📦 分批审查'),
-                            ('code_review_merge_prompt', '🔗 合并报告'),
-                        ):
+                        for pkey in prompt_keys:
                             cfg = prompt_config.get(pkey) or {}
-                            sys_len = len(cfg.get('system_prompt', '') or '')
-                            usr_len = len(cfg.get('user_prompt', '') or '')
+                            sys_len = len(cfg.get("system_prompt", "") or "")
+                            usr_len = len(cfg.get("user_prompt", "") or "")
+                            status, issues = _check_prompt_template(pkey, cfg)
                             prompt_rows.append({
-                                "模板": plabel,
+                                "模板": PROMPT_LABELS.get(pkey, pkey),
                                 "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
                                 "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
-                                "状态": "✅ 完整" if (sys_len and usr_len) else "⚠️ 不完整",
+                                "状态": status,
                             })
                         st.dataframe(pd.DataFrame(prompt_rows), use_container_width=True, hide_index=True)
-                    else:
-                        st.warning(f"⚠️ 模板文件不存在: {prompt_templates_file}")
+                        # 列出问题模板的具体原因
+                        for pkey in prompt_keys:
+                            status, issues = _check_prompt_template(pkey, prompt_config.get(pkey) or {})
+                            if issues:
+                                st.warning(f"⚠️ {PROMPT_LABELS.get(pkey, pkey)}: " + "; ".join(issues))
                 except Exception as e:
                     st.error(f"❌ 读取Prompt模板失败: {e}")
     

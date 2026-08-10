@@ -64,6 +64,10 @@ class ConfigReloader:
             # Agentic审查配置
             "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
 
+            # Excel配置表审查配置
+            "EXCEL_REVIEW_ENABLED", "EXCEL_SUPPORTED_EXTENSIONS",
+            "EXCEL_REVIEW_MAX_ROWS", "EXCEL_REVIEW_MAX_SHEETS", "EXCEL_REVIEW_MAX_FILES",
+
             # 系统配置
             "API_PORT", "LOG_LEVEL", "QUEUE_DRIVER",
             "REDIS_HOST", "REDIS_PORT",

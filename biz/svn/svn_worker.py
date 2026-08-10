@@ -297,6 +297,98 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         logger.error('SVN变更检测出现未知错误: %s', error_message)
 
 
+def _extract_excel_changes(commit: Dict) -> List[Dict]:
+    """从 svn log 的 paths 中提取 Excel 配置表变更（action=A/M），用于 Excel 配置表审查。
+
+    Excel 是二进制文件，svn diff 不会产出可用的 diff 内容，因此不经过 filter_svn_changes，
+    而是直接基于 paths 里的扩展名判断。
+    """
+    extensions = tuple(
+        ext.strip().lower()
+        for ext in get_config_str('EXCEL_SUPPORTED_EXTENSIONS', '.xlsx,.xls,.csv').split(',')
+        if ext.strip()
+    )
+    excel_changes = []
+    for path_info in commit.get('paths', []):
+        action = path_info.get('action', '')
+        path = path_info.get('path', '')
+        if action not in ('A', 'M'):
+            continue
+        if not path.lower().endswith(extensions):
+            continue
+        excel_changes.append({'file_path': path, 'action': action})
+    return excel_changes
+
+
+def _review_excel_changes(svn_handler: SVNHandler, excel_changes: List[Dict], revision: str,
+                          commits_text: str = "") -> tuple:
+    """执行 Excel 配置表审查：svn cat 原始字节 → 解析 → 规则预检 → AI 语义审查。
+
+    :return: (report, score)；report 为空表示无需/未能审查
+    """
+    try:
+        from biz.excel.excel_reader import WorkbookData, parse_workbook, compare_workbooks, format_change_summary
+        from biz.excel.excel_reviewer import review_excel_files
+    except ImportError as e:
+        logger.error(f'Excel 配置表审查模块导入失败: {e}')
+        return (f"❌ Excel 配置表审查模块导入失败（请检查 openpyxl / xlrd 及 LLM 客户端依赖"
+                f"是否安装完整）：{type(e).__name__}: {e}", 0)
+
+    max_files = get_config_int('EXCEL_REVIEW_MAX_FILES', 5)
+    files_to_review = excel_changes[:max_files] if max_files > 0 else excel_changes
+    prev_revision = str(int(revision) - 1) if str(revision).isdigit() else None
+
+    excel_files = []
+    for ec in files_to_review:
+        path = ec['file_path']
+        new_bytes = svn_handler.svn_cat_bytes(path, str(revision))
+        if new_bytes is None:
+            wb_new = WorkbookData(file_name=path, sheets=[],
+                                  error=f"无法从 SVN 获取 r{revision} 的文件内容")
+        else:
+            wb_new = parse_workbook(new_bytes, path)
+        wb_old = None
+        change_summary = None
+        if ec['action'] == 'M' and prev_revision:
+            old_bytes = svn_handler.svn_cat_bytes(path, prev_revision)
+            if old_bytes is not None:
+                wb_old = parse_workbook(old_bytes, path)
+                change_summary = format_change_summary(compare_workbooks(wb_old, wb_new))
+        excel_files.append({
+            'file_path': path,
+            'status': ec['action'],
+            'wb_new': wb_new,
+            'wb_old': wb_old,
+            'change_summary': change_summary,
+        })
+
+    if not excel_files:
+        return "", 0
+
+    agentic = get_config_bool('AGENTIC_REVIEW_ENABLED', False)
+    tool_context = None
+    if agentic:
+        # read_excel_file 绑定当前 revision：工作副本在批量处理多提交时停在最新 HEAD，
+        # 若不绑定版本，跨表引用验证可能读到比被审查提交更新的配置内容。
+        tool_context = {
+            'read_excel_file': lambda fp, sheet=None, max_rows=100: svn_handler.read_excel_table(
+                fp, sheet=sheet, max_rows=max_rows, revision=str(revision)
+            ),
+        }
+    try:
+        report, score = review_excel_files(
+            excel_files, commits_text=commits_text, agentic=agentic, tool_context=tool_context,
+        )
+    except Exception as e:
+        logger.error(f'Excel 配置表审查异常: {type(e).__name__}: {e}')
+        return f"❌ Excel 配置表审查失败: {type(e).__name__}: {str(e)[:200]}", 0
+    if report and max_files > 0 and len(excel_changes) > len(files_to_review):
+        # 超限文件被静默跳过，报告里给出提示
+        report += (f"\n\n> ⚠️ 本次提交共有 {len(excel_changes)} 个配置表，受 "
+                   f"EXCEL_REVIEW_MAX_FILES={max_files} 限制，仅审查了前 {len(files_to_review)} 个")
+    return report, score
+
+
 def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, repo_name: str = None, trigger_type: str = "scheduled", repo_config: dict = None):
     """
     处理单个SVN提交，使用结构化diff JSON输入AI审查
@@ -335,12 +427,39 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         # 过滤变更
         changes = filter_svn_changes(changes)
 
-        if not changes:
+        # === Excel 配置表变更检测 ===
+        # Excel 是二进制文件，svn diff 对二进制只输出 "Cannot display"，会被 _parse_diff_output 跳过，
+        # 因此不能走 filter_svn_changes（SUPPORTED_EXTENSIONS 过滤），需单独从 svn log 的 paths 提取，
+        # 后续用 svn cat 原始字节读取。
+        excel_changes = _extract_excel_changes(commit)
+
+        # 排除已被 Excel 审查捕获的表格文件：若用户把 .csv 同时加入 SUPPORTED_EXTENSIONS，
+        # 避免同一文件被代码审查 + Excel 审查双重处理。
+        if excel_changes:
+            excel_paths = {ec['file_path'] for ec in excel_changes}
+            changes = [
+                c for c in changes
+                if (c.get('full_path') or c.get('new_path')) not in excel_paths
+            ]
+
+        if not changes and not excel_changes:
             logger.info(f'提交 r{revision} 没有包含需要审查的文件类型')
             return  # 没有需要审查的文件，直接返回
         # 统计新增和删除的代码行数
         additions = sum(change.get('additions', 0) for change in changes)
         deletions = sum(change.get('deletions', 0) for change in changes)
+
+        # 版本追踪用变更集合：代码变更 + Excel 配置表变更（diff 为空，仅用于内容 hash 去重）
+        changes_for_tracking = list(changes)
+        for ec in excel_changes:
+            changes_for_tracking.append({
+                'new_path': ec['file_path'],
+                'full_path': ec['file_path'],
+                'action': ec['action'],
+                'diff': '',
+                'additions': 0,
+                'deletions': 0,
+            })
 
         # 获取项目名称
         project_name = repo_name or os.path.basename(svn_path.rstrip('/\\'))
@@ -356,8 +475,8 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         # === 版本追踪集成 - 检查是否已审查 ===
         version_tracking_enabled = get_config_bool('VERSION_TRACKING_ENABLED')
         if version_tracking_enabled:
-            # 检查该revision是否已审查
-            existing_review = VersionTracker.is_version_reviewed(project_name, commit_info, changes)
+            # 检查该revision是否已审查（追踪内容包含 Excel 配置表路径，保证纯配置表提交也能正确去重）
+            existing_review = VersionTracker.is_version_reviewed(project_name, commit_info, changes_for_tracking)
             if existing_review:
                 logger.info(f'SVN版本 r{revision} 已审查，跳过重复审查。')
                 return  # 已审查的提交，直接返回
@@ -431,6 +550,25 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             review_result = "SVN代码审查未启用"
             review_successful = True
 
+        # === Excel 配置表审查（格式合规 + 异常数值规则预检 + AI 语义检查） ===
+        # 受 SVN_REVIEW_ENABLED 控制：该开关的 UI 语义为"关闭后仅记录提交信息，不调用AI审查"，
+        # Excel 语义审查同样调用 AI，因此必须一并受控。
+        if excel_changes and svn_review_enabled and get_config_bool('EXCEL_REVIEW_ENABLED', True):
+            excel_commits_text = json.dumps(commit_info, ensure_ascii=False, indent=2)
+            excel_report, excel_score = _review_excel_changes(
+                svn_handler, excel_changes, revision, excel_commits_text,
+            )
+            if excel_report and excel_report.strip():
+                if review_result and review_result.strip() \
+                        and review_result not in ("无需要审查的文件", "SVN代码审查未启用"):
+                    # 混合提交（代码 + 配置表）：报告分节合并，分数保持代码审查分数
+                    review_result = f"{review_result}\n\n---\n\n# 📊 Excel 配置表审查\n\n{excel_report}"
+                else:
+                    # 纯配置表提交：以 Excel 报告为主，分数取 Excel 总分
+                    review_result = f"# 📊 Excel 配置表审查\n\n{excel_report}"
+                    score = excel_score
+        # === Excel 配置表审查 END ===
+
         # 触发事件
         event_manager['svn_reviewed'].send(SvnReviewEntity(
             project_name=project_name,
@@ -455,7 +593,7 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             VersionTracker.record_version_review(
                 project_name=project_name,
                 commits=commit_info,
-                changes=changes,
+                changes=changes_for_tracking,
                 author=author,
                 branch='',
                 review_type='svn',

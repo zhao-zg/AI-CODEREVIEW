@@ -95,6 +95,26 @@ ImportError: cannot import name 'ConfigManager' from 'biz.utils.config_manager'
    python scripts/init_env.py
    ```
 
+### 4.1 Excel 配置表审查依赖缺失
+
+**问题描述**:
+SVN 提交的 Excel 配置表（.xlsx/.xls/.csv）审查结果为"依赖缺失"或解析失败 0 分，日志出现 `缺少 openpyxl / xlrd 依赖`。
+
+**解决方案**:
+1. 确保已安装 Excel 解析依赖：
+   ```bash
+   pip install openpyxl xlrd
+   ```
+2. Docker 部署：重新构建镜像（`requirements.txt` 已包含这两个依赖）
+   ```bash
+   docker compose build
+   docker compose up -d
+   ```
+3. 验证依赖：
+   ```bash
+   python -c "import openpyxl, xlrd; print(openpyxl.__version__, xlrd.__version__)"
+   ```
+
 ### 5. 编码错误
 
 **问题描述**: 
