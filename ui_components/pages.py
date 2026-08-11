@@ -805,11 +805,11 @@ PROMPT_REQUIRED_PLACEHOLDERS = {
 
 # 模板展示名（未列出的模板用原始 key 展示）
 PROMPT_LABELS = {
-    "code_review_prompt": "📌 主审查",
-    "code_review_batch_prompt": "📦 分批审查",
-    "code_review_merge_prompt": "🔗 合并报告",
-    "code_review_agentic_prompt": "🤖 Agentic 审查",
-    "excel_review_prompt": "📊 Excel 配置表审查",
+    "code_review_prompt": "📌 主审查（单次提交的标准完整审查）",
+    "code_review_batch_prompt": "📦 分批审查（变更文件多/超 Token 限制时逐批审查）",
+    "code_review_merge_prompt": "🔗 合并报告（多批审查结果汇总为一份统一报告）",
+    "code_review_agentic_prompt": "🤖 Agentic 审查（工具调用式，可读完整文件/检索代码库）",
+    "excel_review_prompt": "📊 Excel 配置表审查（配置表规则与 AI 语义检查）",
 }
 
 
