@@ -624,15 +624,73 @@ def _render_config_summary(env_config):
     col4.metric("配置完成度", f"{configured_count}/{total_count}" if total_count else "0/0")
 
 
-def _save_env_config(config_manager, updates):
+def _save_env_config(config_manager, updates, removed_keys=None):
     """保存环境配置：与磁盘上的现有配置合并后整体写回
 
     ConfigManager.save_env_config 会整体重写 conf/.env，若只传入表单字段，
     界面上没有覆盖到的配置项（如 SVN_CHECK_CRONTAB 等）会被静默丢弃，因此先合并。
+    :param removed_keys: 需要从 .env 中真正移除的键（如用户在 UI 上删掉的按线定制 webhook 键）。
+        不能写成空值——_get_webhook_url 会匹配到空值导致推送发往空地址而失败，必须整体删除。
     """
     merged = config_manager.get_env_config() or {}
+    if removed_keys:
+        for key in removed_keys:
+            merged.pop(key, None)
     merged.update({key: ("" if value is None else str(value)) for key, value in updates.items()})
     return config_manager.save_env_config(merged)
+
+
+# ============================ 按项目 / SVN 线定制推送地址（KEY=VALUE 编辑器） ============================
+
+_EXTRA_WEBHOOK_PREFIXES = ("DINGTALK", "WECOM", "FEISHU", "EXTRA")
+
+
+def _is_extra_webhook_key(key: str) -> bool:
+    """判断是否为按项目/SVN线定制的附加 webhook 键（形如 DINGTALK_WEBHOOK_URL_TRUNK）。
+
+    仅匹配"基础地址带后缀"的键（DINGTALK_WEBHOOK_URL_TRUNK），不匹配基础键本身
+    （DINGTALK_WEBHOOK_URL）——基础键在表单里有独立输入框。
+    """
+    if not key:
+        return False
+    for prefix in _EXTRA_WEBHOOK_PREFIXES:
+        base = f"{prefix}_WEBHOOK_URL_"
+        if key.startswith(base) and len(key) > len(base):
+            return True
+    return False
+
+
+def _format_extra_webhook_config(env_config: dict) -> str:
+    """把 env_config 中的附加 webhook 键格式化为 KEY=VALUE 多行文本（编辑器初始内容）"""
+    lines = []
+    for key in sorted(env_config.keys()):
+        if _is_extra_webhook_key(key) and env_config.get(key):
+            lines.append(f"{key}={env_config.get(key)}")
+    return "\n".join(lines)
+
+
+def _parse_extra_webhook_config(text: str):
+    """解析 KEY=VALUE 多行文本（# 开头为注释）→ (updates: dict, errors: list)"""
+    updates = {}
+    errors = []
+    for line_no, raw in enumerate((text or "").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            errors.append(f"第{line_no}行缺少 '=': {line}")
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not _is_extra_webhook_key(key):
+            errors.append(f"第{line_no}行键名不合法（须以 DINGTALK/WECOM/FEISHU/EXTRA_WEBHOOK_URL_ 开头并带后缀）: {key}")
+            continue
+        if not value:
+            errors.append(f"第{line_no}行 {key} 值为空")
+            continue
+        updates[key] = value
+    return updates, errors
 
 
 # ============================ SVN 仓库管理（表单 + JSON 双模式） ============================
@@ -863,11 +921,11 @@ def env_management_page():
 
         # 配置编辑表单 - 按模块分组，避免单页长滚动
         # 注意：下方各 with 块的书写顺序与标签展示顺序不一致（Streamlit 按 tab 对象归属渲染，不按代码顺序）
+        t_basic, t_review, t_ai, t_repo, t_notify, t_system, t_prompt = st.tabs([
+            "🚀 基础", "🎯 审查设置", "🤖 AI模型", "🏛️ 代码平台",
+            "🔔 通知推送", "🖥️ 系统运行", "📝 Prompt管理",
+        ])
         with st.form("env_config_form"):
-            t_basic, t_review, t_ai, t_repo, t_notify, t_system = st.tabs([
-                "🚀 基础", "🎯 审查设置", "🤖 AI模型", "🏛️ 代码平台",
-                "🔔 通知推送", "🖥️ 系统运行",
-            ])
 
             # ------------------------------ 基础 ------------------------------
             with t_basic:
@@ -948,12 +1006,6 @@ def env_management_page():
                             value=_env_int(env_config, "REVIEW_BATCH_MAX_FILES", 10),
                             help="0 表示不限制（仅受 Token 限制）。一次提交文件很多时，即使总 Token 没超限，"
                                  "AI 也难以在单次回复里逐个详述，调小可避免靠后的文件被忽略"
-                        )
-                        svn_diff_context_lines = st.number_input(
-                            "SVN diff 上下文行数",
-                            min_value=0, max_value=100,
-                            value=_env_int(env_config, "SVN_DIFF_CONTEXT_LINES", 10),
-                            help="对应 svn diff -U 参数，调大可让AI看到更完整的函数体"
                         )
 
                 with st.container(border=True):
@@ -1151,9 +1203,6 @@ def env_management_page():
                         st.caption("📋 **simplified 简化模式**：仅显示关键信息和简要评论，消息更简洁")
 
                 st.markdown("**📢 通知渠道**")
-                st.caption("💡 支持按 SVN 线定制推送地址：在环境变量中配置 `DINGTALK_WEBHOOK_URL_TRUNK`、`DINGTALK_WEBHOOK_URL_BRANCHES_DEV`、"
-                           "`DINGTALK_WEBHOOK_URL_TAGS_V1_0` 等（企微 `WECOM_WEBHOOK_URL_<线>`、飞书 `FEISHU_WEBHOOK_URL_<线>` 同理），"
-                           "匹配优先级：项目名 > SVN线 > 默认 Webhook")
                 col9, col10, col11 = st.columns(3)
 
                 with col9:
@@ -1182,437 +1231,472 @@ def env_management_page():
                         extra_webhook_enabled = st.checkbox("启用自定义 Webhook", value=env_config.get("EXTRA_WEBHOOK_ENABLED", "0") == "1")
                     with col_webhook2:
                         extra_webhook_url = st.text_input("自定义 Webhook URL", value=env_config.get("EXTRA_WEBHOOK_URL", ""), type="password")
-            
-            # ---------------------------- 代码平台 ----------------------------
-            with t_repo:
-                st.caption("平台的启用/停用开关在「🚀 基础」标签页设置，这里配置各平台的访问凭证与审查参数。")
 
-                col_repo1, col_repo2 = st.columns(2)
-                with col_repo1:
-                    with st.container(border=True):
-                        st.markdown("**🔗 GitLab**")
-                        gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""), placeholder="https://gitlab.example.com")
-                        gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password", placeholder="glpat-xxxxxxxxxxxxxxxxxxxx")
-                        push_review_enabled = st.checkbox("启用 Push 审查", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
-                        merge_protected_only = st.checkbox("仅审查受保护分支的 MR", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "1") == "1")
-
-                with col_repo2:
-                    with st.container(border=True):
-                        st.markdown("**🐙 GitHub**")
-                        github_url = st.text_input("GitHub URL", value=env_config.get("GITHUB_URL", "https://github.com"),
-                                                   help="GitHub Enterprise 用户请填写自建地址")
-                        github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
-
+                # 按项目 / SVN 线定制推送地址（补充默认地址，每行 KEY=VALUE）
                 with st.container(border=True):
-                    st.markdown("**📂 SVN**")
-                    col_svn1, col_svn2, col_svn3 = st.columns(3)
-                    with col_svn1:
-                        svn_review_enabled = st.checkbox(
-                            "启用 SVN 代码审查",
-                            value=env_config.get("SVN_REVIEW_ENABLED", "1") == "1",
-                            help="关闭后仅记录提交信息，不调用AI审查"
-                        )
-                    with col_svn2:
-                        svn_check_crontab = st.text_input(
-                            "默认检查周期 (Cron)",
-                            value=env_config.get("SVN_CHECK_CRONTAB", "*/30 * * * *"),
-                            help="仓库未单独配置 check_crontab 时使用该默认值"
-                        )
-                    with col_svn3:
-                        svn_check_limit = st.number_input(
-                            "单次检查最大提交数",
-                            min_value=1, max_value=1000,
-                            value=_env_int(env_config, "SVN_CHECK_LIMIT", 100)
-                        )
-
-                    st.markdown("**🔍 增强 Merge 检测**")
-                    col_merge1, col_merge2 = st.columns([1, 2])
-                    with col_merge1:
-                        use_enhanced_merge = st.checkbox(
-                            "启用增强 Merge 检测",
-                            value=env_config.get("USE_ENHANCED_MERGE_DETECTION", "0") == "1",
-                            help="多维度检测算法，比仅匹配提交信息关键字更准确"
-                        )
-                    with col_merge2:
-                        merge_threshold = st.slider(
-                            "检测置信度阈值",
-                            min_value=0.1, max_value=1.0,
-                            value=_env_float(env_config, "MERGE_DETECTION_THRESHOLD", 0.45),
-                            step=0.05,
-                            help="≤0.4 宽松 / 0.4~0.6 平衡 / >0.6 严格，推荐 0.4~0.5"
-                        )
-
-                    # 解析已保存的SVN仓库配置（供下方「SVN 仓库管理」区块初始化使用）
-                    current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
-                    try:
-                        parsed_repos = json.loads(current_svn_config) if current_svn_config and current_svn_config.strip() else []
-                        svn_repos = [repo for repo in parsed_repos if isinstance(repo, dict)] if isinstance(parsed_repos, list) else []
-                    except json.JSONDecodeError:
-                        svn_repos = []
-
-                    st.markdown("---")
-                    st.caption("📋 **仓库列表**在下方「📂 SVN 仓库管理」区块中管理：支持逐条添加/编辑/删除（密码脱敏），也支持 JSON 高级模式批量导入，随「💾 保存系统配置」一并保存。")
-
-            # 保存系统配置按钮
-            if st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary"):
-                # 处理SVN仓库配置（来自下方「SVN 仓库管理」区块，存于 session_state）
-                repos_to_save = st.session_state.get("svn_repos")
-                if repos_to_save is None:
-                    # 首次进入直接保存时，回退到 env 中已解析的仓库列表
-                    repos_to_save = svn_repos
-                # 校验：必填字段 + name 唯一性（svn_worker 中重名会中断全部仓库检查）
-                svn_errors = []
-                seen_names = set()
-                for repo_item in repos_to_save:
-                    rname = str(repo_item.get("name", "")).strip()
-                    if not rname:
-                        svn_errors.append("存在未填写名称 (name) 的仓库")
-                    elif rname in seen_names:
-                        svn_errors.append(f"仓库名称 '{rname}' 重复，请确保唯一")
-                    seen_names.add(rname)
-                    if not str(repo_item.get("remote_url", "")).strip():
-                        svn_errors.append(f"仓库 {rname or '?'} 缺少 remote_url")
-                    if not str(repo_item.get("local_path", "")).strip():
-                        svn_errors.append(f"仓库 {rname or '?'} 缺少 local_path")
-                if svn_errors:
-                    st.error("❌ SVN 仓库配置校验失败：" + "；".join(dict.fromkeys(svn_errors)))
-                    st.stop()
-                # 压缩为单行格式，避免换行导致的 .env 文件解析问题
-                svn_config_final = json.dumps(repos_to_save, ensure_ascii=False, separators=(',', ':'))
-                
-                new_config = {
-                    # AI模型
-                    "LLM_PROVIDER": llm_provider,
-                    "DEEPSEEK_API_KEY": deepseek_key,
-                    "DEEPSEEK_API_BASE_URL": deepseek_base,
-                    "DEEPSEEK_API_MODEL": deepseek_model,
-                    "OPENAI_API_KEY": openai_key,
-                    "OPENAI_API_BASE_URL": openai_base,
-                    "OPENAI_API_MODEL": openai_model,
-                    "ZHIPUAI_API_KEY": zhipuai_key,
-                    "ZHIPUAI_API_MODEL": zhipuai_model,
-                    "QWEN_API_KEY": qwen_key,
-                    "QWEN_API_BASE_URL": qwen_base,
-                    "QWEN_API_MODEL": qwen_model,
-                    "JEDI_API_KEY": jedi_key,
-                    "JEDI_API_BASE_URL": jedi_base,
-                    "JEDI_API_MODEL": jedi_model,
-                    "OLLAMA_API_BASE_URL": ollama_base,
-                    "OLLAMA_API_MODEL": ollama_model,
-
-                    # 审查设置
-                    "REVIEW_MAX_TOKENS": str(review_max_tokens),
-                    "REVIEW_BATCH_MAX_FILES": str(review_batch_max_files),
-                    "SUPPORTED_EXTENSIONS": supported_extensions,
-                    "EXCLUDE_PATTERNS": exclude_patterns,
-                    "SVN_DIFF_CONTEXT_LINES": str(svn_diff_context_lines),
-                    "AGENTIC_REVIEW_ENABLED": "1" if agentic_review_enabled else "0",
-                    "AGENTIC_REVIEW_MAX_TOOL_ROUNDS": str(agentic_max_tool_rounds),
-                    "EXCEL_REVIEW_ENABLED": "1" if excel_review_enabled else "0",
-                    "EXCEL_SUPPORTED_EXTENSIONS": excel_supported_extensions,
-                    "EXCEL_REVIEW_MAX_ROWS": str(excel_review_max_rows),
-                    "EXCEL_REVIEW_MAX_SHEETS": str(excel_review_max_sheets),
-                    "EXCEL_REVIEW_MAX_FILES": str(excel_review_max_files),
-                    "VERSION_TRACKING_ENABLED": "1" if version_tracking_enabled else "0",
-                    "REUSE_PREVIOUS_REVIEW_RESULT": "1" if reuse_previous_review else "0",
-                    "VERSION_TRACKING_RETENTION_DAYS": str(retention_days),
-
-                    # 平台开关
-                    "SVN_CHECK_ENABLED": "1" if svn_enabled else "0",
-                    "GITLAB_ENABLED": "1" if gitlab_enabled else "0",
-                    "GITHUB_ENABLED": "1" if github_enabled else "0",
-
-                    # GitLab
-                    "GITLAB_URL": gitlab_url,
-                    "GITLAB_ACCESS_TOKEN": gitlab_token,
-                    "PUSH_REVIEW_ENABLED": "1" if push_review_enabled else "0",
-                    "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED": "1" if merge_protected_only else "0",
-
-                    # GitHub
-                    "GITHUB_URL": github_url,
-                    "GITHUB_ACCESS_TOKEN": github_token,
-
-                    # SVN
-                    "SVN_REVIEW_ENABLED": "1" if svn_review_enabled else "0",
-                    "SVN_CHECK_CRONTAB": svn_check_crontab,
-                    "SVN_CHECK_LIMIT": str(svn_check_limit),
-                    "SVN_REPOSITORIES": svn_config_final,
-                    "USE_ENHANCED_MERGE_DETECTION": "1" if use_enhanced_merge else "0",
-                    "MERGE_DETECTION_THRESHOLD": str(round(merge_threshold, 2)),
-
-                    # 通知推送
-                    "NOTIFICATION_MODE": notification_mode,
-                    "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
-                    "DINGTALK_WEBHOOK_URL": dingtalk_webhook,
-                    "WECOM_ENABLED": "1" if wecom_enabled else "0",
-                    "WECOM_WEBHOOK_URL": wecom_webhook,
-                    "FEISHU_ENABLED": "1" if feishu_enabled else "0",
-                    "FEISHU_WEBHOOK_URL": feishu_webhook,
-                    "EXTRA_WEBHOOK_ENABLED": "1" if extra_webhook_enabled else "0",
-                    "EXTRA_WEBHOOK_URL": extra_webhook_url,
-
-                    # 系统运行
-                    "API_PORT": api_port,
-                    "API_URL": api_url,
-                    "UI_PORT": ui_port,
-                    "UI_URL": ui_url,
-                    "TZ": timezone,
-                    "LOG_LEVEL": log_level,
-                    "LOG_FILE": log_file,
-                    "LOG_MAX_BYTES": str(log_max_bytes),
-                    "LOG_BACKUP_COUNT": str(log_backup_count),
-                    "QUEUE_DRIVER": queue_driver,
-                    "REDIS_HOST": redis_host,
-                    "REDIS_PORT": str(redis_port),
-                    "REPORT_CRONTAB_EXPRESSION": report_cron,
-
-                    # Dashboard
-                    "DASHBOARD_USER": dashboard_user,
-                    "DASHBOARD_PASSWORD": dashboard_password,
-                }
-                
-                # 保存环境配置（Prompt 模板在下方独立管理区保存）
-                try:
-                    env_save_success = _save_env_config(config_manager, new_config)
-                    if env_save_success:
-                        st.success("✅ 系统配置已保存")
-                        try:
-                            if apply_config_changes():
-                                st.success("✅ 配置已重载生效")
-                            else:
-                                st.warning("⚠️ 配置已保存，但重载未完全成功，可点击下方「🔄 立即重载配置」重试")
-                        except Exception as e:
-                            st.warning(f"⚠️ 配置已保存，但自动重载失败: {e}")
-                    else:
-                        st.error("❌ 环境配置保存失败，请检查 conf/.env 的写入权限")
-                except Exception as e:
-                    st.error(f"❌ 保存配置时出现错误: {str(e)}")
-
-        # --------------------------- SVN 仓库管理（独立于 env form，通过 session_state 与保存逻辑联动） ---------------------------
-        with st.container(border=True):
-            st.markdown("**📂 SVN 仓库管理**")
-            st.caption("仓库列表独立管理，点击「💾 保存系统配置」时一并保存；密码脱敏显示，编辑时留空保持不变。")
-
-            # 首次进入页面时，从已保存配置初始化仓库列表
-            if "svn_repos" not in st.session_state:
-                st.session_state["svn_repos"] = svn_repos
-
-            # 表单/导入校验错误提示（popover 关闭后仍可见）
-            if st.session_state.get("svn_form_error"):
-                st.error("❌ " + st.session_state["svn_form_error"])
-                if st.button("清除错误提示", key="svn_clear_err"):
-                    st.session_state.pop("svn_form_error", None)
-                    st.rerun()
-
-            repos = st.session_state["svn_repos"]
-            # 删除确认状态越界时清理
-            if st.session_state.get("svn_confirm_del") is not None and st.session_state["svn_confirm_del"] >= len(repos):
-                st.session_state.pop("svn_confirm_del", None)
-
-            # 统计信息
-            col_sstat1, col_sstat2, col_sstat3 = st.columns(3)
-            with col_sstat1:
-                st.metric("已配置仓库", len(repos))
-            with col_sstat2:
-                enabled_cnt = sum(1 for r in repos if r.get('enable_merge_review', True))
-                st.metric("启用Merge审查", f"{enabled_cnt}/{len(repos)}")
-            with col_sstat3:
-                if repos:
-                    avg_hours = sum(_env_int(r, "check_hours", 24) for r in repos) / len(repos)
-                    st.metric("平均检查间隔", f"{avg_hours:.1f}h")
-                else:
-                    st.metric("平均检查间隔", "N/A")
-
-            # 仓库卡片列表
-            if repos:
-                for idx, repo in enumerate(repos):
-                    with st.container(border=True):
-                        col_head1, col_head2 = st.columns([4, 2])
-                        with col_head1:
-                            st.markdown(f"**{repo.get('name', '未命名')}**")
-                            st.caption(f"🔗 {repo.get('remote_url', '-')}")
-                            st.caption(f"📁 {repo.get('local_path', '-')}")
-                            info_parts = [f"⏱ 检查范围 {_env_int(repo, 'check_hours', 24)}h",
-                                          f"📦 上限 {_env_int(repo, 'check_limit', 100)}"]
-                            if repo.get('check_crontab'):
-                                info_parts.append(f"🕐 {repo['check_crontab']}")
-                            st.caption(" | ".join(info_parts))
-                        with col_head2:
-                            merge_ok = repo.get('enable_merge_review', True)
-                            if isinstance(merge_ok, str):
-                                merge_ok = merge_ok.lower() in ("1", "true", "yes")
-                            st.caption(f"Merge审查: {'✅' if merge_ok else '⏸️ 停用'}")
-                            st.caption(f"👤 {repo.get('username', '密码已设置' if repo.get('password') else '匿名')}")
-
-                        # 操作按钮行：必须与 col_head1/col_head2 平级（不能放进列内）。
-                        # 若嵌套在 col_head2 中，popover 内表单的 st.columns 会构成三级列嵌套，
-                        # 触发 Streamlit "Columns can only be placed inside other columns up to one level" 报错。
-                        col_act1, col_act2 = st.columns(2)
-                        with col_act1:
-                            with st.popover("✏️ 编辑", use_container_width=True):
-                                _render_svn_repo_form(idx, repo, is_new=False)
-                        with col_act2:
-                            is_confirm = st.session_state.get("svn_confirm_del") == idx
-                            if st.button("⚠️ 确认删除" if is_confirm else "🗑️ 删除",
-                                         key=f"svn_del_{idx}", use_container_width=True):
-                                if is_confirm:
-                                    del st.session_state["svn_repos"][idx]
-                                    st.session_state.pop("svn_confirm_del", None)
-                                    st.session_state.pop("svn_form_error", None)
-                                    st.rerun()
-                                else:
-                                    st.session_state["svn_confirm_del"] = idx
-                                    st.rerun()
-            else:
-                st.info("暂未配置任何 SVN 仓库。点击下方「➕ 添加仓库」逐条配置，或展开「🛠 JSON 高级模式」导入已有配置。")
-
-            # 添加仓库 + JSON 高级模式
-            col_add1, col_add2 = st.columns([1, 1])
-            with col_add1:
-                with st.popover("➕ 添加仓库", use_container_width=True):
-                    _render_svn_repo_form("new", {}, is_new=True)
-            with col_add2:
-                with st.expander("🛠 JSON 高级模式", expanded=False):
-                    st.caption("适合批量配置。导入会覆盖上方列表并做必填/唯一性校验；生成可复制当前列表为 JSON。")
-                    default_json = json.dumps(repos, ensure_ascii=False, indent=2)
-                    # 首次渲染时初始化；「从列表生成」通过 svn_json_pending 在控件实例化前更新
-                    if "svn_json_editor" not in st.session_state:
-                        st.session_state["svn_json_editor"] = default_json
-                    if st.session_state.get("svn_json_pending"):
-                        st.session_state["svn_json_editor"] = json.dumps(st.session_state["svn_repos"],
-                                                                         ensure_ascii=False, indent=2)
-                        st.session_state.pop("svn_json_pending", None)
-                    json_text = st.text_area(
-                        "SVN_REPOSITORIES (JSON 数组)",
-                        key="svn_json_editor",
-                        height=220,
-                        help="每个元素支持 name / remote_url / local_path / username / password / check_hours / check_limit / check_crontab / enable_merge_review"
+                    st.markdown("**🔀 按项目 / SVN 线定制推送地址**")
+                    st.caption("为不同 SVN 线或项目配置独立推送地址，每行一个 `KEY=VALUE`（`#` 开头为注释），保存时随配置一并写入。")
+                    st.caption("SVN 线示例：`DINGTALK_WEBHOOK_URL_TRUNK=...`、`DINGTALK_WEBHOOK_URL_BRANCHES_DEV=...`、`DINGTALK_WEBHOOK_URL_TAGS_V1_0=...`；"
+                               "企微/飞书把前缀换成 `WECOM_`/`FEISHU_` 即可；按项目定制（GitLab/GitHub）：`DINGTALK_WEBHOOK_URL_<项目名大写>`。"
+                               "匹配优先级：项目名 > SVN线 > 默认地址。")
+                    extra_webhook_text = st.text_area(
+                        "定制推送地址 (KEY=VALUE，每行一个)",
+                        value=_format_extra_webhook_config(env_config),
+                        height=130,
+                        help="格式：KEY=VALUE，每行一个；删除某行并保存即移除该定制地址（回退到默认地址）。"
+                             "SVN 线命名规则：路径前两段拼接（trunk / branches_分支名 / tags_标签名），非字母数字字符替换为下划线。"
                     )
-                    col_jb1, col_jb2 = st.columns(2)
-                    with col_jb1:
-                        if st.button("⬇️ 导入 JSON 到列表", key="svn_json_import", use_container_width=True):
-                            try:
-                                parsed_json = json.loads(json_text)
-                                if not isinstance(parsed_json, list):
-                                    raise ValueError("内容必须是 JSON 数组")
-                                cleaned = [r for r in parsed_json if isinstance(r, dict)]
-                                if len(cleaned) != len(parsed_json):
-                                    raise ValueError("数组中存在非对象元素")
-                                import_errors = []
-                                for r in cleaned:
-                                    import_errors.extend(_validate_svn_repo(r, cleaned))
-                                if import_errors:
-                                    st.session_state["svn_form_error"] = "JSON 导入校验失败：" + "；".join(dict.fromkeys(import_errors))
-                                else:
-                                    st.session_state["svn_repos"] = cleaned
-                                    st.session_state.pop("svn_form_error", None)
-                            except (json.JSONDecodeError, ValueError) as e:
-                                st.session_state["svn_form_error"] = f"JSON 导入失败: {e}"
-                            st.rerun()
-                    with col_jb2:
-                        if st.button("⬆️ 从列表生成 JSON", key="svn_json_export", use_container_width=True):
-                            st.session_state["svn_json_pending"] = True
-                            st.rerun()
+            
+            submitted = st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary")
 
-        # --------------------------- Prompt 模板管理（独立于 env form，单独保存） ---------------------------
-        st.markdown("---")
-        with st.container(border=True):
-            st.markdown("**📝 Prompt 模板管理**")
-            st.caption("每个模板独立编辑、独立保存：只更新当前模板，其余模板原样保留。保存前自动备份到 prompt_templates.yml.backup。")
+        # --------------------------- 代码平台（GitLab / GitHub / SVN 参数 + SVN 仓库管理，独立于 env form 便于仓库列表即时交互） ---------------------------
+        with t_repo:
+            st.caption("平台的启用/停用开关在「🚀 基础」标签页设置，这里配置各平台的访问凭证与审查参数。")
 
-            prompt_config = _load_prompt_templates()
-            prompt_keys = _scan_prompt_keys(prompt_config)
+            col_repo1, col_repo2 = st.columns(2)
+            with col_repo1:
+                with st.container(border=True):
+                    st.markdown("**🔗 GitLab**")
+                    gitlab_url = st.text_input("GitLab URL", value=env_config.get("GITLAB_URL", ""), placeholder="https://gitlab.example.com")
+                    gitlab_token = st.text_input("GitLab Access Token", value=env_config.get("GITLAB_ACCESS_TOKEN", ""), type="password", placeholder="glpat-xxxxxxxxxxxxxxxxxxxx")
+                    push_review_enabled = st.checkbox("启用 Push 审查", value=env_config.get("PUSH_REVIEW_ENABLED", "1") == "1")
+                    merge_protected_only = st.checkbox("仅审查受保护分支的 MR", value=env_config.get("MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED", "1") == "1")
 
-            # 状态总览（动态扫描所有 *_prompt key，不硬编码模板数量）
-            status_rows = []
-            for pkey in prompt_keys:
-                cfg = prompt_config.get(pkey) or {}
-                sys_len = len(cfg.get("system_prompt", "") or "")
-                usr_len = len(cfg.get("user_prompt", "") or "")
-                status, _ = _check_prompt_template(pkey, cfg)
-                status_rows.append({
-                    "模板": PROMPT_LABELS.get(pkey, pkey),
-                    "Key": pkey,
-                    "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
-                    "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
-                    "状态": status,
-                })
-            st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+            with col_repo2:
+                with st.container(border=True):
+                    st.markdown("**🐙 GitHub**")
+                    github_url = st.text_input("GitHub URL", value=env_config.get("GITHUB_URL", "https://github.com"),
+                                               help="GitHub Enterprise 用户请填写自建地址")
+                    github_token = st.text_input("GitHub Access Token", value=env_config.get("GITHUB_ACCESS_TOKEN", ""), type="password", placeholder="ghp_xxxxxxxxxxxxxxxxxxxx")
 
-            if not prompt_keys:
-                st.warning("⚠️ 未找到任何 Prompt 模板，请检查 conf/prompt_templates.yml 文件是否存在且格式正确。")
-            else:
-                selected_key = st.selectbox(
-                    "选择要编辑的模板",
-                    prompt_keys,
-                    format_func=lambda k: PROMPT_LABELS.get(k, k),
-                    key="prompt_editor_select",
-                    on_change=_clear_prompt_editor_state,
-                    help="切换模板后编辑区自动加载该模板内容（未保存的修改会丢弃）"
+            with st.container(border=True):
+                st.markdown("**📂 SVN**")
+                col_svn1, col_svn2, col_svn3 = st.columns(3)
+                with col_svn1:
+                    svn_review_enabled = st.checkbox(
+                        "启用 SVN 代码审查",
+                        value=env_config.get("SVN_REVIEW_ENABLED", "1") == "1",
+                        help="关闭后仅记录提交信息，不调用AI审查"
+                    )
+                with col_svn2:
+                    svn_check_crontab = st.text_input(
+                        "默认检查周期 (Cron)",
+                        value=env_config.get("SVN_CHECK_CRONTAB", "*/30 * * * *"),
+                        help="仓库未单独配置 check_crontab 时使用该默认值"
+                    )
+                with col_svn3:
+                    svn_check_limit = st.number_input(
+                        "单次检查最大提交数",
+                        min_value=1, max_value=1000,
+                        value=_env_int(env_config, "SVN_CHECK_LIMIT", 100)
+                    )
+
+                # SVN diff 上下文行数（SVN 相关，随代码平台配置一起管理）
+                svn_diff_context_lines = st.number_input(
+                    "SVN diff 上下文行数",
+                    min_value=0, max_value=100,
+                    value=_env_int(env_config, "SVN_DIFF_CONTEXT_LINES", 10),
+                    help="对应 svn diff -U 参数，调大可让AI看到更完整的函数体"
                 )
-                cfg = prompt_config.get(selected_key) or {}
 
-                # 当前模板必填占位符提示
-                required = PROMPT_REQUIRED_PLACEHOLDERS.get(selected_key, ())
-                if required:
-                    st.caption(
-                        "必填占位符（user_prompt 运行时 str.format() 替换，缺失会导致审查失败）："
-                        + "、".join(f"`{{{p}}}`" for p in required)
+                st.markdown("**🔍 增强 Merge 检测**")
+                col_merge1, col_merge2 = st.columns([1, 2])
+                with col_merge1:
+                    use_enhanced_merge = st.checkbox(
+                        "启用增强 Merge 检测",
+                        value=env_config.get("USE_ENHANCED_MERGE_DETECTION", "0") == "1",
+                        help="多维度检测算法，比仅匹配提交信息关键字更准确"
+                    )
+                with col_merge2:
+                    merge_threshold = st.slider(
+                        "检测置信度阈值",
+                        min_value=0.1, max_value=1.0,
+                        value=_env_float(env_config, "MERGE_DETECTION_THRESHOLD", 0.45),
+                        step=0.05,
+                        help="≤0.4 宽松 / 0.4~0.6 平衡 / >0.6 严格，推荐 0.4~0.5"
                     )
 
-                col_edit1, col_edit2 = st.columns(2)
-                with col_edit1:
-                    editor_sys = st.text_area(
-                        "系统 Prompt（Jinja2 模板）",
-                        value=cfg.get("system_prompt", "") or "",
-                        height=320,
-                        key=f"prompt_editor_{selected_key}_system",
-                        help="支持 Jinja2 变量如 {{ style }}"
-                    )
-                with col_edit2:
-                    editor_usr = st.text_area(
-                        "用户 Prompt（str.format 模板）",
-                        value=cfg.get("user_prompt", "") or "",
-                        height=320,
-                        key=f"prompt_editor_{selected_key}_user",
-                        help="运行时用 str.format() 填充占位符：花括号必须配对，且需包含上方列出的必填占位符；"
-                             "不要使用 {{ }} 双花括号（会被 Jinja2 渲染处理，不是 str.format() 占位符）"
-                    )
+                # 解析已保存的SVN仓库配置（供下方「SVN 仓库管理」区块初始化使用）
+                current_svn_config = env_config.get("SVN_REPOSITORIES", "[]")
+                try:
+                    parsed_repos = json.loads(current_svn_config) if current_svn_config and current_svn_config.strip() else []
+                    svn_repos = [repo for repo in parsed_repos if isinstance(repo, dict)] if isinstance(parsed_repos, list) else []
+                except json.JSONDecodeError:
+                    svn_repos = []
 
-                col_save1, col_save2, col_save3 = st.columns([2, 2, 3])
-                with col_save1:
-                    if st.button("💾 保存当前模板", type="primary", use_container_width=True, key="prompt_editor_save_btn"):
-                        # 保存前校验
-                        issues = []
-                        if not (editor_sys or "").strip():
-                            issues.append("system_prompt 不能为空")
-                        if not (editor_usr or "").strip():
-                            issues.append("user_prompt 不能为空")
-                        for ph in required:
-                            if "{" + ph + "}" not in (editor_usr or ""):
-                                issues.append(f"user_prompt 缺少占位符 {{{ph}}}")
-                        if (editor_usr or "").count("{") != (editor_usr or "").count("}"):
-                            issues.append("user_prompt 花括号不配对（str.format() 会解析失败）")
-                        if issues:
-                            st.error("❌ 校验未通过：\n- " + "\n- ".join(issues))
+                st.markdown("---")
+                st.caption("📋 **仓库列表**支持逐条添加/编辑/删除（密码脱敏），也支持 JSON 高级模式批量导入，随「💾 保存系统配置」一并保存。")
+
+            # --------------------------- SVN 仓库管理（位于「🏛️ 代码平台」标签页，独立于 env form，通过 session_state 与保存逻辑联动） ---------------------------
+            with st.container(border=True):
+                st.markdown("**📂 SVN 仓库管理**")
+                st.caption("仓库列表独立管理，点击「💾 保存系统配置」时一并保存；密码脱敏显示，编辑时留空保持不变。")
+
+                # 首次进入页面时，从已保存配置初始化仓库列表
+                if "svn_repos" not in st.session_state:
+                    st.session_state["svn_repos"] = svn_repos
+
+                # 表单/导入校验错误提示（popover 关闭后仍可见）
+                if st.session_state.get("svn_form_error"):
+                    st.error("❌ " + st.session_state["svn_form_error"])
+                    if st.button("清除错误提示", key="svn_clear_err"):
+                        st.session_state.pop("svn_form_error", None)
+                        st.rerun()
+
+                repos = st.session_state["svn_repos"]
+                # 删除确认状态越界时清理
+                if st.session_state.get("svn_confirm_del") is not None and st.session_state["svn_confirm_del"] >= len(repos):
+                    st.session_state.pop("svn_confirm_del", None)
+
+                # 统计信息
+                col_sstat1, col_sstat2, col_sstat3 = st.columns(3)
+                with col_sstat1:
+                    st.metric("已配置仓库", len(repos))
+                with col_sstat2:
+                    enabled_cnt = sum(1 for r in repos if r.get('enable_merge_review', True))
+                    st.metric("启用Merge审查", f"{enabled_cnt}/{len(repos)}")
+                with col_sstat3:
+                    if repos:
+                        avg_hours = sum(_env_int(r, "check_hours", 24) for r in repos) / len(repos)
+                        st.metric("平均检查间隔", f"{avg_hours:.1f}h")
+                    else:
+                        st.metric("平均检查间隔", "N/A")
+
+                # 仓库卡片列表
+                if repos:
+                    for idx, repo in enumerate(repos):
+                        with st.container(border=True):
+                            col_head1, col_head2 = st.columns([4, 2])
+                            with col_head1:
+                                st.markdown(f"**{repo.get('name', '未命名')}**")
+                                st.caption(f"🔗 {repo.get('remote_url', '-')}")
+                                st.caption(f"📁 {repo.get('local_path', '-')}")
+                                info_parts = [f"⏱ 检查范围 {_env_int(repo, 'check_hours', 24)}h",
+                                              f"📦 上限 {_env_int(repo, 'check_limit', 100)}"]
+                                if repo.get('check_crontab'):
+                                    info_parts.append(f"🕐 {repo['check_crontab']}")
+                                st.caption(" | ".join(info_parts))
+                            with col_head2:
+                                merge_ok = repo.get('enable_merge_review', True)
+                                if isinstance(merge_ok, str):
+                                    merge_ok = merge_ok.lower() in ("1", "true", "yes")
+                                st.caption(f"Merge审查: {'✅' if merge_ok else '⏸️ 停用'}")
+                                st.caption(f"👤 {repo.get('username', '密码已设置' if repo.get('password') else '匿名')}")
+                                col_act1, col_act2 = st.columns(2)
+                                with col_act1:
+                                    with st.popover("✏️ 编辑", use_container_width=True):
+                                        _render_svn_repo_form(idx, repo, is_new=False)
+                                with col_act2:
+                                    is_confirm = st.session_state.get("svn_confirm_del") == idx
+                                    if st.button("⚠️ 确认删除" if is_confirm else "🗑️ 删除",
+                                                 key=f"svn_del_{idx}", use_container_width=True):
+                                        if is_confirm:
+                                            del st.session_state["svn_repos"][idx]
+                                            st.session_state.pop("svn_confirm_del", None)
+                                            st.session_state.pop("svn_form_error", None)
+                                            st.rerun()
+                                        else:
+                                            st.session_state["svn_confirm_del"] = idx
+                                            st.rerun()
+                else:
+                    st.info("暂未配置任何 SVN 仓库。点击下方「➕ 添加仓库」逐条配置，或展开「🛠 JSON 高级模式」导入已有配置。")
+
+                # 添加仓库 + JSON 高级模式
+                col_add1, col_add2 = st.columns([1, 1])
+                with col_add1:
+                    with st.popover("➕ 添加仓库", use_container_width=True):
+                        _render_svn_repo_form("new", {}, is_new=True)
+                with col_add2:
+                    with st.expander("🛠 JSON 高级模式", expanded=False):
+                        st.caption("适合批量配置。导入会覆盖上方列表并做必填/唯一性校验；生成可复制当前列表为 JSON。")
+                        default_json = json.dumps(repos, ensure_ascii=False, indent=2)
+                        # 首次渲染时初始化；「从列表生成」通过 svn_json_pending 在控件实例化前更新
+                        if "svn_json_editor" not in st.session_state:
+                            st.session_state["svn_json_editor"] = default_json
+                        if st.session_state.get("svn_json_pending"):
+                            st.session_state["svn_json_editor"] = json.dumps(st.session_state["svn_repos"],
+                                                                             ensure_ascii=False, indent=2)
+                            st.session_state.pop("svn_json_pending", None)
+                        json_text = st.text_area(
+                            "SVN_REPOSITORIES (JSON 数组)",
+                            key="svn_json_editor",
+                            height=220,
+                            help="每个元素支持 name / remote_url / local_path / username / password / check_hours / check_limit / check_crontab / enable_merge_review"
+                        )
+                        col_jb1, col_jb2 = st.columns(2)
+                        with col_jb1:
+                            if st.button("⬇️ 导入 JSON 到列表", key="svn_json_import", use_container_width=True):
+                                try:
+                                    parsed_json = json.loads(json_text)
+                                    if not isinstance(parsed_json, list):
+                                        raise ValueError("内容必须是 JSON 数组")
+                                    cleaned = [r for r in parsed_json if isinstance(r, dict)]
+                                    if len(cleaned) != len(parsed_json):
+                                        raise ValueError("数组中存在非对象元素")
+                                    import_errors = []
+                                    for r in cleaned:
+                                        import_errors.extend(_validate_svn_repo(r, cleaned))
+                                    if import_errors:
+                                        st.session_state["svn_form_error"] = "JSON 导入校验失败：" + "；".join(dict.fromkeys(import_errors))
+                                    else:
+                                        st.session_state["svn_repos"] = cleaned
+                                        st.session_state.pop("svn_form_error", None)
+                                except (json.JSONDecodeError, ValueError) as e:
+                                    st.session_state["svn_form_error"] = f"JSON 导入失败: {e}"
+                                st.rerun()
+                        with col_jb2:
+                            if st.button("⬆️ 从列表生成 JSON", key="svn_json_export", use_container_width=True):
+                                st.session_state["svn_json_pending"] = True
+                                st.rerun()
+
+        # 保存系统配置（form 提交后统一保存；代码平台相关变量已在上方定义）
+        if submitted:
+            # 处理SVN仓库配置（来自「🏛️ 代码平台」标签页的「SVN 仓库管理」区块，存于 session_state）
+            repos_to_save = st.session_state.get("svn_repos")
+            if repos_to_save is None:
+                # 首次进入直接保存时，回退到 env 中已解析的仓库列表
+                repos_to_save = svn_repos
+            # 校验：必填字段 + name 唯一性（svn_worker 中重名会中断全部仓库检查）
+            svn_errors = []
+            seen_names = set()
+            for repo_item in repos_to_save:
+                rname = str(repo_item.get("name", "")).strip()
+                if not rname:
+                    svn_errors.append("存在未填写名称 (name) 的仓库")
+                elif rname in seen_names:
+                    svn_errors.append(f"仓库名称 '{rname}' 重复，请确保唯一")
+                seen_names.add(rname)
+                if not str(repo_item.get("remote_url", "")).strip():
+                    svn_errors.append(f"仓库 {rname or '?'} 缺少 remote_url")
+                if not str(repo_item.get("local_path", "")).strip():
+                    svn_errors.append(f"仓库 {rname or '?'} 缺少 local_path")
+            if svn_errors:
+                st.error("❌ SVN 仓库配置校验失败：" + "；".join(dict.fromkeys(svn_errors)))
+                st.stop()
+            # 压缩为单行格式，避免换行导致的 .env 文件解析问题
+            svn_config_final = json.dumps(repos_to_save, ensure_ascii=False, separators=(',', ':'))
+
+            new_config = {
+                # AI模型
+                "LLM_PROVIDER": llm_provider,
+                "DEEPSEEK_API_KEY": deepseek_key,
+                "DEEPSEEK_API_BASE_URL": deepseek_base,
+                "DEEPSEEK_API_MODEL": deepseek_model,
+                "OPENAI_API_KEY": openai_key,
+                "OPENAI_API_BASE_URL": openai_base,
+                "OPENAI_API_MODEL": openai_model,
+                "ZHIPUAI_API_KEY": zhipuai_key,
+                "ZHIPUAI_API_MODEL": zhipuai_model,
+                "QWEN_API_KEY": qwen_key,
+                "QWEN_API_BASE_URL": qwen_base,
+                "QWEN_API_MODEL": qwen_model,
+                "JEDI_API_KEY": jedi_key,
+                "JEDI_API_BASE_URL": jedi_base,
+                "JEDI_API_MODEL": jedi_model,
+                "OLLAMA_API_BASE_URL": ollama_base,
+                "OLLAMA_API_MODEL": ollama_model,
+
+                # 审查设置
+                "REVIEW_MAX_TOKENS": str(review_max_tokens),
+                "REVIEW_BATCH_MAX_FILES": str(review_batch_max_files),
+                "SUPPORTED_EXTENSIONS": supported_extensions,
+                "EXCLUDE_PATTERNS": exclude_patterns,
+                "SVN_DIFF_CONTEXT_LINES": str(svn_diff_context_lines),
+                "AGENTIC_REVIEW_ENABLED": "1" if agentic_review_enabled else "0",
+                "AGENTIC_REVIEW_MAX_TOOL_ROUNDS": str(agentic_max_tool_rounds),
+                "EXCEL_REVIEW_ENABLED": "1" if excel_review_enabled else "0",
+                "EXCEL_SUPPORTED_EXTENSIONS": excel_supported_extensions,
+                "EXCEL_REVIEW_MAX_ROWS": str(excel_review_max_rows),
+                "EXCEL_REVIEW_MAX_SHEETS": str(excel_review_max_sheets),
+                "EXCEL_REVIEW_MAX_FILES": str(excel_review_max_files),
+                "VERSION_TRACKING_ENABLED": "1" if version_tracking_enabled else "0",
+                "REUSE_PREVIOUS_REVIEW_RESULT": "1" if reuse_previous_review else "0",
+                "VERSION_TRACKING_RETENTION_DAYS": str(retention_days),
+
+                # 平台开关
+                "SVN_CHECK_ENABLED": "1" if svn_enabled else "0",
+                "GITLAB_ENABLED": "1" if gitlab_enabled else "0",
+                "GITHUB_ENABLED": "1" if github_enabled else "0",
+
+                # GitLab
+                "GITLAB_URL": gitlab_url,
+                "GITLAB_ACCESS_TOKEN": gitlab_token,
+                "PUSH_REVIEW_ENABLED": "1" if push_review_enabled else "0",
+                "MERGE_REVIEW_ONLY_PROTECTED_BRANCHES_ENABLED": "1" if merge_protected_only else "0",
+
+                # GitHub
+                "GITHUB_URL": github_url,
+                "GITHUB_ACCESS_TOKEN": github_token,
+
+                # SVN
+                "SVN_REVIEW_ENABLED": "1" if svn_review_enabled else "0",
+                "SVN_CHECK_CRONTAB": svn_check_crontab,
+                "SVN_CHECK_LIMIT": str(svn_check_limit),
+                "SVN_REPOSITORIES": svn_config_final,
+                "USE_ENHANCED_MERGE_DETECTION": "1" if use_enhanced_merge else "0",
+                "MERGE_DETECTION_THRESHOLD": str(round(merge_threshold, 2)),
+
+                # 通知推送
+                "NOTIFICATION_MODE": notification_mode,
+                "DINGTALK_ENABLED": "1" if dingtalk_enabled else "0",
+                "DINGTALK_WEBHOOK_URL": dingtalk_webhook,
+                "WECOM_ENABLED": "1" if wecom_enabled else "0",
+                "WECOM_WEBHOOK_URL": wecom_webhook,
+                "FEISHU_ENABLED": "1" if feishu_enabled else "0",
+                "FEISHU_WEBHOOK_URL": feishu_webhook,
+                "EXTRA_WEBHOOK_ENABLED": "1" if extra_webhook_enabled else "0",
+                "EXTRA_WEBHOOK_URL": extra_webhook_url,
+
+                # 系统运行
+                "API_PORT": api_port,
+                "API_URL": api_url,
+                "UI_PORT": ui_port,
+                "UI_URL": ui_url,
+                "TZ": timezone,
+                "LOG_LEVEL": log_level,
+                "LOG_FILE": log_file,
+                "LOG_MAX_BYTES": str(log_max_bytes),
+                "LOG_BACKUP_COUNT": str(log_backup_count),
+                "QUEUE_DRIVER": queue_driver,
+                "REDIS_HOST": redis_host,
+                "REDIS_PORT": str(redis_port),
+                "REPORT_CRONTAB_EXPRESSION": report_cron,
+
+                # Dashboard
+                "DASHBOARD_USER": dashboard_user,
+                "DASHBOARD_PASSWORD": dashboard_password,
+            }
+
+            # 解析并合并按项目 / SVN 线定制的推送地址；用户删掉的行需从 .env 真正移除
+            extra_webhook_updates, extra_webhook_errors = _parse_extra_webhook_config(extra_webhook_text)
+            if extra_webhook_errors:
+                st.error("❌ 定制推送地址格式错误：" + "；".join(extra_webhook_errors))
+                st.stop()
+            removed_extra_webhook_keys = [
+                key for key in env_config
+                if _is_extra_webhook_key(key) and key not in extra_webhook_updates
+            ]
+            new_config.update(extra_webhook_updates)
+
+            # 保存环境配置（Prompt 模板在「📝 Prompt管理」标签页独立保存）
+            try:
+                env_save_success = _save_env_config(config_manager, new_config,
+                                                    removed_keys=removed_extra_webhook_keys)
+                if env_save_success:
+                    st.success("✅ 系统配置已保存")
+                    try:
+                        if apply_config_changes():
+                            st.success("✅ 配置已重载生效")
                         else:
-                            try:
-                                _save_prompt_template(selected_key, editor_sys or "", editor_usr or "")
-                                st.success(f"✅ 已保存模板「{PROMPT_LABELS.get(selected_key, selected_key)}」，旧文件已备份")
+                            st.warning("⚠️ 配置已保存，但重载未完全成功，可点击下方「🔄 立即重载配置」重试")
+                    except Exception as e:
+                        st.warning(f"⚠️ 配置已保存，但自动重载失败: {e}")
+                else:
+                    st.error("❌ 环境配置保存失败，请检查 conf/.env 的写入权限")
+            except Exception as e:
+                st.error(f"❌ 保存配置时出现错误: {str(e)}")
+
+        # --------------------------- Prompt 模板管理（「📝 Prompt管理」标签页，独立于 env form，单独保存） ---------------------------
+        with t_prompt:
+            st.caption("独立编辑每个 Prompt 模板并单独保存：只更新当前模板，其余模板原样保留。保存前自动备份到 prompt_templates.yml.backup。")
+
+            with st.container(border=True):
+                st.markdown("**📝 Prompt 模板管理**")
+                st.caption("每个模板独立编辑、独立保存：只更新当前模板，其余模板原样保留。保存前自动备份到 prompt_templates.yml.backup。")
+
+                prompt_config = _load_prompt_templates()
+                prompt_keys = _scan_prompt_keys(prompt_config)
+
+                # 状态总览（动态扫描所有 *_prompt key，不硬编码模板数量）
+                status_rows = []
+                for pkey in prompt_keys:
+                    cfg = prompt_config.get(pkey) or {}
+                    sys_len = len(cfg.get("system_prompt", "") or "")
+                    usr_len = len(cfg.get("user_prompt", "") or "")
+                    status, _ = _check_prompt_template(pkey, cfg)
+                    status_rows.append({
+                        "模板": PROMPT_LABELS.get(pkey, pkey),
+                        "Key": pkey,
+                        "系统Prompt": f"{sys_len} 字符" if sys_len else "未设置",
+                        "用户Prompt": f"{usr_len} 字符" if usr_len else "未设置",
+                        "状态": status,
+                    })
+                st.dataframe(pd.DataFrame(status_rows), use_container_width=True, hide_index=True)
+
+                if not prompt_keys:
+                    st.warning("⚠️ 未找到任何 Prompt 模板，请检查 conf/prompt_templates.yml 文件是否存在且格式正确。")
+                else:
+                    selected_key = st.selectbox(
+                        "选择要编辑的模板",
+                        prompt_keys,
+                        format_func=lambda k: PROMPT_LABELS.get(k, k),
+                        key="prompt_editor_select",
+                        on_change=_clear_prompt_editor_state,
+                        help="切换模板后编辑区自动加载该模板内容（未保存的修改会丢弃）"
+                    )
+                    cfg = prompt_config.get(selected_key) or {}
+
+                    # 当前模板必填占位符提示
+                    required = PROMPT_REQUIRED_PLACEHOLDERS.get(selected_key, ())
+                    if required:
+                        st.caption(
+                            "必填占位符（user_prompt 运行时 str.format() 替换，缺失会导致审查失败）："
+                            + "、".join(f"`{{{p}}}`" for p in required)
+                        )
+
+                    col_edit1, col_edit2 = st.columns(2)
+                    with col_edit1:
+                        editor_sys = st.text_area(
+                            "系统 Prompt（Jinja2 模板）",
+                            value=cfg.get("system_prompt", "") or "",
+                            height=320,
+                            key=f"prompt_editor_{selected_key}_system",
+                            help="支持 Jinja2 变量如 {{ style }}"
+                        )
+                    with col_edit2:
+                        editor_usr = st.text_area(
+                            "用户 Prompt（str.format 模板）",
+                            value=cfg.get("user_prompt", "") or "",
+                            height=320,
+                            key=f"prompt_editor_{selected_key}_user",
+                            help="运行时用 str.format() 填充占位符：花括号必须配对，且需包含上方列出的必填占位符；"
+                                 "不要使用 {{ }} 双花括号（会被 Jinja2 渲染处理，不是 str.format() 占位符）"
+                        )
+
+                    col_save1, col_save2, col_save3 = st.columns([2, 2, 3])
+                    with col_save1:
+                        if st.button("💾 保存当前模板", type="primary", use_container_width=True, key="prompt_editor_save_btn"):
+                            # 保存前校验
+                            issues = []
+                            if not (editor_sys or "").strip():
+                                issues.append("system_prompt 不能为空")
+                            if not (editor_usr or "").strip():
+                                issues.append("user_prompt 不能为空")
+                            for ph in required:
+                                if "{" + ph + "}" not in (editor_usr or ""):
+                                    issues.append(f"user_prompt 缺少占位符 {{{ph}}}")
+                            if (editor_usr or "").count("{") != (editor_usr or "").count("}"):
+                                issues.append("user_prompt 花括号不配对（str.format() 会解析失败）")
+                            if issues:
+                                st.error("❌ 校验未通过：\n- " + "\n- ".join(issues))
+                            else:
+                                try:
+                                    _save_prompt_template(selected_key, editor_sys or "", editor_usr or "")
+                                    st.success(f"✅ 已保存模板「{PROMPT_LABELS.get(selected_key, selected_key)}」，旧文件已备份")
+                                    _clear_prompt_editor_state()
+                                except Exception as e:
+                                    st.error(f"❌ 模板保存失败: {e}")
+                    with col_save2:
+                        if st.button("🔄 恢复默认模板", use_container_width=True, key="prompt_editor_restore_btn",
+                                     help="从 conf_templates/prompt_templates.yml 恢复该模板的默认内容"):
+                            ok, msg = _restore_prompt_template(selected_key)
+                            if ok:
+                                st.success(f"✅ 已恢复「{PROMPT_LABELS.get(selected_key, selected_key)}」为默认内容")
                                 _clear_prompt_editor_state()
-                            except Exception as e:
-                                st.error(f"❌ 模板保存失败: {e}")
-                with col_save2:
-                    if st.button("🔄 恢复默认模板", use_container_width=True, key="prompt_editor_restore_btn",
-                                 help="从 conf_templates/prompt_templates.yml 恢复该模板的默认内容"):
-                        ok, msg = _restore_prompt_template(selected_key)
-                        if ok:
-                            st.success(f"✅ 已恢复「{PROMPT_LABELS.get(selected_key, selected_key)}」为默认内容")
-                            _clear_prompt_editor_state()
-                        else:
-                            st.error(f"❌ 恢复失败: {msg}")
-                with col_save3:
-                    st.caption("保存只写当前模板，不影响其他模板；恢复默认从 conf_templates/prompt_templates.yml 读取。")
+                            else:
+                                st.error(f"❌ 恢复失败: {msg}")
+                    with col_save3:
+                        st.caption("保存只写当前模板，不影响其他模板；恢复默认从 conf_templates/prompt_templates.yml 读取。")
 
         # 配置操作按钮 - 移出form范围
         st.markdown("---")
