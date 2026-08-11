@@ -1443,22 +1443,26 @@ def env_management_page():
                                 merge_ok = merge_ok.lower() in ("1", "true", "yes")
                             st.caption(f"Merge审查: {'✅' if merge_ok else '⏸️ 停用'}")
                             st.caption(f"👤 {repo.get('username', '密码已设置' if repo.get('password') else '匿名')}")
-                            col_act1, col_act2 = st.columns(2)
-                            with col_act1:
-                                with st.popover("✏️ 编辑", use_container_width=True):
-                                    _render_svn_repo_form(idx, repo, is_new=False)
-                            with col_act2:
-                                is_confirm = st.session_state.get("svn_confirm_del") == idx
-                                if st.button("⚠️ 确认删除" if is_confirm else "🗑️ 删除",
-                                             key=f"svn_del_{idx}", use_container_width=True):
-                                    if is_confirm:
-                                        del st.session_state["svn_repos"][idx]
-                                        st.session_state.pop("svn_confirm_del", None)
-                                        st.session_state.pop("svn_form_error", None)
-                                        st.rerun()
-                                    else:
-                                        st.session_state["svn_confirm_del"] = idx
-                                        st.rerun()
+
+                        # 操作按钮行：必须与 col_head1/col_head2 平级（不能放进列内）。
+                        # 若嵌套在 col_head2 中，popover 内表单的 st.columns 会构成三级列嵌套，
+                        # 触发 Streamlit "Columns can only be placed inside other columns up to one level" 报错。
+                        col_act1, col_act2 = st.columns(2)
+                        with col_act1:
+                            with st.popover("✏️ 编辑", use_container_width=True):
+                                _render_svn_repo_form(idx, repo, is_new=False)
+                        with col_act2:
+                            is_confirm = st.session_state.get("svn_confirm_del") == idx
+                            if st.button("⚠️ 确认删除" if is_confirm else "🗑️ 删除",
+                                         key=f"svn_del_{idx}", use_container_width=True):
+                                if is_confirm:
+                                    del st.session_state["svn_repos"][idx]
+                                    st.session_state.pop("svn_confirm_del", None)
+                                    st.session_state.pop("svn_form_error", None)
+                                    st.rerun()
+                                else:
+                                    st.session_state["svn_confirm_del"] = idx
+                                    st.rerun()
             else:
                 st.info("暂未配置任何 SVN 仓库。点击下方「➕ 添加仓库」逐条配置，或展开「🛠 JSON 高级模式」导入已有配置。")
 
