@@ -226,15 +226,22 @@ class VersionTracker:
                 file_paths = json.dumps([change.get('new_path', '') for change in changes])
                 
                 # 构建文件详细信息
+                # 存完整 diff 供「重新AI评审」使用（与 mr/push 链路对齐：queue/worker 存完整
+                # changes）。此前只存 diff_preview（≤200 字符），非 Agentic 重审时 AI 只能看到
+                # 截断预览，几乎无法做有效审查。diff_preview 保留用于轻量展示/调试；旧记录无
+                # 'diff' 字段时，读取方（review_service._retry_svn_code_review）自动回退
+                # diff_preview，向后兼容。Excel 条目 diff 本身为空字符串，不受影响。
                 files_info = []
                 for change in changes:
+                    change_diff = change.get('diff', '')
                     file_info = {
                         'path': change.get('full_path', change.get('new_path', '')),
                         'name': change.get('new_path', ''),
                         'action': change.get('action', 'M'),
                         'additions': change.get('additions', 0),
                         'deletions': change.get('deletions', 0),
-                        'diff_preview': change.get('diff', '')[:200] + '...' if len(change.get('diff', '')) > 200 else change.get('diff', '')
+                        'diff': change_diff,
+                        'diff_preview': change_diff[:200] + '...' if len(change_diff) > 200 else change_diff
                     }
                     files_info.append(file_info)
                 
