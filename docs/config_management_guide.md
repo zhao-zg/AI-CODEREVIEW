@@ -113,6 +113,19 @@ DINGTALK_ENABLED=1
 DINGTALK_WEBHOOK_URL=https://oapi.dingtalk.com/robot/send?access_token=your-token
 ```
 
+**按项目定制推送地址**（GitLab/GitHub）：`DINGTALK_WEBHOOK_URL_<项目名大写>`，例如 `DINGTALK_WEBHOOK_URL_PROJECT1`。
+
+**按 SVN 线定制推送地址**：SVN 提交会自动识别其所属的线（trunk / branches/分支名 / tags/标签名），可通过 `DINGTALK_WEBHOOK_URL_<线slug大写>` 为不同线配置不同的推送群，例如：
+```
+# 主干提交推送到 A 群
+DINGTALK_WEBHOOK_URL_TRUNK=https://oapi.dingtalk.com/robot/send?access_token=aaa
+# dev 分支提交推送到 B 群
+DINGTALK_WEBHOOK_URL_BRANCHES_DEV=https://oapi.dingtalk.com/robot/send?access_token=bbb
+# 标签提交推送到 C 群
+DINGTALK_WEBHOOK_URL_TAGS_V1_0=https://oapi.dingtalk.com/robot/send?access_token=ccc
+```
+线 slug 规则：路径前两段拼接（branches 下的分支名 / tags 下的标签名），非字母数字字符替换为下划线（`branches/dev-1.0` → `BRANCHES_DEV_1_0`）。匹配优先级：**项目名 > SVN线 > 默认 `DINGTALK_WEBHOOK_URL`**。企微（`WECOM_WEBHOOK_URL_<线>`）与飞书（`FEISHU_WEBHOOK_URL_<线>`）同样支持。
+
 #### 飞书配置
 ```
 FEISHU_ENABLED=1

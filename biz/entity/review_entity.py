@@ -48,7 +48,8 @@ class PushReviewEntity:
 
 class SvnReviewEntity:
     def __init__(self, project_name: str, author: str, revision: str, updated_at: int, commits: list, score: float,
-                 review_result: str, svn_path: str, additions: int, deletions: int, trigger_type: str = "scheduled"):
+                 review_result: str, svn_path: str, additions: int, deletions: int, trigger_type: str = "scheduled",
+                 branch: str = ""):
         self.project_name = project_name
         self.author = author
         self.revision = revision
@@ -60,6 +61,7 @@ class SvnReviewEntity:
         self.additions = additions
         self.deletions = deletions
         self.trigger_type = trigger_type  # 触发类型: "webhook", "manual", "scheduled"
+        self.branch = branch  # SVN 线（trunk / branches_xxx / tags_xxx），用于按线匹配推送 Webhook
 
     @property
     def commit_messages(self):

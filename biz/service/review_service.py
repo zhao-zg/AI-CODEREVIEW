@@ -1,9 +1,35 @@
 import sqlite3
+import json
+import re
 
 import pandas as pd
 
 from biz.entity.review_entity import MergeRequestReviewEntity, PushReviewEntity, SvnReviewEntity
 from biz.utils.log import logger
+
+
+def _extract_svn_line_from_paths(paths_text: str) -> str:
+    """从 SVN 文件路径文本（version_tracker.file_paths，JSON 数组字符串）提取 SVN 线。
+
+    file_paths 形如 '["/trunk/config/item.xlsx", "/branches/dev/code.py"]'（仓库根相对路径），
+    线 = 第一个路径段（trunk）或前两段（branches/分支名、tags/标签名），slug 化后返回
+    （branches/dev-1.0 → branches_dev_1_0）。提取不到返回空串，调用方回退默认 Webhook。
+    """
+    try:
+        paths = json.loads(paths_text) if paths_text else []
+    except (ValueError, TypeError):
+        paths = []
+    for path in paths or []:
+        parts = str(path or '').strip('/').split('/')
+        if not parts or not parts[0]:
+            continue
+        if parts[0] in ('trunk', 'branches', 'tags'):
+            if parts[0] in ('branches', 'tags') and len(parts) >= 2 and parts[1]:
+                line = f"{parts[0]}_{parts[1]}"
+            else:
+                line = parts[0]
+            return re.sub(r'[^A-Za-z0-9]+', '_', line).strip('_') or ''
+    return ''
 
 
 class ReviewService:
@@ -748,7 +774,8 @@ class ReviewService:
                             review_result=new_review_result,
                             svn_path=file_paths or f"/{project_name}",
                             additions=additions_count or 0,
-                            deletions=deletions_count or 0
+                            deletions=deletions_count or 0,
+                            branch=_extract_svn_line_from_paths(file_paths)
                         )
                         on_svn_reviewed(svn_entity)
                         logger.info(f"SVN {identifier} 重新AI评审完成并已推送通知")

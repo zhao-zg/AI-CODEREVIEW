@@ -1,5 +1,13 @@
 # 更新
 
+## [v2.2.1] - 2026-08-11
+
+### 🐛 修复
+- **钉钉推送显示 0 分问题**: SVN 推送（含纯 Excel 配置表提交）的「AI评分」改为优先使用系统已计算好的权威分数（`entity.score`，已包含 Excel 配置表总分），不再依赖从报告文本二次正则提取，避免「报告里有总分但推送显示 0 分」的不一致；仅当分数为 0 时回退到文本解析（覆盖代码审查失败但 Excel 审查成功的场景）
+
+### 🚀 新功能
+- **SVN 线级推送**: SVN 提交自动识别所属线（trunk / branches/分支名 / tags/标签名），支持按线配置不同推送地址：`DINGTALK_WEBHOOK_URL_TRUNK`、`DINGTALK_WEBHOOK_URL_BRANCHES_DEV`、`DINGTALK_WEBHOOK_URL_TAGS_V1_0` 等（企微 `WECOM_WEBHOOK_URL_<线>`、飞书 `FEISHU_WEBHOOK_URL_<线>` 同理）；匹配优先级：项目名 > SVN线 > 默认 Webhook；未配置线级地址时自动回退默认地址，不影响现有配置
+
 ## [v2.2.0] - 2026-08-10
 
 ### 🚀 新功能

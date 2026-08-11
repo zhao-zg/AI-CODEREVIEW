@@ -300,7 +300,13 @@ def _generate_push_notification_content(entity: PushReviewEntity, mode: str):
 def _generate_svn_notification_content(entity: SvnReviewEntity, mode: str):
     """生成SVN通知内容"""
     # 基础信息
-    score = _get_ai_score(entity.review_result)
+    # 优先使用实体中已计算好的权威评分（svn_worker 已把 Excel 配置表总分纳入 entity.score），
+    # 避免从 review_result 文本二次正则提取导致"最终得分有分但推送显示0/未知"的不一致；
+    # 仅当 score 为 0 时回退到文本解析（覆盖"代码审查失败但 Excel 审查成功"等场景）。
+    if entity.score and int(entity.score) > 0:
+        score = str(int(entity.score))
+    else:
+        score = _get_ai_score(entity.review_result)
     server_url = get_env_with_default('UI_URL', 'http://localhost:5001')
     trigger_label = _get_trigger_type_label(entity.trigger_type)
     
@@ -409,11 +415,15 @@ def on_svn_reviewed(entity: SvnReviewEntity):
     # 生成推送消息内容
     im_msg = _generate_svn_notification_content(entity, notification_mode)
     
+    # url_slug 传入 SVN 线（trunk / branches_xxx / tags_xxx）：
+    # 支持通过环境变量 DINGTALK_WEBHOOK_URL_{线} / WECOM_WEBHOOK_URL_{线} / FEISHU_WEBHOOK_URL_{线}
+    # 为不同 SVN 线配置不同的推送地址（如 DINGTALK_WEBHOOK_URL_TRUNK、DINGTALK_WEBHOOK_URL_BRANCHES_DEV）
     notifier.send_notification(
         content=im_msg, 
         msg_type='markdown',
         title=f"{entity.project_name} SVN审查",
-        project_name=entity.project_name
+        project_name=entity.project_name,
+        url_slug=entity.branch or None
     )
 
     # 记录到数据库

@@ -297,6 +297,32 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         logger.error('SVN变更检测出现未知错误: %s', error_message)
 
 
+def _extract_svn_line(commit: Dict) -> str:
+    """从提交路径中提取 SVN 线（trunk / branches_xxx / tags_xxx），用于按线匹配推送 Webhook。
+
+    commit['paths'] 是仓库根相对路径（如 /trunk/config/item.xlsx、/branches/dev/code.py），
+    线 = 第一个路径段（trunk）或前两段（branches/分支名、tags/标签名），再做 slug 化
+    （非字母数字字符替换为下划线，如 branches/dev-1.0 → branches_dev_1_0）。
+    路径不在标准线目录下（如仓库根直接放代码）或无法提取时返回空串，调用方回退默认 Webhook。
+    多个路径分属不同线时取首个，跨线提交本身极少见。
+    """
+    import re
+    paths = commit.get('paths') or []
+    for path_info in paths:
+        path = (path_info.get('path') or '').strip('/')
+        parts = path.split('/')
+        if not parts or not parts[0]:
+            continue
+        if parts[0] in ('trunk', 'branches', 'tags'):
+            if parts[0] in ('branches', 'tags') and len(parts) >= 2 and parts[1]:
+                line = f"{parts[0]}_{parts[1]}"
+            else:
+                line = parts[0]
+            # slug 化：branches/dev-1.0 → branches_dev_1_0（环境变量键须为字母数字下划线）
+            return re.sub(r'[^A-Za-z0-9]+', '_', line).strip('_') or ''
+    return ''
+
+
 def _extract_excel_changes(commit: Dict) -> List[Dict]:
     """从 svn log 的 paths 中提取 Excel 配置表变更（action=A/M），用于 Excel 配置表审查。
 
@@ -464,6 +490,9 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
         # 获取项目名称
         project_name = repo_name or os.path.basename(svn_path.rstrip('/\\'))
 
+        # 提取 SVN 线（trunk / branches_xxx / tags_xxx），供通知按线匹配推送 Webhook
+        svn_line = _extract_svn_line(commit)
+
         # 构造提交信息
         commit_info = [{
             'revision': revision,
@@ -581,7 +610,8 @@ def process_svn_commit(svn_handler: SVNHandler, commit: Dict, svn_path: str, rep
             svn_path=svn_path,
             additions=additions,
             deletions=deletions,
-            trigger_type=trigger_type
+            trigger_type=trigger_type,
+            branch=svn_line
         ))
 
         # 注意：通知已经通过事件管理器发送，不需要重复发送
