@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import re
+from typing import Optional
 
 import pandas as pd
 
@@ -30,6 +31,191 @@ def _extract_svn_line_from_paths(paths_text: str) -> str:
                 line = parts[0]
             return re.sub(r'[^A-Za-z0-9]+', '_', line).strip('_') or ''
     return ''
+
+
+def _retry_svn_excel_review(project_name: str, revision: str, diff_struct: dict,
+                            file_paths: str, commit_message: str) -> tuple:
+    """SVN 重新AI评审的 Excel 专用链路（与首次审查保持一致）。
+
+    首次审查时 Excel 走专用链路：svn cat 原始字节 → parse_workbook → excel_review_prompt，
+    但 version_tracker.file_details 里 Excel 条目的 diff 为空字符串（二进制文件没有文本 diff，
+    见 svn_worker._extract_excel_changes 注释）。若重试时把空 diff 直接交给通用 CodeReviewer，
+    AI 只看到 .xlsx 文件名而看不到任何表格内容，会误报
+    "由于 .xlsx 是二进制格式，无法进行有效的差异审查和内容验证"。
+
+    本函数按 project_name 从 SVN_REPOSITORIES 匹配仓库配置，重建 SVNHandler 重新读取
+    新旧版本内容，复用 svn_worker._review_excel_changes 走与首次审查一致的 Excel 链路。
+
+    :return: (excel_report, excel_score, code_struct)
+        - excel_report 为 None：无 Excel 文件或无法走 Excel 链路（EXCEL_REVIEW_ENABLED=0 /
+          缺仓库配置 / 异常），调用方应全部按代码审查处理；
+        - code_struct 为 None：无代码文件（纯 Excel 提交），报告直接取 Excel 结果；
+        - 否则 code_struct 为剔除 Excel 文件后的剩余 diff（供混合提交的代码审查，
+          避免 AI 再看到二进制的空 diff）。
+    """
+    from biz.utils.config_manager import ConfigManager
+    from biz.svn.svn_handler import SVNHandler
+    from biz.svn.svn_worker import _review_excel_changes
+
+    try:
+        config_manager = ConfigManager()
+        env_config = config_manager.get_env_config()
+        if not str(env_config.get('EXCEL_REVIEW_ENABLED', '1')).lower() in ('1', 'true', 'yes', 'on'):
+            return None, None, diff_struct
+        excel_exts = tuple(
+            ext.strip().lower()
+            for ext in env_config.get('EXCEL_SUPPORTED_EXTENSIONS', '.xlsx,.xls,.csv').split(',')
+            if ext.strip()
+        )
+        if not excel_exts:
+            return None, None, diff_struct
+
+        # 1. 收集 Excel 文件路径与 action（优先 file_details.files，兜底 file_paths）
+        excel_changes = []
+        excel_paths = set()
+        for finfo in diff_struct.get('files', []):
+            fp = finfo.get('path', '')
+            if fp and fp.lower().endswith(excel_exts):
+                excel_paths.add(fp)
+                excel_changes.append({'file_path': fp, 'action': finfo.get('action', 'M')})
+        if not excel_paths and file_paths:
+            try:
+                for fp in json.loads(file_paths):
+                    if str(fp).lower().endswith(excel_exts):
+                        excel_paths.add(str(fp))
+                        excel_changes.append({'file_path': str(fp), 'action': 'M'})
+            except (ValueError, TypeError):
+                pass
+        if not excel_changes:
+            return None, None, diff_struct
+
+        # 2. 按 project_name 匹配仓库配置（name 或 local_path 的 basename）
+        repo_conf = _find_svn_repo_config(project_name, env_config)
+        if not repo_conf:
+            logger.warning(f'重新AI评审: 未找到项目 {project_name} 的 SVN 仓库配置，'
+                           f'无法执行 Excel 配置表审查，回退代码审查')
+            return None, None, diff_struct
+        assert repo_conf is not None
+
+        # 3. 重建 SVNHandler，走与首次审查一致的 Excel 专用链路
+        # 注：str(x or '') 包装以消除 Optional 类型报错；空串在 SVNHandler 的
+        # `if self.svn_username and self.svn_password` 判断中等同 None，不会加认证参数。
+        svn_handler = SVNHandler(
+            str(repo_conf.get('remote_url') or ''),
+            str(repo_conf.get('local_path') or ''),
+            str(repo_conf.get('username') or ''),
+            str(repo_conf.get('password') or ''),
+        )
+        report, score = _review_excel_changes(
+            svn_handler, excel_changes, revision, commits_text=commit_message or '',
+        )
+        if not report or not report.strip():
+            logger.warning(f'重新AI评审: Excel 配置表审查返回空结果，回退代码审查: {revision}')
+            return None, None, diff_struct
+
+        # 4. 剔除 Excel 文件后的剩余代码 diff（供混合提交的代码审查）
+        code_files = [f for f in diff_struct.get('files', [])
+                      if f.get('path', '') not in excel_paths]
+        code_struct = None
+        if code_files:
+            code_struct = {
+                'files': code_files,
+                'summary': diff_struct.get('summary', {}),
+            }
+        return report, score, code_struct
+    except Exception as e:
+        logger.error(f'重新AI评审 Excel 配置表审查失败: {type(e).__name__}: {e}')
+        return None, None, diff_struct
+
+
+def _find_svn_repo_config(project_name: str, env_config: dict) -> Optional[dict]:
+    """按 project_name 从 SVN_REPOSITORIES 匹配仓库配置（name 或 local_path 的 basename）。"""
+    import os
+    try:
+        repositories = json.loads(env_config.get('SVN_REPOSITORIES', '[]'))
+    except (ValueError, TypeError):
+        return None
+    for r in repositories:
+        if r.get('name') == project_name or \
+                os.path.basename(str(r.get('local_path', ''))) == project_name:
+            return r
+    return None
+
+
+def _retry_svn_code_review(project_name: str, revision: str, diff_struct: dict,
+                           commit_message: str) -> tuple:
+    """SVN 重新AI评审的代码审查链路（与首次审查保持一致：Agentic 或分批审查）。
+
+    version_tracker.file_details 里只存了 diff_preview（≤200 字符预览），Agentic 模式下
+    AI 可用 read_file 工具从服务器读取完整文件内容，正好弥补预览截断的缺陷。
+
+    :return: (result, score)；result 为空时按"代码审查返回空结果"处理
+    """
+    from biz.utils.config_manager import ConfigManager
+    from biz.utils.code_reviewer import BatchCodeReviewer, CodeReviewer, is_api_error_message
+
+    files_json = []
+    for f in diff_struct.get('files', []):
+        files_json.append({
+            'file_path': f.get('path', f.get('name', '')),
+            'status': f.get('action', 'M'),
+            'diff': f.get('diff') or f.get('diff_preview', ''),
+            'additions': f.get('additions', 0),
+            'deletions': f.get('deletions', 0),
+        })
+    if not files_json:
+        return "代码审查返回空结果", 0
+
+    try:
+        config_manager = ConfigManager()
+        env_config = config_manager.get_env_config()
+        agentic = str(env_config.get('AGENTIC_REVIEW_ENABLED', '0')).lower() in ('1', 'true', 'yes', 'on')
+    except Exception:
+        agentic = False
+        env_config = {}
+
+    if agentic:
+        repo_conf = _find_svn_repo_config(project_name, env_config)
+        if repo_conf:
+            assert repo_conf is not None
+            try:
+                from biz.svn.svn_handler import SVNHandler
+                from biz.utils.agentic_reviewer import AgenticCodeReviewer
+                # str(x or '') 包装以消除 Optional 类型报错；空串在 SVNHandler 的
+                # `if self.svn_username and self.svn_password` 判断中等同 None。
+                svn_handler = SVNHandler(
+                    str(repo_conf.get('remote_url') or ''),
+                    str(repo_conf.get('local_path') or ''),
+                    str(repo_conf.get('username') or ''),
+                    str(repo_conf.get('password') or ''),
+                )
+                tool_context = {
+                    'read_file': lambda file_path: svn_handler.read_working_copy_file(
+                        file_path, revision=revision
+                    ),
+                    'search_code': svn_handler.search_working_copy,
+                }
+                result = AgenticCodeReviewer(tool_context=tool_context).review_in_batches(
+                    files_json, commit_message or ''
+                )
+                if result and result.strip() and not is_api_error_message(result):
+                    return result, CodeReviewer.parse_review_score(result)
+                logger.warning(f'重新AI评审 Agentic 代码审查结果异常，降级普通审查: '
+                               f'{(result or "")[:100]}')
+            except Exception as e:
+                logger.error(f'重新AI评审 Agentic 代码审查失败，降级普通审查: '
+                             f'{type(e).__name__}: {e}')
+        else:
+            logger.warning(f'重新AI评审: 未找到项目 {project_name} 的 SVN 仓库配置，'
+                           f'Agentic 代码审查降级为普通分批审查')
+
+    # 普通（非 Agentic，或 Agentic 降级）
+    result = BatchCodeReviewer().review_in_batches(files_json, commit_message or '')
+    if result and result.strip():
+        if is_api_error_message(result):
+            return result, 0
+        return result, CodeReviewer.parse_review_score(result)
+    return "代码审查返回空结果", 0
 
 
 class ReviewService:
@@ -731,10 +917,46 @@ class ReviewService:
                 except Exception:
                     diff_struct = {}
                 
-                new_review_result = CodeReviewer().review_and_strip_code(
-                    json.dumps(diff_struct, ensure_ascii=False), commit_message
-                )
-                new_score = CodeReviewer.parse_review_score(new_review_result)
+                # === 重新AI评审：代码与 Excel 均与首次审查走同一链路（Agentic/分批/Excel专用） ===
+                # 首次审查时：代码走 BatchCodeReviewer / AgenticCodeReviewer（AGENTIC_REVIEW_ENABLED
+                # 开启时 AI 可调 read_file/search_code 工具），Excel 走 svn cat 原始字节 →
+                # parse_workbook → excel_review_prompt。但 version_tracker.file_details 里
+                # Excel 条目 diff 为空（二进制文件无文本 diff）、代码条目只存了 diff_preview 预览；
+                # 若重试时把这些残缺输入直接交给通用 CodeReviewer，AI 看不到内容会误报
+                # "由于 .xlsx 是二进制格式，无法进行有效的差异审查和内容验证"。
+                # 此处重建 SVNHandler，代码/Excel 各走专用链路；Agentic 模式 AI 仍可读取
+                # 服务器上该 revision 的完整文件内容，正好弥补 diff_preview 截断的缺陷。
+                use_svn_retry = review_type_db == 'svn' and commit_sha and commit_sha.isdigit()
+                excel_report = None
+                excel_score = 0
+                code_struct = diff_struct
+                if use_svn_retry:
+                    excel_report, excel_score, code_struct = _retry_svn_excel_review(
+                        project_name, commit_sha, diff_struct, file_paths, commit_message,
+                    )
+
+                if excel_report is not None and code_struct is not None:
+                    # 混合提交：代码部分（Agentic/分批）+ Excel 部分分节合并，分数保持代码审查分数
+                    code_result, code_score = _retry_svn_code_review(
+                        project_name, commit_sha, code_struct, commit_message,
+                    )
+                    new_review_result = f"{code_result}\n\n---\n\n# 📊 Excel 配置表审查\n\n{excel_report}"
+                    new_score = code_score
+                elif excel_report is not None:
+                    # 纯 Excel 配置表提交：报告与分数均取 Excel 审查结果
+                    new_review_result = f"# 📊 Excel 配置表审查\n\n{excel_report}"
+                    new_score = excel_score
+                elif use_svn_retry:
+                    # svn 纯代码提交（无 Excel），或 Excel 链路不可用时的回退
+                    new_review_result, new_score = _retry_svn_code_review(
+                        project_name, commit_sha, diff_struct, commit_message,
+                    )
+                else:
+                    # github 类型 / 非数字 revision：维持原逻辑
+                    new_review_result = CodeReviewer().review_and_strip_code(
+                        json.dumps(diff_struct, ensure_ascii=False), commit_message
+                    )
+                    new_score = CodeReviewer.parse_review_score(new_review_result)
                 # 重新审查不应影响时间点，保留原 reviewed_at
                 # new_reviewed_at = int(time.time())
                 # 更新数据库

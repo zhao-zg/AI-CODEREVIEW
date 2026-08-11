@@ -3,6 +3,8 @@
 ## [v2.2.1] - 2026-08-11
 
 ### 🐛 修复
+- **Excel 配置表「重新AI评审」误报二进制无法审查**: 此前 svn 类型的重新AI评审把 version_tracker 里存的结构化 diff（Excel 条目 diff 为空）直接交给通用代码审查器，AI 只看到 .xlsx 文件名，会误报「由于 .xlsx 是二进制格式，无法进行有效的差异审查和内容验证」。现在重试时自动识别 Excel 文件，重建 SVNHandler 从服务器重新读取新旧版本，走与首次审查一致的 Excel 专用链路（svn cat 原始字节 → 解析 → 规则预检 → AI 语义审查）；纯 Excel 提交直接取 Excel 报告，混合提交（代码 + 配置表）分节合并、分数保持代码分
+- **重新AI评审支持 Agentic（代码 + Excel）**: svn 类型的重新AI评审现在与首次审查一致：`AGENTIC_REVIEW_ENABLED` 开启时，代码部分走 `AgenticCodeReviewer`（AI 可调 `read_file`/`search_code` 工具，`read_file` 绑定被审查 revision 从服务器读取完整文件，弥补 version_tracker 只存 diff_preview 预览的缺陷）、Excel 部分走 `ExcelAgenticReviewer`（`read_excel_file` 跨表引用验证）；未开启或找不到仓库配置时自动降级为普通分批审查，github 类型维持原逻辑
 - **钉钉推送显示 0 分问题**: SVN 推送（含纯 Excel 配置表提交）的「AI评分」改为优先使用系统已计算好的权威分数（`entity.score`，已包含 Excel 配置表总分），不再依赖从报告文本二次正则提取，避免「报告里有总分但推送显示 0 分」的不一致；仅当分数为 0 时回退到文本解析（覆盖代码审查失败但 Excel 审查成功的场景）
 
 ### 🚀 新功能
