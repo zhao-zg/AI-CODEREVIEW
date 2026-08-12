@@ -78,7 +78,9 @@ def parse_file_score(review_text: str) -> Optional[int]:
     """解析单文件报告中的"文件评估: XX分"；解析不到返回 None（该文件不参与总分计算）"""
     if not review_text:
         return None
-    match = re.search(r"文件评估[:：]\s*(\d+)分?", review_text)
+    # 兼容 AI 常见的 markdown 加粗/反引号包裹（如 "文件评估: **82分**"、"`文件评估: 82分`"），
+    # 否则解析不到会按 0 分保守计入，导致总分虚低（曾出现 82 分被误计为 0 分）。
+    match = re.search(r"文件评估[:：]\s*[*`]{0,2}\s*(\d+)\s*[*`]{0,2}\s*分?", review_text)
     if match:
         try:
             score = int(match.group(1))
@@ -308,7 +310,8 @@ def review_excel_files(excel_files: List[Dict], commits_text: str = "",
         # 清理 AI 单文件报告内自带的"总分: XX分"：外层会统一追加唯一的"总分"，
         # 若 AI 不遵守输出格式也输出了"总分"，会导致 CodeReviewer.parse_review_score
         # 用 re.search 从头匹配到 AI 的分数而不是合并后的总分（H2）。
-        report = re.sub(r'总分\s*[:：]?\s*\d+\s*分?', '', report)
+        # 同样兼容 markdown 加粗/反引号包裹（如 "总分: **85分**"）。
+        report = re.sub(r'总分\s*[:：]?\s*[*`]{0,2}\s*\d+\s*[*`]{0,2}\s*分?', '', report)
         # 文件评估分解析不到（AI 报告跑偏）按 0 分处理，保守起见计入最低分，
         # 并在报告里明示，避免"0 分来源不明"难以排查。
         score = parse_file_score(report)
