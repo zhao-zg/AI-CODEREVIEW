@@ -631,12 +631,15 @@ def _render_thinking_controls(env_config, provider, default_ctx):
     :param default_ctx: 该供应商默认上下文窗口（Tokens）
     """
     prefix = provider.upper()
+    # 注意：本函数会被 6 个供应商卡片各调用一次，Streamlit 控件必须带唯一 key，
+    # 否则相同 label 的控件会因自动生成 ID 相同而报错（multiple elements with the same ID）。
     current_level = str(env_config.get(f"{prefix}_THINKING_LEVEL") or "high").lower().strip()
     thinking_level = st.selectbox(
         "思考程度",
         THINKING_LEVELS,
         index=THINKING_LEVELS.index(current_level) if current_level in THINKING_LEVELS else 0,
         format_func=lambda x: THINKING_LEVEL_LABELS.get(x, x),
+        key=f"thinking_level_{provider}",
         help=f"控制模型在回答前的推理强度，默认 high（开启深度思考）。"
              f"简化规则：开启思考时只下发思考参数、不传 temperature；关闭（off）时传低温保证审查输出稳定。"
              f"{THINKING_LEVEL_HELP.get(provider, '')}",
@@ -645,6 +648,7 @@ def _render_thinking_controls(env_config, provider, default_ctx):
         "上下文窗口 (Tokens)",
         min_value=4096, max_value=2000000, step=4096,
         value=_env_int(env_config, f"{prefix}_CONTEXT_WINDOW", default_ctx),
+        key=f"context_window_{provider}",
         help="所选模型的上下文窗口大小。「🎯 审查设置」中的「单次审查最大 Token 数」不应超过此值，"
              "否则审查内容会被模型截断",
     )
