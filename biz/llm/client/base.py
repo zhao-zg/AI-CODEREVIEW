@@ -13,11 +13,22 @@ def extract_assistant_message(message) -> Tuple[Dict[str, Any], List[Dict[str, A
     2. 结构化的工具调用列表 [{"id","name","arguments"}]（arguments 已解析为 dict）。
 
     兼容 openai/deepseek/qwen/zhipuai 等使用同一套 function calling 响应结构的 SDK。
+
+    注意（2026-08 DeepSeek 官方约定）：思考模式 + 工具调用时，模型返回的 reasoning_content
+    （思考链）必须随 assistant 消息回传，否则后续请求会返回 400。因此这里会把
+    reasoning_content 一并序列化进 assistant_message；各家思考字段名不同
+    （DeepSeek=reasoning_content，Qwen=reasoning_content，GLM=reasoning），用 getattr 统一兼容。
     """
     assistant_message: Dict[str, Any] = {
         "role": "assistant",
         "content": message.content or "",
     }
+    # 思考链字段透传（思考模式 + 工具调用的多轮对话必须回传，否则 DeepSeek 返回 400）
+    for field in ("reasoning_content", "reasoning"):
+        value = getattr(message, field, None)
+        if value:
+            assistant_message[field] = value
+            break
     tool_calls: List[Dict[str, Any]] = []
     raw_tool_calls = getattr(message, "tool_calls", None)
     if raw_tool_calls:

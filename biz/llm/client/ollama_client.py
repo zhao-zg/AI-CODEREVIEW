@@ -7,7 +7,7 @@ from ollama import Client
 
 from biz.llm.client.base import BaseClient
 from biz.llm.types import NotGiven, NOT_GIVEN
-from biz.utils.default_config import get_env_with_default
+from biz.utils.default_config import get_env_with_default, get_env_int
 
 
 class OllamaClient(BaseClient):
@@ -17,6 +17,15 @@ class OllamaClient(BaseClient):
         self.client = Client(
             host=self.base_url,
         )
+        self.thinking_level = (get_env_with_default("OLLAMA_THINKING_LEVEL") or "high").lower().strip()
+        self.context_window = get_env_int("OLLAMA_CONTEXT_WINDOW", 65536)
+
+    def _build_chat_kwargs(self, model: str) -> Dict:
+        """简化规则：开启思考 → think=True（不传 temperature）；off → think=False + 低温 temperature。"""
+        level = self.thinking_level
+        if level == "off":
+            return {"think": False, "options": {"temperature": 0.2}}
+        return {"think": True}
 
     def _extract_content(self, content: str) -> str:
         """
@@ -41,6 +50,14 @@ class OllamaClient(BaseClient):
                     messages: List[Dict[str, str]],
                     model: Optional[str] | NotGiven = NOT_GIVEN,
                     ) -> str:
-        response: ChatResponse = self.client.chat(model or self.default_model, messages)
+        model = model or self.default_model
+        kwargs = {"model": model, "messages": messages}
+        kwargs.update(self._build_chat_kwargs(model))
+        try:
+            response: ChatResponse = self.client.chat(**kwargs)
+        except TypeError:
+            # 旧版 ollama SDK 不支持 think 顶层参数：降级重试（思考程度不生效，其余参数保留）
+            kwargs.pop("think", None)
+            response: ChatResponse = self.client.chat(**kwargs)
         content = response['message']['content']
         return self._extract_content(content)

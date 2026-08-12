@@ -502,14 +502,48 @@ def _display_detailed_analysis(review_stats, platforms):
 # 支持的 AI 供应商（与「🤖 AI模型」标签页中的顺序保持一致）
 LLM_PROVIDERS = ["deepseek", "openai", "zhipuai", "qwen", "jedi", "ollama"]
 
+# 思考程度可选项（默认 high 开启深度思考；档位只增强推理深度，输出温度统一低温保证审查稳定）
+THINKING_LEVELS = ["off", "low", "medium", "high", "max"]
+THINKING_LEVEL_LABELS = {
+    "off": "关闭（不思考）",
+    "low": "低（轻量推理）",
+    "medium": "中（平衡）",
+    "high": "高（深度推理，默认）",
+    "max": "最高（极限推理，最慢最贵）",
+}
+# 思考程度 → 请求参数的具体含义（随供应商展示在 help 中，2026-08 简化规则：开启思考不传 temperature）
+THINKING_LEVEL_HELP = {
+    "deepseek": "开启思考：只传 reasoning_effort + thinking，不传 temperature；关闭（off）：temperature=0.0（官方代码场景建议）",
+    "openai": "通用 OAI 兼容网关：开启思考只传 reasoning_effort 不传 temperature（new-api/one-api 等转换型中转站会自动翻译为下游原生参数）；关闭（off）传低温 0.2",
+    "zhipuai": "开启思考：只传 thinking 不传 temperature；关闭（off）传低温 0.2（旧非思考模型请保持 off）",
+    "qwen": "qwen3 系开启思考：enable_thinking + thinking_budget（高=8192 / 最高=16384 tokens），不传 temperature；关闭（off）传低温 0.2",
+    "jedi": "Jedi 网关无原生思考参数，用 temperature 档位模拟思考强度",
+    "ollama": "开启思考：think=True 不传 temperature；关闭（off）think=False + 低温 0.2（需要较新的 Ollama 版本）",
+}
+# 各供应商默认上下文窗口（Tokens），随模型调整
+DEFAULT_CONTEXT_WINDOWS = {
+    "deepseek": 65536,
+    "openai": 131072,
+    "zhipuai": 131072,
+    "qwen": 131072,
+    "jedi": 65536,
+    "ollama": 65536,
+}
+
 # 配置总览的分类定义
 CONFIG_CATEGORIES = {
     "🤖 AI模型": ["LLM_PROVIDER", "DEEPSEEK_API_KEY", "DEEPSEEK_API_BASE_URL", "DEEPSEEK_API_MODEL",
+                "DEEPSEEK_THINKING_LEVEL", "DEEPSEEK_CONTEXT_WINDOW",
                 "OPENAI_API_KEY", "OPENAI_API_BASE_URL", "OPENAI_API_MODEL",
+                "OPENAI_THINKING_LEVEL", "OPENAI_CONTEXT_WINDOW",
                 "ZHIPUAI_API_KEY", "ZHIPUAI_API_MODEL",
+                "ZHIPUAI_THINKING_LEVEL", "ZHIPUAI_CONTEXT_WINDOW",
                 "QWEN_API_KEY", "QWEN_API_BASE_URL", "QWEN_API_MODEL",
+                "QWEN_THINKING_LEVEL", "QWEN_CONTEXT_WINDOW",
                 "JEDI_API_KEY", "JEDI_API_BASE_URL", "JEDI_API_MODEL",
-                "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL"],
+                "JEDI_THINKING_LEVEL", "JEDI_CONTEXT_WINDOW",
+                "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL",
+                "OLLAMA_THINKING_LEVEL", "OLLAMA_CONTEXT_WINDOW"],
     "🎯 审查设置": ["REVIEW_MAX_TOKENS", "REVIEW_BATCH_MAX_FILES", "SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS",
                 "SVN_DIFF_CONTEXT_LINES",
                 "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
@@ -588,6 +622,33 @@ def _env_float(env_config, key, default):
         return float(str(env_config.get(key, "")).strip() or default)
     except (TypeError, ValueError):
         return default
+
+
+def _render_thinking_controls(env_config, provider, default_ctx):
+    """渲染某个 AI 供应商的「思考程度 + 上下文窗口」控件，返回 (thinking_level, context_window)
+
+    :param provider: 供应商小写名，如 deepseek / qwen
+    :param default_ctx: 该供应商默认上下文窗口（Tokens）
+    """
+    prefix = provider.upper()
+    current_level = str(env_config.get(f"{prefix}_THINKING_LEVEL") or "high").lower().strip()
+    thinking_level = st.selectbox(
+        "思考程度",
+        THINKING_LEVELS,
+        index=THINKING_LEVELS.index(current_level) if current_level in THINKING_LEVELS else 0,
+        format_func=lambda x: THINKING_LEVEL_LABELS.get(x, x),
+        help=f"控制模型在回答前的推理强度，默认 high（开启深度思考）。"
+             f"简化规则：开启思考时只下发思考参数、不传 temperature；关闭（off）时传低温保证审查输出稳定。"
+             f"{THINKING_LEVEL_HELP.get(provider, '')}",
+    )
+    context_window = st.number_input(
+        "上下文窗口 (Tokens)",
+        min_value=4096, max_value=2000000, step=4096,
+        value=_env_int(env_config, f"{prefix}_CONTEXT_WINDOW", default_ctx),
+        help="所选模型的上下文窗口大小。「🎯 审查设置」中的「单次审查最大 Token 数」不应超过此值，"
+             "否则审查内容会被模型截断",
+    )
+    return thinking_level, context_window
 
 
 def _mask_value(value):
@@ -988,11 +1049,14 @@ def env_management_page():
                             value=env_config.get("SUPPORTED_EXTENSIONS", ".py,.js,.java,.cpp,.c,.h"),
                             help="逗号分隔，例如：.py,.java,.ts"
                         )
+                        current_provider_ctx = _env_int(env_config, f"{llm_provider.upper()}_CONTEXT_WINDOW",
+                                                        DEFAULT_CONTEXT_WINDOWS.get(llm_provider, 65536))
                         review_max_tokens = st.number_input(
                             "单次审查最大 Token 数",
                             min_value=1000, max_value=100000, step=1000,
                             value=_env_int(env_config, "REVIEW_MAX_TOKENS", 10000),
-                            help="超出后会自动分批审查。需不超过所选模型的上下文窗口，否则会被模型截断"
+                            help=f"超出后会自动分批审查。需不超过所选模型的上下文窗口"
+                                 f"（当前供应商 {llm_provider} 为 {current_provider_ctx:,} Tokens），否则会被模型截断"
                         )
                     with col_scope2:
                         exclude_patterns = st.text_input(
@@ -1093,21 +1157,29 @@ def env_management_page():
                         st.markdown("**DeepSeek**")
                         deepseek_key = st.text_input("DeepSeek API Key", value=env_config.get("DEEPSEEK_API_KEY", ""), type="password")
                         deepseek_base = st.text_input("DeepSeek API Base", value=env_config.get("DEEPSEEK_API_BASE_URL", "https://api.deepseek.com"))
-                        deepseek_model = st.text_input("DeepSeek 模型", value=env_config.get("DEEPSEEK_API_MODEL", "deepseek-chat"))
+                        deepseek_model = st.text_input("DeepSeek 模型", value=env_config.get("DEEPSEEK_API_MODEL", "deepseek-v4-pro"))
+                        deepseek_thinking, deepseek_context = _render_thinking_controls(
+                            env_config, "deepseek", DEFAULT_CONTEXT_WINDOWS["deepseek"])
 
                 with col_ai2:
                     with st.container(border=True):
-                        st.markdown("**OpenAI（兼容网关）**")
+                        st.markdown("**OpenAI（兼容网关 OAI）**")
+                        st.caption("通用 OpenAI 兼容接口：官方 OpenAI，或走 new-api/one-api 等转换型中转站接入的"
+                                   "DeepSeek/Qwen/Kimi 等模型均在此配置；reasoning_effort 由中转站翻译为下游原生思考参数")
                         openai_key = st.text_input("OpenAI API Key", value=env_config.get("OPENAI_API_KEY", ""), type="password")
                         openai_base = st.text_input("OpenAI API Base", value=env_config.get("OPENAI_API_BASE_URL", "https://api.openai.com/v1"))
-                        openai_model = st.text_input("OpenAI 模型", value=env_config.get("OPENAI_API_MODEL", "gpt-4o-mini"))
+                        openai_model = st.text_input("OpenAI 模型", value=env_config.get("OPENAI_API_MODEL", "gpt-5.6"))
+                        openai_thinking, openai_context = _render_thinking_controls(
+                            env_config, "openai", DEFAULT_CONTEXT_WINDOWS["openai"])
 
                 with col_ai3:
                     with st.container(border=True):
                         st.markdown("**智谱AI**")
                         zhipuai_key = st.text_input("智谱AI API Key", value=env_config.get("ZHIPUAI_API_KEY", ""), type="password")
                         st.caption("使用官方默认地址，无需配置 API Base")
-                        zhipuai_model = st.text_input("智谱AI 模型", value=env_config.get("ZHIPUAI_API_MODEL", "GLM-4-Flash"))
+                        zhipuai_model = st.text_input("智谱AI 模型", value=env_config.get("ZHIPUAI_API_MODEL", "GLM-5.2"))
+                        zhipuai_thinking, zhipuai_context = _render_thinking_controls(
+                            env_config, "zhipuai", DEFAULT_CONTEXT_WINDOWS["zhipuai"])
 
                 col_ai4, col_ai5, col_ai6 = st.columns(3)
 
@@ -1116,7 +1188,9 @@ def env_management_page():
                         st.markdown("**通义千问 Qwen**")
                         qwen_key = st.text_input("Qwen API Key", value=env_config.get("QWEN_API_KEY", ""), type="password")
                         qwen_base = st.text_input("Qwen API Base", value=env_config.get("QWEN_API_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"))
-                        qwen_model = st.text_input("Qwen 模型", value=env_config.get("QWEN_API_MODEL", "qwen-coder-plus"))
+                        qwen_model = st.text_input("Qwen 模型", value=env_config.get("QWEN_API_MODEL", "qwen3.7-plus"))
+                        qwen_thinking, qwen_context = _render_thinking_controls(
+                            env_config, "qwen", DEFAULT_CONTEXT_WINDOWS["qwen"])
 
                 with col_ai5:
                     with st.container(border=True):
@@ -1124,6 +1198,8 @@ def env_management_page():
                         jedi_key = st.text_input("Jedi API Key", value=env_config.get("JEDI_API_KEY", ""), type="password")
                         jedi_base = st.text_input("Jedi API Base", value=env_config.get("JEDI_API_BASE_URL", "https://jedi-jp-prd-ai-tools.bekko.com:30001/chat_completion_api"))
                         jedi_model = st.text_input("Jedi 模型", value=env_config.get("JEDI_API_MODEL", "official-deepseek-r1"))
+                        jedi_thinking, jedi_context = _render_thinking_controls(
+                            env_config, "jedi", DEFAULT_CONTEXT_WINDOWS["jedi"])
 
                 with col_ai6:
                     with st.container(border=True):
@@ -1131,6 +1207,8 @@ def env_management_page():
                         st.caption("本地部署，无需 API Key")
                         ollama_base = st.text_input("Ollama API Base", value=env_config.get("OLLAMA_API_BASE_URL", "http://host.docker.internal:11434"))
                         ollama_model = st.text_input("Ollama 模型", value=env_config.get("OLLAMA_API_MODEL", "deepseek-r1:latest"))
+                        ollama_thinking, ollama_context = _render_thinking_controls(
+                            env_config, "ollama", DEFAULT_CONTEXT_WINDOWS["ollama"])
             
             # ---------------------------- 系统运行 ----------------------------
             with t_system:
@@ -1473,6 +1551,15 @@ def env_management_page():
             if svn_errors:
                 st.error("❌ SVN 仓库配置校验失败：" + "；".join(dict.fromkeys(svn_errors)))
                 st.stop()
+            # 校验：单次审查最大 Token 数不应超过当前供应商的上下文窗口（仅警告，不阻止保存）
+            current_ctx_value = _env_int(new_config, f"{llm_provider.upper()}_CONTEXT_WINDOW",
+                                         DEFAULT_CONTEXT_WINDOWS.get(llm_provider, 65536))
+            if review_max_tokens > current_ctx_value:
+                st.warning(
+                    f"⚠️ 「单次审查最大 Token 数」({review_max_tokens}) 超过当前供应商 {llm_provider} "
+                    f"的上下文窗口 ({current_ctx_value:,})，审查内容可能被模型截断。"
+                    f"建议调小该值，或在「🤖 AI模型」标签页中增大上下文窗口。"
+                )
             # 压缩为单行格式，避免换行导致的 .env 文件解析问题
             svn_config_final = json.dumps(repos_to_save, ensure_ascii=False, separators=(',', ':'))
 
@@ -1482,19 +1569,31 @@ def env_management_page():
                 "DEEPSEEK_API_KEY": deepseek_key,
                 "DEEPSEEK_API_BASE_URL": deepseek_base,
                 "DEEPSEEK_API_MODEL": deepseek_model,
+                "DEEPSEEK_THINKING_LEVEL": deepseek_thinking,
+                "DEEPSEEK_CONTEXT_WINDOW": str(deepseek_context),
                 "OPENAI_API_KEY": openai_key,
                 "OPENAI_API_BASE_URL": openai_base,
                 "OPENAI_API_MODEL": openai_model,
+                "OPENAI_THINKING_LEVEL": openai_thinking,
+                "OPENAI_CONTEXT_WINDOW": str(openai_context),
                 "ZHIPUAI_API_KEY": zhipuai_key,
                 "ZHIPUAI_API_MODEL": zhipuai_model,
+                "ZHIPUAI_THINKING_LEVEL": zhipuai_thinking,
+                "ZHIPUAI_CONTEXT_WINDOW": str(zhipuai_context),
                 "QWEN_API_KEY": qwen_key,
                 "QWEN_API_BASE_URL": qwen_base,
                 "QWEN_API_MODEL": qwen_model,
+                "QWEN_THINKING_LEVEL": qwen_thinking,
+                "QWEN_CONTEXT_WINDOW": str(qwen_context),
                 "JEDI_API_KEY": jedi_key,
                 "JEDI_API_BASE_URL": jedi_base,
                 "JEDI_API_MODEL": jedi_model,
+                "JEDI_THINKING_LEVEL": jedi_thinking,
+                "JEDI_CONTEXT_WINDOW": str(jedi_context),
                 "OLLAMA_API_BASE_URL": ollama_base,
                 "OLLAMA_API_MODEL": ollama_model,
+                "OLLAMA_THINKING_LEVEL": ollama_thinking,
+                "OLLAMA_CONTEXT_WINDOW": str(ollama_context),
 
                 # 审查设置
                 "REVIEW_MAX_TOKENS": str(review_max_tokens),

@@ -31,11 +31,21 @@ class JediClient(BaseClient):
         self.api_key = api_key or get_env_with_default("JEDI_API_KEY")
         self.base_url = get_env_with_default("JEDI_API_BASE_URL")
         self.default_model = get_env_with_default("JEDI_API_MODEL")
+        self.thinking_level = (get_env_with_default("JEDI_THINKING_LEVEL") or "high").lower().strip()
+        self.context_window = get_env_int("JEDI_CONTEXT_WINDOW", 65536)
         
         if not self.api_key:
             raise ValueError("API key is required. Please provide it or set it in the environment variables.")
         if not self.base_url:
             raise ValueError("Base URL is required. Please provide it or set it in the environment variables.")
+
+    def _thinking_temperature(self) -> float:
+        """思考程度 → temperature 档位（仅 Jedi 因无原生思考参数，用温度小幅递增模拟思考强度）。
+
+        审查场景已收敛幅度：off/low 保持低温 0.2，medium 0.3，max 仅 0.5，
+        避免高温破坏审查输出的确定性。"""
+        temp_map = {"off": 0.2, "low": 0.2, "medium": 0.3, "high": 0.4, "max": 0.5}
+        return temp_map.get(self.thinking_level, 0.2)
 
     def _convert_messages_to_jedi_format(self, messages: List[Dict[str, str]]) -> Dict:
         """Convert OpenAI format messages to Jedi format"""
@@ -85,7 +95,8 @@ class JediClient(BaseClient):
             # 获取系统配置的最大 token 限制
             # 注意：REVIEW_MAX_TOKENS 语义是"送进模型的 diff 输入预算"，这里复用作输出 max_tokens，
             # 因此必须再套一层输出上限，否则把它调大（如 10 万）会导致网关拒绝请求。
-            system_max_tokens = min(get_env_int("REVIEW_MAX_TOKENS", 10000), MAX_COMPLETION_TOKENS)
+            # 同时用模型上下文窗口兜底，保证不超出模型能力。
+            system_max_tokens = min(get_env_int("REVIEW_MAX_TOKENS", 10000), self.context_window, MAX_COMPLETION_TOKENS)
             
             # 配置：初始超时600秒，最多重试2次，每次重试超时加倍
             timeout = 600
@@ -109,7 +120,7 @@ class JediClient(BaseClient):
                 "input": jedi_input,
                 "model_name": model,
                 "chatModelConfig": {
-                    "temperature": 0.2,
+                    "temperature": self._thinking_temperature(),
                     "frequency_penalty": 0.1,
                     "presence_penalty": 0,
                     "max_tokens": max_tokens,
@@ -275,10 +286,10 @@ class JediClient(BaseClient):
                 "input": jedi_input,
                 "model_name": model,
                 "chatModelConfig": {
-                    "temperature": 0.2,
+                    "temperature": self._thinking_temperature(),
                     "frequency_penalty": 0.1,
                     "presence_penalty": 0,
-                    "max_tokens": min(get_env_int("REVIEW_MAX_TOKENS", 10000), MAX_COMPLETION_TOKENS),
+                    "max_tokens": min(get_env_int("REVIEW_MAX_TOKENS", 10000), self.context_window, MAX_COMPLETION_TOKENS),
                     "top_p": 1,
                     "seed": 42
                 },
