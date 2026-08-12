@@ -55,7 +55,7 @@ class ConfigReloader:
             # AI模型配置
             "LLM_PROVIDER", "OPENAI_API_KEY", "OPENAI_API_BASE", "DEEPSEEK_API_KEY",
             "DEEPSEEK_API_BASE", "ZHIPUAI_API_KEY", "QWEN_API_KEY", "OLLAMA_API_BASE_URL",
-            "OLLAMA_MODEL", "REVIEW_STYLE", "REVIEW_MAX_TOKENS", "REVIEW_BATCH_MAX_FILES",
+            "OLLAMA_MODEL", "REVIEW_STYLE",
             
             # 平台配置
             "SVN_CHECK_ENABLED", "GITLAB_ENABLED", "GITHUB_ENABLED",

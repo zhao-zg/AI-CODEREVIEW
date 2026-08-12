@@ -19,7 +19,7 @@ class ZhipuAIClient(BaseClient):
         self.client = ZhipuAI(api_key=api_key)
         self.default_model = get_env_with_default("ZHIPUAI_API_MODEL")
         self.thinking_level = (get_env_with_default("ZHIPUAI_THINKING_LEVEL") or "high").lower().strip()
-        self.context_window = get_env_int("ZHIPUAI_CONTEXT_WINDOW", 131072)
+        self.context_window = get_env_int("ZHIPUAI_CONTEXT_WINDOW", 1048576)
 
     def _build_extra_kwargs(self, model: str) -> Dict[str, Any]:
         """简化规则：开启思考 → 只传 thinking（不传 temperature）；off → 低温 temperature。

@@ -30,7 +30,7 @@ class DeepSeekClient(BaseClient):
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url) # DeepSeek supports OpenAI API SDK
         self.default_model = get_env_with_default("DEEPSEEK_API_MODEL")
         self.thinking_level = (get_env_with_default("DEEPSEEK_THINKING_LEVEL") or "high").lower().strip()
-        self.context_window = get_env_int("DEEPSEEK_CONTEXT_WINDOW", 65536)
+        self.context_window = get_env_int("DEEPSEEK_CONTEXT_WINDOW", 1048576)
 
     def _build_extra_kwargs(self, model: str) -> Dict[str, Any]:
         """根据思考程度构造请求参数（按 DeepSeek 官方 2026 约定）。

@@ -149,6 +149,26 @@ def get_env_int(key: str, custom_fallback: Optional[int] = None) -> int:
     
     return custom_fallback or 0
 
+# 单次审查输入预算占当前供应商上下文窗口的默认比例（30%）。
+# 留出窗口给 system/user prompt 与模型输出，同时控制单次请求的输入成本。
+REVIEW_BUDGET_RATIO = 0.3
+# 无法确定上下文窗口时的兜底预算（保持旧默认行为）
+FALLBACK_REVIEW_BUDGET = 10000
+
+
+def get_review_input_budget() -> int:
+    """获取单次审查的 diff 输入预算（token 上限）。
+
+    自动按当前供应商上下文窗口的 REVIEW_BUDGET_RATIO（30%）计算，跟随模型能力
+    自动缩放，避免 diff 占满窗口导致输出无空间、或一次请求输入成本失控。
+    无法确定上下文窗口时回退到 FALLBACK_REVIEW_BUDGET。
+    """
+    provider = (get_env_with_default("LLM_PROVIDER", "openai") or "openai").lower().strip()
+    window = get_env_int(f"{provider.upper()}_CONTEXT_WINDOW", 0)
+    if window > 0:
+        return max(1000, int(window * REVIEW_BUDGET_RATIO))
+    return FALLBACK_REVIEW_BUDGET
+
 def is_path_excluded(path: str, exclude_patterns: list) -> bool:
     """
     检查文件路径是否匹配排除规则。

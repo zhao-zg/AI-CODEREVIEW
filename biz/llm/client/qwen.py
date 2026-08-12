@@ -26,7 +26,7 @@ class QwenClient(BaseClient):
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         self.default_model = get_env_with_default("QWEN_API_MODEL")
         self.thinking_level = (get_env_with_default("QWEN_THINKING_LEVEL") or "high").lower().strip()
-        self.context_window = get_env_int("QWEN_CONTEXT_WINDOW", 131072)
+        self.context_window = get_env_int("QWEN_CONTEXT_WINDOW", 1048576)
 
     def _build_extra_body(self, model: str) -> Dict[str, Any]:
         """简化规则：开启思考 → 只传 enable_thinking + thinking_budget（不传 temperature）；

@@ -520,12 +520,13 @@ THINKING_LEVEL_HELP = {
     "jedi": "Jedi 网关无原生思考参数，用 temperature 档位模拟思考强度",
     "ollama": "开启思考：think=True 不传 temperature；关闭（off）think=False + 低温 0.2（需要较新的 Ollama 版本）",
 }
-# 各供应商默认上下文窗口（Tokens），随模型调整
+# 各供应商默认上下文窗口（Tokens），随模型调整（2026-08 官方规格：
+# deepseek-v4 / qwen3.7+/3.8 / glm-5.2 均为 1M；gpt-5 基础 128K；Jedi/Ollama 取决于部署）
 DEFAULT_CONTEXT_WINDOWS = {
-    "deepseek": 65536,
-    "openai": 131072,
-    "zhipuai": 131072,
-    "qwen": 131072,
+    "deepseek": 1048576,
+    "openai": 1048576,
+    "zhipuai": 1048576,
+    "qwen": 1048576,
     "jedi": 65536,
     "ollama": 65536,
 }
@@ -544,7 +545,7 @@ CONFIG_CATEGORIES = {
                 "JEDI_THINKING_LEVEL", "JEDI_CONTEXT_WINDOW",
                 "OLLAMA_API_BASE_URL", "OLLAMA_API_MODEL",
                 "OLLAMA_THINKING_LEVEL", "OLLAMA_CONTEXT_WINDOW"],
-    "🎯 审查设置": ["REVIEW_MAX_TOKENS", "REVIEW_BATCH_MAX_FILES", "SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS",
+    "🎯 审查设置": ["SUPPORTED_EXTENSIONS", "EXCLUDE_PATTERNS",
                 "SVN_DIFF_CONTEXT_LINES",
                 "AGENTIC_REVIEW_ENABLED", "AGENTIC_REVIEW_MAX_TOOL_ROUNDS",
                 "EXCEL_REVIEW_ENABLED", "EXCEL_SUPPORTED_EXTENSIONS",
@@ -1053,27 +1054,11 @@ def env_management_page():
                             value=env_config.get("SUPPORTED_EXTENSIONS", ".py,.js,.java,.cpp,.c,.h"),
                             help="逗号分隔，例如：.py,.java,.ts"
                         )
-                        current_provider_ctx = _env_int(env_config, f"{llm_provider.upper()}_CONTEXT_WINDOW",
-                                                        DEFAULT_CONTEXT_WINDOWS.get(llm_provider, 65536))
-                        review_max_tokens = st.number_input(
-                            "单次审查最大 Token 数",
-                            min_value=1000, max_value=100000, step=1000,
-                            value=_env_int(env_config, "REVIEW_MAX_TOKENS", 10000),
-                            help=f"超出后会自动分批审查。需不超过所选模型的上下文窗口"
-                                 f"（当前供应商 {llm_provider} 为 {current_provider_ctx:,} Tokens），否则会被模型截断"
-                        )
                     with col_scope2:
                         exclude_patterns = st.text_input(
                             "排除的文件路径模式",
                             value=env_config.get("EXCLUDE_PATTERNS", ""),
                             help="逗号分隔，支持通配符 *。例如：*.pb.go,vendor/*,node_modules/*,*.min.js"
-                        )
-                        review_batch_max_files = st.number_input(
-                            "每批最多审查文件数",
-                            min_value=0, max_value=100,
-                            value=_env_int(env_config, "REVIEW_BATCH_MAX_FILES", 10),
-                            help="0 表示不限制（仅受 Token 限制）。一次提交文件很多时，即使总 Token 没超限，"
-                                 "AI 也难以在单次回复里逐个详述，调小可避免靠后的文件被忽略"
                         )
 
                 with st.container(border=True):
@@ -1555,15 +1540,6 @@ def env_management_page():
             if svn_errors:
                 st.error("❌ SVN 仓库配置校验失败：" + "；".join(dict.fromkeys(svn_errors)))
                 st.stop()
-            # 校验：单次审查最大 Token 数不应超过当前供应商的上下文窗口（仅警告，不阻止保存）
-            current_ctx_value = _env_int(new_config, f"{llm_provider.upper()}_CONTEXT_WINDOW",
-                                         DEFAULT_CONTEXT_WINDOWS.get(llm_provider, 65536))
-            if review_max_tokens > current_ctx_value:
-                st.warning(
-                    f"⚠️ 「单次审查最大 Token 数」({review_max_tokens}) 超过当前供应商 {llm_provider} "
-                    f"的上下文窗口 ({current_ctx_value:,})，审查内容可能被模型截断。"
-                    f"建议调小该值，或在「🤖 AI模型」标签页中增大上下文窗口。"
-                )
             # 压缩为单行格式，避免换行导致的 .env 文件解析问题
             svn_config_final = json.dumps(repos_to_save, ensure_ascii=False, separators=(',', ':'))
 
@@ -1600,8 +1576,6 @@ def env_management_page():
                 "OLLAMA_CONTEXT_WINDOW": str(ollama_context),
 
                 # 审查设置
-                "REVIEW_MAX_TOKENS": str(review_max_tokens),
-                "REVIEW_BATCH_MAX_FILES": str(review_batch_max_files),
                 "SUPPORTED_EXTENSIONS": supported_extensions,
                 "EXCLUDE_PATTERNS": exclude_patterns,
                 "SVN_DIFF_CONTEXT_LINES": str(svn_diff_context_lines),

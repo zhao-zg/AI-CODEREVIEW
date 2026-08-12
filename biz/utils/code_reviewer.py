@@ -10,7 +10,7 @@ from jinja2 import Template
 from biz.llm.factory import Factory
 from biz.utils.log import logger
 from biz.utils.token_util import count_tokens, truncate_text_by_tokens
-from biz.utils.default_config import get_env_with_default, get_env_int
+from biz.utils.default_config import get_env_with_default, get_env_int, get_review_input_budget
 
 
 def is_api_error_message(text: str) -> bool:
@@ -188,19 +188,19 @@ class CodeReviewer(BaseReviewer):
 
     def review_and_strip_code(self, changes_text: str, commits_text: str = "") -> str:
         """
-        Review判断changes_text超出取前REVIEW_MAX_TOKENS个token，超出则截断changes_text，
-        调用review_code方法，返回review_result，如果review_result是markdown格式，则去掉头尾的```
+        Review判断changes_text超出取前 get_review_input_budget() 个token（自动按上下文窗口30%），
+        超出则截断changes_text，调用review_code方法，返回review_result，如果review_result是markdown格式，则去掉头尾的```
         :param changes_text:
         :param commits_text:        :return:
         """
-        # 如果超长，取前REVIEW_MAX_TOKENS个token
-        review_max_tokens = get_env_int("REVIEW_MAX_TOKENS")
+        # 如果超长，取前 get_review_input_budget() 个token（自动按上下文窗口30%）
+        review_max_tokens = get_review_input_budget()
         # 如果changes为空,打印日志
         if not changes_text:
             logger.info("代码为空, diffs_text = %", str(changes_text))
             return "代码为空"
 
-        # 计算tokens数量，如果超过REVIEW_MAX_TOKENS，截断changes_text
+        # 计算tokens数量，如果超过预算，截断changes_text
         tokens_count = count_tokens(changes_text)
         if tokens_count > review_max_tokens :
             changes_text = truncate_text_by_tokens(changes_text, review_max_tokens)
@@ -282,44 +282,49 @@ class BatchCodeReviewer(BaseReviewer):
 
     def review_in_batches(self, files_json: List[Dict], commits_text: str = "") -> str:
         """
-        将文件按 token 上限贪心打包为多批，每批分别审查后用 LLM 合并报告
+        审查一批文件变更。
+
+        现代模型上下文窗口普遍 1M，全部 diff 未超预算时单批全量审查（模型一次看到完整
+        上下文）。累计超预算时自动拆分为多批逐批审查，再用 LLM 合并为统一报告——
+        确保所有文件都被审查到。单个超大文件 diff 会被截断，截断文件在结果末尾警告。
 
         Args:
             files_json: 文件变更列表
             commits_text: 提交信息
 
         Returns:
-            合并后的审查报告
+            审查报告
         """
-        review_max_tokens = get_env_int("REVIEW_MAX_TOKENS", 10000)
-        batch_max_files = get_env_int("REVIEW_BATCH_MAX_FILES", 10)
+        review_max_tokens = get_review_input_budget()
 
         if not files_json:
             return "无需要审查的文件"
 
-        batches = self._pack_batches(files_json, review_max_tokens, batch_max_files)
-        logger.info(f'待审查文件数: {len(files_json)}, 按 token({review_max_tokens}) '
-                    f'与文件数({batch_max_files}) 上限打包为 {len(batches)} 批')
+        batches, truncated_files = self._pack_batches(files_json, review_max_tokens)
+        logger.info(f'待审查文件数: {len(files_json)}, 预算 {review_max_tokens} tokens, '
+                    f'打包为 {len(batches)} 批')
 
+        # 单批：直接审查
         if len(batches) == 1:
-            # 单批直接审查
             for file_entry in batches[0]:
                 file_entry.pop('_truncated', None)
             diff_text = json.dumps(batches[0], ensure_ascii=False, indent=2)
             result = self.review_code(diff_text, commits_text).strip()
             if is_api_error_message(result):
                 return result
-            return self._strip_markdown(result)
+            result = self._strip_markdown(result)
+            if truncated_files:
+                return result + self._build_truncation_warning(truncated_files, review_max_tokens)
+            return result
 
-        # 多批：逐批审查
-        logger.info(f'代码变更需分 {len(batches)} 批进行审查')
+        # 多批：逐批审查后合并
+        logger.info(f'代码变更累计超预算，自动分 {len(batches)} 批逐批审查')
         batch_results = []
         batch_scores = []
         failed_batches = 0
 
         for i, batch in enumerate(batches):
             logger.info(f'分批审查: 第 {i + 1}/{len(batches)} 批, {len(batch)} 个文件')
-            # 移除内部字段，避免传给 LLM
             for file_entry in batch:
                 file_entry.pop('_truncated', None)
             diff_text = json.dumps(batch, ensure_ascii=False, indent=2)
@@ -342,21 +347,48 @@ class BatchCodeReviewer(BaseReviewer):
             summary_parts = '\n\n'.join(batch_results)
             return f"# 合并审查报告\n\n{summary_parts}\n\n**注意**: 各批审查均失败，以上为原始结果拼接。"
 
-        return self._merge_reviews(batch_results, batch_scores, commits_text, failed_batches)
+        merged = self._merge_reviews(batch_results, batch_scores, commits_text, failed_batches)
+        if truncated_files:
+            return merged + self._build_truncation_warning(truncated_files, review_max_tokens)
+        return merged
+
+    @staticmethod
+    def _build_truncation_warning(truncated_files: List[str], budget: int) -> str:
+        """构造截断警告文本（用户可见，附在审查报告末尾）"""
+        logger.warning(f'共 {len(truncated_files)} 个文件 diff 超过输入预算被截断: '
+                       f'{", ".join(truncated_files)}')
+        return (
+            f"\n\n---\n\n⚠️ **注意**: {len(truncated_files)} 个文件的 diff 超过单批输入预算"
+            f"（{budget:,} tokens）已被截断，以下文件的审查结果可能不完整：\n"
+            f"{'、'.join(truncated_files)}\n\n"
+            f"建议在「🎯 审查设置」中调大「单次审查最大 Token 数」，"
+            f"或拆分提交后分批审查。"
+        )
 
     def _pack_batches(self, files_json: List[Dict], max_tokens: int,
-                      max_files: int = 0) -> List[List[Dict]]:
+                      max_files: int = 0) -> Tuple[List[List[Dict]], List[str]]:
         """
-        将文件列表贪心打包为多批。
+        将文件列表打包为审查批次，并收集被截断的文件。
 
-        除 token 上限外还受每批文件数上限约束：即使一批文件的 diff 总量没超过 token 预算，
-        文件太多时 LLM 也难以逐个详述，容易只覆盖靠前的少数文件。
+        现代模型上下文窗口普遍 1M，全部 diff 未超预算时单批全量审查（模型一次看到完整
+        上下文，避免跨文件问题被割裂）。当累计超过输入预算时自动拆分为多批，每批 diff
+        ≤ 预算，逐批审查后合并报告——确保每个文件都被审查到：
+        - 单个文件 diff 超过预算：截断该文件（分配整个预算）；
+        - 多文件累计超过预算：按 token 贪心拆批，后续文件进入下一批。
 
         Args:
             files_json: 文件变更列表
-            max_tokens: 每批 diff 的 token 上限
-            max_files: 每批文件数上限，<=0 表示不限制
+            max_tokens: 每批 diff 的输入预算（token 上限）
+            max_files: 保留参数以兼容历史调用，不再参与分批
+
+        Returns:
+            (batches, truncated_files): batches 为 1~N 批；truncated_files 为被截断的
+            文件路径列表（单文件超限被截断），空表示无文件被截断。
         """
+        if not files_json:
+            return [], []
+
+        truncated_files = []
         batches = []
         current_batch = []
         current_tokens = 0
@@ -364,26 +396,29 @@ class BatchCodeReviewer(BaseReviewer):
         for file in files_json:
             diff = file.get('diff', '')
             file_tokens = count_tokens(diff)
+            file_path = file.get('file_path', 'unknown')
 
-            if file_tokens >= max_tokens:
-                # 单文件超限：单独一批并截断
+            if file_tokens > max_tokens:
+                # 单文件超限：单独一批并截断（分配整个预算）
                 if current_batch:
                     batches.append(current_batch)
                     current_batch = []
                     current_tokens = 0
-                truncated_diff = truncate_text_by_tokens(diff, max_tokens - 100)
+                # 预算留出 100 token 余量；max_tokens 很小（≤100）时至少截到 1 token，
+                # 避免负数切片（tokens[:-100]）导致截断静默失效
+                truncate_limit = max(1, max_tokens - 100)
+                truncated_diff = truncate_text_by_tokens(diff, truncate_limit)
                 file_copy = dict(file)
                 file_copy['diff'] = truncated_diff
                 file_copy['_truncated'] = True
-                file_path = file.get('file_path', 'unknown')
-                logger.warning(f'文件 {file_path} 超限: {file_tokens} tokens, '
-                               f'截断至 {max_tokens - 100} tokens')
                 batches.append([file_copy])
+                truncated_files.append(file_path)
+                logger.warning(f'文件 {file_path} 超限: {file_tokens} tokens, '
+                               f'截断至 {truncate_limit} tokens')
                 continue
 
-            exceeds_tokens = current_tokens + file_tokens > max_tokens
-            exceeds_files = 0 < max_files <= len(current_batch)
-            if current_batch and (exceeds_tokens or exceeds_files):
+            if current_batch and current_tokens + file_tokens > max_tokens:
+                # 累计超限：当前文件进入下一批
                 batches.append(current_batch)
                 current_batch = []
                 current_tokens = 0
@@ -394,7 +429,7 @@ class BatchCodeReviewer(BaseReviewer):
         if current_batch:
             batches.append(current_batch)
 
-        return batches
+        return batches, truncated_files
 
     def _merge_reviews(self, batch_results: List[str], batch_scores: List[Tuple[int, int]],
                        commits_text: str, failed_count: int) -> str:
