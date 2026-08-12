@@ -298,7 +298,7 @@ class UIComponents:
             
             # 展开/收起按钮
             current_state = st.session_state[expand_key]
-            button_text = "📖 收起详情" if current_state else "�️ 展开详情"
+            button_text = "📖 收起详情" if current_state else "👁️ 展开详情"
             
             if st.button(button_text, key=f"btn_{expand_key}", use_container_width=True):
                 st.session_state[expand_key] = not st.session_state[expand_key]

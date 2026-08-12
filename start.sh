@@ -538,7 +538,7 @@ restart_service() {
     write_log "重启服务"
     
     echo ""
-    echo "� 重启服务选项："
+    echo "🔄 重启服务选项："
     echo "1) 停止所有服务并重新选择启动模式"
     echo "2) 快速重启 (使用默认配置)"
     echo "0) 取消"

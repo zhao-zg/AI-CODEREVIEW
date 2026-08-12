@@ -341,7 +341,7 @@ def main_dashboard():
             # 已登录时显示用户菜单
             st.markdown("---")
             st.markdown(f"### 👤 欢迎, {st.session_state.get('username', 'Admin')}")
-            if st.button("� 注销登录", use_container_width=True, key="sidebar_logout"):
+            if st.button("🚪 注销登录", use_container_width=True, key="sidebar_logout"):
                 st.session_state["authenticated"] = False
                 st.session_state.pop("username", None)
                 
