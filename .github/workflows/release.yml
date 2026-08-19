@@ -1,7 +1,5 @@
 name: Release
 
-retention-days: 1
-
 on:
   push:
     tags:

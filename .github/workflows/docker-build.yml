@@ -1,7 +1,5 @@
 name: Build and Publish Docker Images (Single Service Architecture)
 
-retention-days: 1
-
 on:
   push:
     branches: [ "main", "master", "develop" ]
