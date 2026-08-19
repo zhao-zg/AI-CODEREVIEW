@@ -1,5 +1,7 @@
 name: Release
 
+retention-days: 1
+
 on:
   push:
     tags:
@@ -112,3 +114,4 @@ jobs:
         body_path: release_notes.txt
         draft: false
         prerelease: false
+
