@@ -124,7 +124,7 @@ DINGTALK_WEBHOOK_URL_BRANCHES_DEV=https://oapi.dingtalk.com/robot/send?access_to
 # 标签提交推送到 C 群
 DINGTALK_WEBHOOK_URL_TAGS_V1_0=https://oapi.dingtalk.com/robot/send?access_token=ccc
 ```
-线 slug 规则：路径前两段拼接（branches 下的分支名 / tags 下的标签名），非字母数字字符替换为下划线（`branches/dev-1.0` → `BRANCHES_DEV_1_0`）。匹配优先级：**项目名 > SVN线 > 默认 `DINGTALK_WEBHOOK_URL`**。企微（`WECOM_WEBHOOK_URL_<线>`）与飞书（`FEISHU_WEBHOOK_URL_<线>`）同样支持。
+线 slug 规则：在提交路径中定位第一个 trunk / branches/分支名 / tags/标签名 段（标准线目录可在路径**任意深度**，如 `/d4/devel/trunk/server/...` 也能识别为 `TRUNK`；branches 下的分支名 / tags 下的标签名取紧随其后的段），非字母数字字符替换为下划线（`branches/dev-1.0` → `BRANCHES_DEV_1_0`）。匹配优先级：**项目名 > SVN线 > 默认 `DINGTALK_WEBHOOK_URL`**。企微（`WECOM_WEBHOOK_URL_<线>`）与飞书（`FEISHU_WEBHOOK_URL_<线>`）同样支持。
 
 #### 飞书配置
 ```

@@ -29,18 +29,21 @@ class FeishuNotifier:
 
         # 构造目标键
         target_key_project = f"FEISHU_WEBHOOK_URL_{project_name.upper()}"
-        target_key_url_slug = f"FEISHU_WEBHOOK_URL_{url_slug.upper()}"
+        target_key_url_slug = f"FEISHU_WEBHOOK_URL_{url_slug.upper()}" if url_slug else None
 
         # 遍历环境变量
         for env_key, env_value in os.environ.items():
             env_key_upper = env_key.upper()
             if env_key_upper == target_key_project:
+                logger.info(f"飞书推送地址匹配：项目级键 {env_key}")
                 return env_value  # 找到项目名称对应的 Webhook URL，直接返回
-            if env_key_upper == target_key_url_slug:
+            if target_key_url_slug and env_key_upper == target_key_url_slug:
+                logger.info(f"飞书推送地址匹配：线级键 {env_key}")
                 return env_value  # 找到 GitLab URL 对应的 Webhook URL，直接返回
 
         # 如果未找到匹配的环境变量，降级使用全局的 Webhook URL
         if self.default_webhook_url:
+            logger.info(f"飞书推送地址匹配：未找到定制键（project={project_name}, slug={url_slug}），回退默认地址")
             return self.default_webhook_url
 
         # 如果既未找到匹配项，也没有默认值，抛出异常

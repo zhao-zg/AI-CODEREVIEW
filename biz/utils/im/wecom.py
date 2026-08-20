@@ -31,18 +31,21 @@ class WeComNotifier:
 
         # 构造目标键
         target_key_project = f"WECOM_WEBHOOK_URL_{project_name.upper()}"
-        target_key_url_slug = f"WECOM_WEBHOOK_URL_{url_slug.upper()}"
+        target_key_url_slug = f"WECOM_WEBHOOK_URL_{url_slug.upper()}" if url_slug else None
 
         # 遍历环境变量
         for env_key, env_value in os.environ.items():
             env_key_upper = env_key.upper()
             if env_key_upper == target_key_project:
+                logger.info(f"企微推送地址匹配：项目级键 {env_key}")
                 return env_value  # 找到项目名称对应的 Webhook URL，直接返回
-            if env_key_upper == target_key_url_slug:
+            if target_key_url_slug and env_key_upper == target_key_url_slug:
+                logger.info(f"企微推送地址匹配：线级键 {env_key}")
                 return env_value  # 找到 GitLab URL 对应的 Webhook URL，直接返回
 
         # 如果未找到匹配的环境变量，降级使用全局的 Webhook URL
         if self.default_webhook_url:
+            logger.info(f"企微推送地址匹配：未找到定制键（project={project_name}, slug={url_slug}），回退默认地址")
             return self.default_webhook_url
 
         # 如果既未找到匹配项，也没有默认值，抛出异常
@@ -132,10 +135,16 @@ class WeComNotifier:
                 chunks.append(chunk)
                 break
 
+            # 优先在换行处切割，避免在行中间断开
             while end_pos > start_pos:
                 if content_bytes[end_pos - 1:end_pos] == b'\n':
                     break
                 end_pos -= 1
+            # 该段内没有换行符时，强制按字节截断（向前调整到多字节字符边界，避免死循环）
+            if end_pos == start_pos:
+                end_pos = start_pos + max_bytes
+                while end_pos > start_pos and (content_bytes[end_pos] & 0xC0) == 0x80:
+                    end_pos -= 1
 
             chunk = content_bytes[start_pos:end_pos].decode('utf-8', errors='ignore')
             chunks.append(chunk)

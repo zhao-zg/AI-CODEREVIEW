@@ -1311,8 +1311,19 @@ def env_management_page():
                         value=_format_extra_webhook_config(env_config),
                         height=130,
                         help="格式：KEY=VALUE，每行一个；删除某行并保存即移除该定制地址（回退到默认地址）。"
-                             "SVN 线命名规则：路径前两段拼接（trunk / branches_分支名 / tags_标签名），非字母数字字符替换为下划线。"
+                             "SVN 线命名规则：在提交路径中定位 trunk / branches_分支名 / tags_标签名（可在任意深度），非字母数字字符替换为下划线。"
                     )
+
+                    # 编辑框为空但 .env 已有定制键时，展示确认框：勾选 = 真正删除全部；不勾选 = 视为未编辑（防 Streamlit 未激活标签页取不到值导致误删）
+                    existing_extra_keys_for_confirm = [
+                        key for key in env_config if _is_extra_webhook_key(key)
+                    ]
+                    confirm_clear_extra_webhook = False
+                    if existing_extra_keys_for_confirm and not (extra_webhook_text or "").strip():
+                        confirm_clear_extra_webhook = st.checkbox(
+                            "✅ 我已确认：清空上方编辑框 = 删除全部定制推送地址",
+                            key="confirm_clear_extra_webhook",
+                        )
             
             submitted = st.form_submit_button("💾 保存系统配置", use_container_width=True, type="primary")
 
@@ -1649,10 +1660,24 @@ def env_management_page():
             if extra_webhook_errors:
                 st.error("❌ 定制推送地址格式错误：" + "；".join(extra_webhook_errors))
                 st.stop()
-            removed_extra_webhook_keys = [
-                key for key in env_config
-                if _is_extra_webhook_key(key) and key not in extra_webhook_updates
+            existing_extra_webhook_keys = [
+                key for key in env_config if _is_extra_webhook_key(key)
             ]
+            if existing_extra_webhook_keys and not (extra_webhook_text or "").strip():
+                if confirm_clear_extra_webhook:
+                    # 用户已勾选确认框：清空编辑框 = 删除全部定制地址
+                    removed_extra_webhook_keys = list(existing_extra_webhook_keys)
+                else:
+                    # 保护：.env 中已存在定制推送地址，但编辑框内容为空（未激活标签页等场景下
+                    # Streamlit 可能取不到 textarea 值）。此时视为"未编辑"，保留现有定制地址，
+                    # 避免误删后推送回退到总通知渠道。
+                    st.warning("⚠️ 检测到已配置的定制推送地址，但编辑框内容为空，已保留现有定制地址（如需全部删除，请勾选上方确认框后再次保存）")
+                    removed_extra_webhook_keys = []
+            else:
+                removed_extra_webhook_keys = [
+                    key for key in existing_extra_webhook_keys
+                    if key not in extra_webhook_updates
+                ]
             new_config.update(extra_webhook_updates)
 
             # 保存环境配置（Prompt 模板在「📝 Prompt管理」标签页独立保存）

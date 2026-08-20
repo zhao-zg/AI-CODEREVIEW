@@ -300,10 +300,11 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
 def _extract_svn_line(commit: Dict) -> str:
     """从提交路径中提取 SVN 线（trunk / branches_xxx / tags_xxx），用于按线匹配推送 Webhook。
 
-    commit['paths'] 是仓库根相对路径（如 /trunk/config/item.xlsx、/branches/dev/code.py），
-    线 = 第一个路径段（trunk）或前两段（branches/分支名、tags/标签名），再做 slug 化
-    （非字母数字字符替换为下划线，如 branches/dev-1.0 → branches_dev_1_0）。
-    路径不在标准线目录下（如仓库根直接放代码）或无法提取时返回空串，调用方回退默认 Webhook。
+    commit['paths'] 是仓库根相对路径（如 /trunk/config/item.xlsx、/branches/dev/code.py）。
+    实际仓库中标准线目录可能位于路径任意深度（如 /d4/devel/trunk/server/x.java、
+    /project/branches/dev/code.py），因此从路径中定位第一个 trunk / branches/分支名 /
+    tags/标签名 段，再做 slug 化（非字母数字字符替换为下划线，如 branches/dev-1.0 → branches_dev_1_0）。
+    路径中不存在标准线目录（如仓库根直接放代码）或无法提取时返回空串，调用方回退默认 Webhook。
     多个路径分属不同线时取首个，跨线提交本身极少见。
     """
     import re
@@ -311,15 +312,17 @@ def _extract_svn_line(commit: Dict) -> str:
     for path_info in paths:
         path = (path_info.get('path') or '').strip('/')
         parts = path.split('/')
-        if not parts or not parts[0]:
+        if not parts:
             continue
-        if parts[0] in ('trunk', 'branches', 'tags'):
-            if parts[0] in ('branches', 'tags') and len(parts) >= 2 and parts[1]:
-                line = f"{parts[0]}_{parts[1]}"
-            else:
-                line = parts[0]
-            # slug 化：branches/dev-1.0 → branches_dev_1_0（环境变量键须为字母数字下划线）
-            return re.sub(r'[^A-Za-z0-9]+', '_', line).strip('_') or ''
+        # 在任意深度定位线目录段：trunk 本身即线；branches/tags 需取紧随其后的分支/标签名
+        for i, part in enumerate(parts):
+            if part in ('trunk', 'branches', 'tags'):
+                if part in ('branches', 'tags') and i + 1 < len(parts) and parts[i + 1]:
+                    line = f"{part}_{parts[i + 1]}"
+                else:
+                    line = part
+                # slug 化：branches/dev-1.0 → branches_dev_1_0（环境变量键须为字母数字下划线）
+                return re.sub(r'[^A-Za-z0-9]+', '_', line).strip('_') or ''
     return ''
 
 
