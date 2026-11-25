@@ -47,7 +47,7 @@ def reset_checkpoint(repo_name: str):
     
     SVNCheckpointManager.init_db()
     
-    # 将检查点设置为24小时前
+    # 将检查点设置为24小时前，并清空 revision 游标（否则增量检查仍会从游标继续，重置不生效）
     import time
     reset_time = int(time.time() - 24 * 3600)
     
@@ -57,7 +57,7 @@ def reset_checkpoint(repo_name: str):
             cursor = conn.cursor()
             cursor.execute('''
                 UPDATE svn_checkpoints 
-                SET last_check_time = ?, updated_at = ?
+                SET last_check_time = ?, last_revision = NULL, updated_at = ?
                 WHERE repo_name = ?
             ''', (reset_time, int(time.time()), repo_name))
             

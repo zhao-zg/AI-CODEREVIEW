@@ -312,10 +312,19 @@ class SVNHandler:
         start_time_str = start_time.strftime('%Y-%m-%dT%H:%M:%SZ')
         end_time_str = end_time.strftime('%Y-%m-%dT%H:%M:%SZ')
         
+        return self.get_commits_by_range(f'{{{start_time_str}}}:{{{end_time_str}}}', limit) or []
+
+    def get_commits_by_range(self, revision_range: str, limit: int = 100) -> Optional[List[Dict]]:
+        """
+        按 svn log 的 -r 范围获取提交记录（范围升序时返回最旧的 limit 条）
+        :param revision_range: -r 参数值，如 "101:HEAD"、"{2026-01-01T00:00:00Z}:205"
+        :param limit: 限制提交数量
+        :return: 提交记录列表；查询或解析失败返回 None，调用方据此区分"查询失败"与"范围内没有提交"
+        """
         command = [
             'svn', 'log', self.svn_remote_url,
             '--xml',
-            '-r', f'{{{start_time_str}}}:{{{end_time_str}}}',
+            '-r', revision_range,
             '-l', str(limit),
             '-v'
         ]
@@ -324,15 +333,35 @@ class SVNHandler:
         
         if returncode != 0:
             logger.error(f"获取SVN日志失败: {stderr}")
-            return []
+            return None
         
         return self._parse_log_xml(stdout)
+
+    def get_head_revision(self) -> Optional[int]:
+        """
+        获取远程仓库当前的 HEAD 版本号
+        :return: HEAD 版本号，失败返回 None
+        """
+        # 用 --xml 而非 --show-item：后者需要 svn 1.9+
+        command = ['svn', 'info', '--xml', self.svn_remote_url]
+        stdout, stderr, returncode = self._run_svn_command(command, cwd=None)
+        
+        if returncode != 0:
+            logger.error(f"获取SVN HEAD版本号失败: {stderr}")
+            return None
+        
+        try:
+            entry = ET.fromstring(stdout).find('entry')
+            return int(entry.get('revision'))
+        except (ET.ParseError, AttributeError, TypeError, ValueError) as e:
+            logger.error(f"解析SVN HEAD版本号失败: {e}")
+            return None
     
-    def _parse_log_xml(self, xml_content: str) -> List[Dict]:
+    def _parse_log_xml(self, xml_content: str) -> Optional[List[Dict]]:
         """
         解析SVN log的XML输出
         :param xml_content: XML内容
-        :return: 解析后的提交记录
+        :return: 解析后的提交记录，XML 解析失败返回 None
         """
         commits = []
         
@@ -368,6 +397,7 @@ class SVNHandler:
                 
         except ET.ParseError as e:
             logger.error(f"解析SVN日志XML失败: {e}")
+            return None
         
         return commits
     

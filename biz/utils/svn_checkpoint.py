@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 SVN增量检查机制
-记录每个仓库的上次检查时间，只处理新的提交
+记录每个仓库已检查到的 revision 游标（及上次检查时间），只处理新的提交
 """
 
 import sqlite3
@@ -10,6 +10,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 # 获取日志器
 logger = logging.getLogger(__name__)
@@ -85,13 +86,43 @@ class SVNCheckpointManager:
             return int(time.time() - 24 * 3600)
     
     @staticmethod
-    def update_checkpoint(repo_name: str, last_revision: str = None):
+    def get_last_revision(repo_name: str) -> Optional[int]:
+        """
+        获取仓库已检查到的 revision 游标
+        
+        Args:
+            repo_name: 仓库名称
+            
+        Returns:
+            已检查到的最大 revision；没有记录（首次检查、旧版本遗留的空值、检查点被重置）时返回 None
+        """
+        try:
+            with sqlite3.connect(SVNCheckpointManager.DB_FILE) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT last_revision FROM svn_checkpoints
+                    WHERE repo_name = ?
+                ''', (repo_name,))
+                
+                result = cursor.fetchone()
+                if result and result[0] is not None and str(result[0]).isdigit():
+                    return int(result[0])
+                return None
+                    
+        except sqlite3.DatabaseError as e:
+            logger.error(f"获取检查点revision失败: {e}")
+            return None
+    
+    @staticmethod
+    def update_checkpoint(repo_name: str, last_revision: str = None, force: bool = False):
         """
         更新仓库的检查点
         
         Args:
             repo_name: 仓库名称
-            last_revision: 最后处理的revision
+            last_revision: 已检查到的revision游标；为 None 时保留原有游标
+            force: 是否允许游标回退。默认只前进不后退，避免同一仓库的并发检查任务
+                   （全局任务与独立任务）中先开始、后结束的那个把游标写回旧值
         """
         try:
             current_time = int(time.time())
@@ -107,12 +138,19 @@ class SVNCheckpointManager:
                     ON CONFLICT(repo_name) 
                     DO UPDATE SET 
                         last_check_time=excluded.last_check_time,
-                        last_revision=excluded.last_revision,
+                        last_revision=CASE
+                            WHEN excluded.last_revision IS NULL THEN svn_checkpoints.last_revision
+                            WHEN ? OR svn_checkpoints.last_revision IS NULL
+                                 OR CAST(excluded.last_revision AS INTEGER) > CAST(svn_checkpoints.last_revision AS INTEGER)
+                                THEN excluded.last_revision
+                            ELSE svn_checkpoints.last_revision
+                        END,
                         updated_at=excluded.updated_at
-                ''', (repo_name, current_time, last_revision, current_time, current_time))
+                ''', (repo_name, current_time, last_revision, current_time, current_time, 1 if force else 0))
                 
                 conn.commit()
-                logger.info(f"更新检查点成功: {repo_name} -> {datetime.fromtimestamp(current_time)}")
+                logger.info(f"更新检查点成功: {repo_name} -> {datetime.fromtimestamp(current_time)}"
+                            f"{f' (r{last_revision})' if last_revision is not None else ''}")
                 
         except sqlite3.DatabaseError as e:
             logger.error(f"更新检查点失败: {e}")
@@ -162,7 +200,7 @@ def test_checkpoint_manager():
     print(f"初始检查时间: {datetime.fromtimestamp(initial_time)}")
     
     # 更新检查点
-    SVNCheckpointManager.update_checkpoint(test_repo, "r12345")
+    SVNCheckpointManager.update_checkpoint(test_repo, "12345")
     
     # 获取更新后的检查时间
     updated_time = SVNCheckpointManager.get_last_check_time(test_repo)

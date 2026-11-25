@@ -1,7 +1,7 @@
 import os
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict
 
 from biz.entity.review_entity import SvnReviewEntity
@@ -225,22 +225,55 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
         
         # === 增量检查逻辑 ===
         # 定时任务自动使用增量检查，手动触发使用固定时间窗口
+        # 增量检查以 revision 为游标（查询 游标+1 ~ HEAD），而不是以"上次检查时间"为游标：
+        # 检查点时间是在所有提交审查完之后才写入的，按时间查询会漏掉审查期间新进来的提交；
+        # 同时也避免本机与 SVN 服务器的时钟偏差造成漏检。
+        next_revision = None  # 本次检查完成后游标应推进到的 revision
+        cursor_reset = False
         if trigger_type == "scheduled":
-            # 定时任务使用增量检查
             # 初始化检查点管理器
             SVNCheckpointManager.init_db()
             
-            # 获取上次检查时间
-            last_check_time = SVNCheckpointManager.get_last_check_time(display_name)
-            current_time = int(datetime.now().timestamp())
+            head_revision = svn_handler.get_head_revision()
+            if head_revision is None:
+                logger.error(f'仓库 {display_name} 获取HEAD版本号失败，本次不推进检查点，下次检查时重试')
+                return
             
-            # 计算实际的检查时间范围（小时）
-            actual_check_hours = (current_time - last_check_time) / 3600
+            last_revision = SVNCheckpointManager.get_last_revision(display_name)
+            if last_revision is not None and last_revision > head_revision:
+                # 同名仓库的远程地址被换成了另一个仓库等场景，旧游标已无意义
+                logger.warning(f'仓库 {display_name} 检查点 r{last_revision} 大于当前HEAD r{head_revision}，'
+                               f'游标已失效，回退为按上次检查时间检查')
+                last_revision = None
+                cursor_reset = True
             
-            logger.info(f'仓库 {display_name} 使用增量检查，上次检查: {datetime.fromtimestamp(last_check_time)}, 检查范围: {actual_check_hours:.1f} 小时')
+            if last_revision is not None:
+                logger.info(f'仓库 {display_name} 使用增量检查，上次检查到: r{last_revision}, 当前HEAD: r{head_revision}')
+                if last_revision == head_revision:
+                    recent_commits = []
+                else:
+                    recent_commits = svn_handler.get_commits_by_range(f'{last_revision + 1}:{head_revision}', check_limit)
+            else:
+                # 没有 revision 游标（首次检查 / 旧版本遗留的检查点 / 检查点被重置）：
+                # 本次按上次检查时间（无记录则为24小时前）取起点，之后改用 revision 游标
+                last_check_time = SVNCheckpointManager.get_last_check_time(display_name)
+                start_time_str = datetime.fromtimestamp(last_check_time, timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+                logger.info(f'仓库 {display_name} 无revision检查点，本次按时间检查，起点: {datetime.fromtimestamp(last_check_time)}, 当前HEAD: r{head_revision}')
+                recent_commits = svn_handler.get_commits_by_range(f'{{{start_time_str}}}:{head_revision}', check_limit)
             
-            # 获取最近的提交（基于上次检查时间）
-            recent_commits = svn_handler.get_recent_commits(hours=actual_check_hours, limit=check_limit)
+            if recent_commits is None:
+                # 查询失败不能当成"没有提交"，否则推进检查点后这段范围内的提交会被永久跳过
+                logger.error(f'仓库 {display_name} 获取SVN提交记录失败，本次不推进检查点，下次检查时重试')
+                return
+            
+            recent_commits.sort(key=lambda c: int(c['revision']))
+            if recent_commits and len(recent_commits) >= int(check_limit):
+                # 达到 check_limit 说明结果可能被截断：游标只推进到已取回的最大revision，剩余提交留给下次检查
+                next_revision = int(recent_commits[-1]['revision'])
+                logger.warning(f'仓库 {display_name} 本次提交数达到上限 {check_limit}，'
+                               f'r{next_revision} 之后的提交将在下次检查时处理')
+            else:
+                next_revision = head_revision
         else:
             # 手动触发使用固定时间窗口
             logger.info(f'仓库 {display_name} 使用固定时间窗口检查，检查范围: {check_hours} 小时')
@@ -252,14 +285,12 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
             
             # 即使没有新提交，也要更新检查点（定时任务）
             if trigger_type == "scheduled":
-                SVNCheckpointManager.update_checkpoint(display_name)
+                SVNCheckpointManager.update_checkpoint(display_name, str(next_revision), force=cursor_reset)
             
             return
         
         logger.info(f'仓库 {display_name} 发现 {len(recent_commits)} 个最近的提交')
         
-        # 记录处理的最新revision（用于更新检查点）
-        latest_revision = None
         processed_count = 0
         
         # 处理每个提交
@@ -279,16 +310,12 @@ def handle_svn_changes(svn_remote_url: str, svn_local_path: str, svn_username: s
             # 处理提交（所有情况都会返回结果，包括错误信息）
             process_svn_commit(svn_handler, commit, svn_local_path, display_name, trigger_type, repo_config)
             processed_count += 1
-            
-            # 记录最新处理的revision
-            if revision and (not latest_revision or int(revision) > int(latest_revision)):
-                latest_revision = revision
         
         logger.info(f'仓库 {display_name} 实际处理了 {processed_count} 个提交')
         
         # 更新检查点（定时任务）
         if trigger_type == "scheduled":
-            SVNCheckpointManager.update_checkpoint(display_name, latest_revision)
+            SVNCheckpointManager.update_checkpoint(display_name, str(next_revision), force=cursor_reset)
             
     except Exception as e:
         display_name = repo_name or os.path.basename(svn_local_path)
